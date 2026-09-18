@@ -2,18 +2,27 @@
 
 ## Current status
 
-The first public development candidate is `0.1.0-dev.1`, targeting npm's `dev`
-channel. Release preparation sets `private: false`; metadata now permits
-publication, but no package has been published by this project workflow.
+Bootstrap and initial OIDC publication were completed on 2026-09-18:
+
+- `0.1.0-dev.1` was published publicly from reviewed develop as the manual bootstrap.
+- `0.1.0-dev.4` was published by GitHub Actions with verified provenance for
+  commit `f2397ba`. Its registry installation passed all 35 CLI contract tests.
+- The repository variable `NPM_DEV_PUBLISH_ENABLED=true` enables eligible develop
+  pushes after Node 22/24 CI. Main promotion is required only for rc/stable.
+
+These are recorded validation milestones, not a continuously updated list of
+versions. Check npm for current dist-tags. At verification, `dev` pointed to
+`0.1.0-dev.4` and `latest` remained at the bootstrap `0.1.0-dev.1`: the first
+publication created both tags despite `--tag dev`, and removing `latest` returned
+HTTP 400. The next dev publication preserved `latest`. No stable version has been
+published; explicitly select `@dev` or an exact development version until a
+reviewed rc/stable release is available. Do not repeatedly delete the bootstrap
+tag or publish a placeholder to work around it.
+
 The CLI is licensed under [Apache-2.0](LICENSE), with matching package metadata.
-The development-project smoke is recorded in [VALIDATION.md](VALIDATION.md).
-npm organization permission verification and an authorized first bootstrap from
-reviewed `develop` remain required. Main promotion is required for rc/stable
-releases, not for development publication. Automatic dev publication is disabled
-until the repository variable `NPM_DEV_PUBLISH_ENABLED` is set to `true` after
-bootstrap and Trusted Publishing setup.
-The public npm lookup for `@functional-systems/lambdadb-cli` returned E404 on
-2026-09-18; this is not proof that the name is available or that ownership exists.
+Publication, provenance and development-project smoke evidence are recorded in
+[VALIDATION.md](VALIDATION.md). Local bootstrap has no GitHub Actions provenance;
+the automated development artifact does.
 
 The workflow rejects private packages and missing license metadata. Explicit
 rc/stable releases also require matching tags, prerelease flags and dated
@@ -76,9 +85,23 @@ and skips publication only when they agree and the dev tag already points there.
 Conflicts fail; missing or older tag state requires maintainer investigation.
 Registry authentication, transport and invalid-response failures are not treated
 as missing versions. A publish request is never retried automatically. After a
-successful write, bounded registry reads verify the manifest and dev tag. If
-propagation is delayed, retry reads before rerunning the job. Newer dev versions
-and stale commits are skipped without changing tags.
+successful write, registry reads get a shared five-minute monotonic budget to
+verify the source commit, tarball integrity and dev tag. Each read has at most
+15 seconds, capped to the remaining budget; polling sleeps are at most 10 seconds.
+Reads prefer fresh metadata and disable npm's nested fetch retries. Missing
+metadata, HTTP 429/5xx and recognized temporary connection/timeout errors are
+retried only after a successful publish. Authentication, malformed responses and
+artifact conflicts remain fatal. Process termination or scheduling can delay
+reporting, but responses at or after the deadline cannot pass verification.
+
+The script reports successful publication before waiting. If propagation still
+exceeds the budget, it emits `result=published-verification-pending` and exits
+nonzero. This means the write succeeded but verification is incomplete; it does
+not authorize another publish. Retry registry reads first. Once the manifest and
+dev tag agree, rerun the failed job: an identical artifact reports
+`result=already-published` without another write. Newer dev versions and stale
+commits are skipped without changing tags. A failed publish remains an uncertain
+write and is never automatically retried.
 
 After setup, an eligible push is sufficient; no manual version increment is
 needed. Users update with `npm install -g @functional-systems/lambdadb-cli@dev`,
@@ -152,6 +175,8 @@ Trusted Publishers are package-specific. The SDK's configuration does not cover
 this CLI. npm requires an existing package before configuring its trust policy.
 See the official [npm trust prerequisites](https://docs.npmjs.com/cli/v11/commands/npm-trust/).
 
+This one-time bootstrap was completed for this package on 2026-09-18. The steps
+below document setup and recovery; do not repeat the bootstrap for normal dev builds.
 For a new package, first complete the reviewed release preparation and preflight.
 An authorized npm organization owner performs the bootstrap from the verified
 develop commit, using interactive `npm login` and the account's MFA, then

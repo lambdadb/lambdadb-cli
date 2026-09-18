@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { checkMetadata } from './check-release.mjs';
@@ -9,7 +10,15 @@ const packageName = '@functional-systems/lambdadb-cli';
 const registry = 'https://registry.npmjs.org';
 const devPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-dev\.(0|[1-9]\d*)$/;
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
-const npm = args => spawnSync('npm', [...args, `--registry=${registry}`], { encoding: 'utf8', timeout: 120000 });
+const npm = (args, { timeoutMs = 120000 } = {}) => spawnSync('npm', [...args, `--registry=${registry}`], { encoding: 'utf8', timeout: timeoutMs });
+const verificationTimeoutMs = 300000;
+
+function lookupError(code) {
+  const error = new Error('npm registry lookup failed; check registry availability and access.');
+  error.retryable = ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(code)
+    || (typeof code === 'string' && /^E(?:429|5\d\d)$/.test(code));
+  return error;
+}
 
 export function developmentVersion(version, count) {
   const match = devPattern.exec(version);
@@ -31,14 +40,15 @@ export function compareDevelopmentVersions(left, right) {
 }
 
 // Only a structured npm E404 may mean that a version has not been published.
-// Authentication, transport and malformed-response failures must stop the job.
-export function npmJson(args, { allowMissing = false, run = npm } = {}) {
-  const result = run([...args, '--json']);
+// Fail closed before publishing; only post-publication reads retry transient errors.
+export function npmJson(args, { allowMissing = false, run = npm, timeoutMs = 120000 } = {}) {
+  const result = run([...args, '--json'], { timeoutMs });
+  if (result.error) throw lookupError(result.error.code);
   let value;
   try { value = JSON.parse(result.stdout); } catch { throw new Error('npm returned invalid JSON.'); }
   if (result.status !== 0) {
     if (allowMissing && value?.error?.code === 'E404') return undefined;
-    throw new Error('npm registry lookup failed; check registry availability and access.');
+    throw lookupError(value?.error?.code);
   }
   if (!value || typeof value !== 'object' || Array.isArray(value) || value.error) throw new Error('Unexpected npm registry response.');
   return value;
@@ -97,10 +107,10 @@ function prepare() {
 }
 
 export async function publishDevelopment({ name, version, sha, integrity, tarball }, {
-  run = npm, head = developHead, pause = delay,
+  run = npm, head = developHead, pause = delay, now = () => performance.now(), report = message => console.error(message),
 } = {}) {
   if (name !== packageName) throw new Error('Unexpected package name.');
-  // Bootstrap creates dev before any stable/latest version exists.
+  // Select dev explicitly; bootstrap can also create latest without a stable release.
   const tags = () => npmJson(['view', `${name}@dev`, 'dist-tags'], { run });
   const manifest = () => npmJson(['view', `${name}@${version}`], { run, allowMissing: true });
   const taggedVersion = tags().dev; // Missing package is a failed bootstrap prerequisite.
@@ -110,17 +120,40 @@ export async function publishDevelopment({ name, version, sha, integrity, tarbal
   if (plan !== 'publish') return plan;
   const result = run(['publish', tarball, '--access', 'public', '--tag', 'dev', '--provenance']);
   if (result.status !== 0) throw new Error('npm publish did not confirm success. Inspect registry state and rerun; this job never retries the write.');
-  // Reads can lag a successful publication. Do not republish on a read timeout.
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const published = manifest();
-    const currentTag = tags().dev;
-    if (published && currentTag === version) {
-      publicationPlan({ version, sha, integrity, existing: published, taggedVersion: currentTag, branchHead: sha });
-      return 'published';
+  // One write, then bounded reads. Include subprocess time in the monotonic budget.
+  const deadline = now() + verificationTimeoutMs;
+  const remaining = () => Math.floor(deadline - now());
+  const read = args => {
+    const timeoutMs = Math.min(15000, remaining());
+    if (timeoutMs <= 0) return undefined;
+    return npmJson([...args, '--prefer-online', '--fetch-retries=0', `--fetch-timeout=${timeoutMs}`], { run, allowMissing: true, timeoutMs });
+  };
+  report(`npm publish succeeded for ${name}@${version}; verifying registry metadata for up to 300 seconds.`);
+  while (remaining() > 0) {
+    let observation = 'metadata or dev tag has not propagated';
+    try {
+      const published = read(['view', `${name}@${version}`]);
+      if (remaining() <= 0) break;
+      // Validate visible artifacts immediately, even while the tag is still stale.
+      if (published) publicationPlan({ version, sha, integrity, existing: published, taggedVersion: version, branchHead: sha });
+      const currentTags = read(['view', `${name}@dev`, 'dist-tags']);
+      if (remaining() <= 0) break;
+      if (currentTags?.dev !== undefined && typeof currentTags.dev !== 'string') throw new Error('Invalid dev tag.');
+      if (currentTags?.dev !== undefined) compareDevelopmentVersions(currentTags.dev, version);
+      if (published && currentTags?.dev === version && remaining() > 0) return 'published';
+    } catch (error) {
+      if (!error.retryable) throw new Error(`npm publish succeeded, but registry verification failed: ${error.message}`, { cause: error });
+      observation = 'temporary registry lookup failure';
     }
-    if (attempt < 5) await pause(5000);
+    if (remaining() <= 0) break;
+    report(`Publication accepted; ${observation}. Retrying reads (${Math.ceil(remaining() / 1000)} seconds remaining).`);
+    const sleepMs = Math.min(10000, remaining());
+    if (sleepMs <= 0) break;
+    await pause(sleepMs);
   }
-  throw new Error('Publication returned success, but registry verification is pending. Retry reads before rerunning this job.');
+  const error = new Error('npm publish succeeded, but registry verification is still pending after 300 seconds. Retry registry reads before rerunning this job; do not republish.');
+  error.code = 'REGISTRY_VERIFICATION_PENDING';
+  throw error;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -137,6 +170,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       output('result', result);
     } else throw new Error('Usage: node scripts/dev-release.mjs prepare|publish');
   } catch (error) {
+    if (error.code === 'REGISTRY_VERIFICATION_PENDING') output('result', 'published-verification-pending');
     console.error(error.message);
     process.exitCode = 1;
   }
