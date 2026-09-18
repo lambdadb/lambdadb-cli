@@ -1,0 +1,3 @@
+{"id":"doc-1","text":"LambdaDB supports serverless search.","category":"database"}
+{"id":"doc-2","text":"Developers can search documents using a shared CLI.","category":"developer-tools"}
+{"id":"doc-3","text":"A successful write is accepted before committed search visibility is verified.","category":"database"}

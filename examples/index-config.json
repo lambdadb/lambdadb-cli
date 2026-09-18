@@ -1,0 +1,4 @@
+{
+  "text": { "type": "text", "analyzers": ["english"] },
+  "category": { "type": "keyword" }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@functional-systems/lambdadb-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Project-scoped LambdaDB command-line tools",
+  "type": "module",
+  "bin": { "lambdadb": "dist/cli.js" },
+  "files": ["dist", "src", "README.md", "DESIGN.md", "VALIDATION.md", "examples"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "start": "node dist/cli.js",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@functional-systems/lambdadb": "0.5.1",
+    "commander": "14.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.8.3"
+  }
+}
