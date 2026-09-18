@@ -16,6 +16,10 @@
 
 ### Fixed
 
+- Credential redaction preserves fixed JSON fields, command/status tokens and
+  error categories when a credential is short or matches a protocol token.
+- JSONL preflight caps imports at 100,000 documents and scans physical lines
+  without a split array, rejecting excess small documents before any API call.
 - Command deadlines are bound at SDK fetch dispatch to avoid a reproduced stalled
   second write; signal cancellation preserves acknowledged and unknown outcomes.
 

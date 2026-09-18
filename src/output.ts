@@ -5,6 +5,15 @@ export type Envelope = {
   target?: Record<string, unknown>; data?: unknown; error?: SafeError;
 };
 
+// These values are CLI protocol tokens, never arbitrary API or document data.
+const protocolValues = new Set([
+  'command', 'error.code', 'target.ref.kind',
+  'data.state', 'data.searchable', 'data.batches.*.state', 'data.batches.*.error.code',
+  'data.checks.*.name', 'data.checks.*.status',
+]);
+// These document/metadata maps carry user-defined field names in MVP responses.
+const freeFormMaps = new Set(['doc', 'indexConfigs', 'tags']);
+
 export class Output {
   json = false;
   private secrets = new Set<string>();
@@ -22,12 +31,16 @@ export class Output {
   }
 
   emit(envelope: Envelope, summary: string) {
-    // Redact strings and keys before serialization so arbitrary secret characters cannot break JSON.
-    const sanitize = (value: unknown): unknown => {
-      if (typeof value === 'string') return this.redact(value);
-      if (Array.isArray(value)) return value.map(sanitize);
+    // Preserve the protocol while redacting variable values and arbitrary map keys.
+    // Normalize dates first, and redact before serialization to preserve valid JSON.
+    const sanitize = (value: unknown, path = '', freeForm = false): unknown => {
+      if (typeof value === 'string') return !freeForm && protocolValues.has(path) ? value : this.redact(value);
+      if (Array.isArray(value)) return value.map(item => sanitize(item, `${path}.*`, freeForm));
       if (value && typeof value === 'object') {
-        return Object.fromEntries(Object.entries(value).map(([key, item]) => [this.redact(key), sanitize(item)]));
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+          freeForm ? this.redact(key) : key,
+          sanitize(item, path ? `${path}.${key}` : key, freeForm || freeFormMaps.has(key)),
+        ]));
       }
       return value;
     };

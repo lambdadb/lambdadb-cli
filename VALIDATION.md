@@ -9,10 +9,10 @@ No LambdaDB service was contacted for runtime validation.
 | --- | --- |
 | `npm run typecheck` | Passed with TypeScript 5.8.3. |
 | `npm run lint` and `npm run check:version` | Passed; package and lockfile metadata agree. |
-| `npm test` on Node.js 24.15.0 | 33 tests passed, zero failed or skipped. |
-| Same test suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 33 tests passed, zero failed or skipped. |
+| `npm test` on Node.js 24.15.0 | 38 tests passed, zero failed or skipped. |
+| Same test suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 38 tests passed, zero failed or skipped. |
 | Fresh temporary source directory: `npm ci`, `npm run build`, CLI version | Passed without the development checkout's node_modules or dist. |
-| `npm run test:package`: pack, inspect inventory, install in a temporary consumer, invoke executable version/help and repeat CLI contracts | 29 installed-CLI tests passed on Node 24. Package was never published. |
+| `npm run test:package`: pack, inspect inventory, install in a temporary consumer, invoke executable version/help and repeat CLI contracts | 33 installed-CLI tests passed on Node 24. Package was never published. |
 | `actionlint` on CI and publish workflows | Passed. This is static validation, not an OIDC publication. |
 | Live command without opt-in | Expected nonzero exit before network calls; not counted as a live test pass. |
 | npm install dependency audit | Zero vulnerabilities reported at installation time. |
@@ -57,6 +57,16 @@ cover byte accounting and cancellation between batches.
   selected key, custom key-variable names and POSIX config file mode 0600.
 - SDK debug suppression and credential redaction in errors and returned documents,
   including secret strings containing JSON structural characters.
+- Short keys preserve JSON envelope fields, CLI command/state/check tokens,
+  ref kinds and error codes. Arbitrary document/index/tag keys and variable
+  values remain redacted; human output retains its structured data section.
+- Exactly 100,000 documents are accepted by input preflight; excess rows are
+  rejected with their physical line number, excluding blank lines from the count.
+  CRLF and a final line without a newline are covered.
+- A 3 MB file of one million small documents exits 2 before any API request under
+  a 128 MiB V8 heap limit. The pre-fix reader reproduced heap exhaustion with
+  that input. Ten million blank lines followed by invalid JSON also exit 2 within
+  that heap limit, preserving the final line number without a split array.
 
 ## Source and public-contract inspection
 
@@ -80,8 +90,9 @@ deployment state of an individual LambdaDB endpoint.
   release-workflow execution. Private-package preflight intentionally blocks
   publication. Package ownership and licensing remain first-release decisions.
 - Large response tests cover SDK routing/credential separation at 1 MiB, not an
-  exhaustive memory/size stress test. Imports buffer a maximum 64 MiB source file,
-  and parsed/serialized memory can exceed that size.
+  exhaustive memory/size stress test. Imports buffer a maximum 64 MiB source file
+  and retain at most 100,000 documents. Complex documents can still use much more
+  memory than their serialized size; the count limit is not a process memory cap.
 
 ## Requirements for live verification
 

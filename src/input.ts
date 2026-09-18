@@ -6,6 +6,7 @@ import { InputError } from './errors.js';
 import { name } from './config.js';
 
 export const MAX_INPUT_BYTES = 64 * 1024 * 1024;
+export const MAX_INPUT_DOCUMENTS = 100_000;
 
 export async function readText(path: string, limit = MAX_INPUT_BYTES): Promise<string> {
   let file;
@@ -78,15 +79,26 @@ export type DocumentRow = { line: number; doc: Record<string, unknown>; bytes: n
 export async function readJsonl(path: string): Promise<DocumentRow[]> {
   const text = await readText(path);
   const rows: DocumentRow[] = [];
-  for (const [index, line] of text.split(/\r?\n/).entries()) {
+  // Do not allocate an array entry for every physical line (including blank ones).
+  let offset = 0;
+  let lineNumber = 0;
+  while (offset < text.length) {
+    const newline = text.indexOf('\n', offset);
+    const end = newline === -1 ? text.length : newline;
+    const line = text.slice(offset, end);
+    offset = end + 1;
+    lineNumber++;
     if (!line.trim()) continue;
+    if (rows.length >= MAX_INPUT_DOCUMENTS) {
+      throw new InputError(`JSONL exceeds the ${MAX_INPUT_DOCUMENTS}-document local limit at line ${lineNumber}. Split the file first.`);
+    }
     let doc: Record<string, unknown>;
     try { doc = object(JSON.parse(line), 'Document'); }
-    catch { throw new InputError(`JSONL line ${index + 1} must be a JSON object.`); }
+    catch { throw new InputError(`JSONL line ${lineNumber} must be a JSON object.`); }
     if ('id' in doc && (typeof doc.id !== 'string' || doc.id.length === 0)) {
-      throw new InputError(`JSONL line ${index + 1} has an invalid id; use a nonempty string or omit it.`);
+      throw new InputError(`JSONL line ${lineNumber} has an invalid id; use a nonempty string or omit it.`);
     }
-    rows.push({ line: index + 1, doc, bytes: Buffer.byteLength(JSON.stringify(doc)) });
+    rows.push({ line: lineNumber, doc, bytes: Buffer.byteLength(JSON.stringify(doc)) });
   }
   if (rows.length === 0) throw new InputError('JSONL input contains no documents.');
   return rows;

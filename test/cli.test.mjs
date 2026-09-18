@@ -289,3 +289,82 @@ test('credential echoed in data is redacted without breaking JSON, even for stru
   const r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', 'doc-1', '--json'], { LAMBDADB_API_KEY: unusualSecret });
   assert.equal(r.code, 0); assert.equal(r.json.data.docs[0].doc.text, '[REDACTED]');
 });
+
+test('short credentials preserve output schema and protocol tokens while redacting variable data', async t => {
+  const f = await fixture(t, (r, send) => {
+    if (r.url.pathname.endsWith('/docs/upsert')) return send(202, { message: 'accepted' });
+    if (r.url.pathname.endsWith('/docs/fetch')) return send(200, {
+      took: 1, total: 1, isDocsInline: true,
+      docs: [{ collection: 'demo-docs', doc: { id: 'doc-1', a: 'a', state: 'a', nested: { a: ['a'] } } }],
+    });
+    if (r.url.pathname.endsWith('/collections/demo-docs')) return send(200, {
+      collection: { ...metadata, tags: { a: 'a' }, indexConfigs: { a: { type: 'text', analyzers: ['english'] } } },
+    });
+    return send(200, { collections: [] });
+  });
+  const env = { LAMBDADB_API_KEY: 'a' };
+  let r = await f.run(['doctor', '--json'], env);
+  assert.equal(r.code, 0);
+  assert.deepEqual(Object.keys(r.json), ['schemaVersion', 'command', 'ok', 'target', 'data']);
+  assert.equal(r.json.command, 'doctor');
+  assert.equal(r.json.schemaVersion, 1);
+  assert.deepEqual(r.json.data.checks, [
+    { name: 'configuration', status: 'passed' },
+    { name: 'authentication_and_project_collection_list', status: 'passed' },
+  ]);
+  const args = ['docs', 'import', '--collection', 'demo-docs', '--branch', 'main', '--file', resolve('examples/documents.jsonl')];
+  for (const key of ['a', 'accepted']) {
+    r = await f.run([...args, '--json'], { LAMBDADB_API_KEY: key });
+    assert.equal(r.code, 0);
+    assert.equal(r.json.command, 'docs import');
+    assert.equal(r.json.data.state, 'accepted');
+    assert.equal(r.json.data.searchable, 'not_verified');
+    assert.equal(r.json.data.batches[0].state, 'accepted');
+  }
+  r = await f.run(args, env);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /"accepted": 3/);
+  assert.match(r.stdout, /"state": "accepted"/);
+  r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', 'doc-1', '--json'], env);
+  assert.equal(r.json.target.ref.kind, 'branch');
+  assert.deepEqual(r.json.data.docs[0].doc, {
+    id: 'doc-1', '[REDACTED]': '[REDACTED]', 'st[REDACTED]te': '[REDACTED]',
+    nested: { '[REDACTED]': ['[REDACTED]'] },
+  });
+  r = await f.run(['collections', 'describe', '--collection', 'demo-docs', '--json'], env);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.data.collection.tags, { '[REDACTED]': '[REDACTED]' });
+  assert.deepEqual(Object.keys(r.json.data.collection.indexConfigs), ['[REDACTED]']);
+});
+
+test('credential matching an error code does not rewrite error categories or import outcomes', async t => {
+  let calls = 0;
+  const f = await fixture(t, (_r, send) => ++calls === 1 ? send(202, { message: 'accepted' }) : send(401, { message: 'AUTH_ERROR' }));
+  const env = { LAMBDADB_API_KEY: 'AUTH_ERROR' };
+  const r = await f.run(['docs', 'import', '--collection', 'demo-docs', '--branch', 'main', '--batch-size', '1', '--file', resolve('examples/documents.jsonl'), '--json'], env);
+  assert.equal(r.code, 4);
+  assert.equal(r.json.data.state, 'partial');
+  assert.equal(r.json.data.batches[1].error.code, 'AUTH_ERROR');
+  const failed = await f.run(['doctor', '--json'], env);
+  assert.equal(failed.code, 3);
+  assert.equal(failed.json.error.code, 'AUTH_ERROR');
+});
+
+test('a million tiny documents fail preflight within a 128 MiB heap, before any API request', async t => {
+  const f = await fixture(t, (_r, send) => send(500, {}));
+  const path = await f.file('many.jsonl', '{}\n'.repeat(1_000_000));
+  const r = await f.run(['docs', 'import', '--collection', 'demo-docs', '--branch', 'main', '--file', path, '--json'], { NODE_OPTIONS: '--max-old-space-size=128' });
+  assert.equal(r.code, 2);
+  assert.equal(r.json.error.code, 'INPUT_ERROR');
+  assert.match(r.json.error.message, /100000-document local limit at line 100001/);
+  assert.equal(f.requests.length, 0);
+});
+
+test('many blank lines do not allocate a line array and retain the final error line number', async t => {
+  const f = await fixture(t, (_r, send) => send(500, {}));
+  const path = await f.file('blank-lines.jsonl', '\n'.repeat(10_000_000) + 'invalid');
+  const r = await f.run(['docs', 'import', '--collection', 'demo-docs', '--branch', 'main', '--file', path, '--json'], { NODE_OPTIONS: '--max-old-space-size=128' });
+  assert.equal(r.code, 2);
+  assert.match(r.json.error.message, /JSONL line 10000001 must be a JSON object/);
+  assert.equal(f.requests.length, 0);
+});

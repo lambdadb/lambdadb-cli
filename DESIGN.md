@@ -67,9 +67,10 @@ helpers own presigned response downloads and authentication isolation.
 | Environment-held keys only | Keeps secrets out of argv and repository/user configuration files. |
 | Read retry policy bounded through SDK, no mutation retries | No public exactly-once or mutation receipt contract; a missing reply cannot prove rejection. |
 | Entire JSONL preflight before writes | A malformed later line must not unexpectedly leave accepted earlier batches. |
-| 64 MiB input cap, 4 MB ordinary batches, configurable bulk batches | Bound initial memory/transport use without building streaming/checkpoint infrastructure. |
+| 64 MiB / 100,000-document input caps, 4 MB ordinary batches, configurable bulk batches | Bound file size and retained row overhead without building streaming/checkpoint infrastructure; scan lines without a full split array. |
 | SDK request serializers for validation | Keep create/query shapes aligned; query DSL semantics remain server-owned. |
 | Versioned JSON envelope and documented exits | Stable automation contract with explicit target and partial progress. |
+| Preserve fixed output keys/tokens during redaction | Short credentials must not corrupt the CLI protocol; redact variable values and arbitrary document/index/tag map keys. |
 | Conservative unknown state for untyped bulk helper failures | Error strings are not a reliable upload/finalization stage contract. |
 | No readiness wait or version-management commands | First use works through main; reads can target existing refs, without assuming lifecycle or indexing guarantees. |
 
