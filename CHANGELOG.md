@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0-dev.1] - 2026-09-18
+
 ### Added
 
 - Project-scoped configure, doctor, collection list/describe/create, JSONL import,
@@ -28,6 +30,7 @@
 
 ### Release status
 
-No version has been published by this project workflow. `0.1.0` is the current
-local development version, not a release announcement. The package remains
-private pending a separately reviewed and authorized first release.
+Prepared for the first public development release on npm's `dev` channel. This
+entry records the candidate contents and preparation date, not a publication.
+Live development-project verification, promotion to main, npm organization
+permission verification and authorized bootstrap publication remain pending.

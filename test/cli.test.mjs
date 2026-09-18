@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const cli = process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js');
+const packageVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 const secret = 'test-secret-never-print';
 const indexConfigs = { text: { type: 'text', analyzers: ['english'] } };
 const created = { collectionName: 'demo-docs', description: '', tags: {}, defaultBranchName: 'main', snapshotRetentionInDays: 30, createdAt: 1789689600000 };
@@ -254,7 +255,7 @@ test('read retries use SDK and normal output is readable', async t => {
   const r = await f.run(['doctor']);
   assert.equal(r.code, 0); assert.equal(count, 2); assert.match(r.stdout, /Connection verified/);
   assert.equal((await f.run(['--help'])).code, 0);
-  assert.equal((await f.run(['--version'])).stdout.trim(), '0.1.0');
+  assert.equal((await f.run(['--version'])).stdout.trim(), packageVersion);
 });
 
 test('null query size uses the public default and branch consistentRead reaches the API', async t => {

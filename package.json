@@ -1,7 +1,7 @@
 {
   "name": "@functional-systems/lambdadb-cli",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.0-dev.1",
+  "private": false,
   "description": "Project-scoped LambdaDB command-line tools",
   "type": "module",
   "bin": {
