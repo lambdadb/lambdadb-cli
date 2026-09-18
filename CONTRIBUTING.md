@@ -2,8 +2,9 @@
 
 ## Branches and pull requests
 
-`main` is the default branch and the reviewed release baseline. `develop`
-integrates changes for the next version. Branch names here refer to Git branches,
+`main` is the default branch and the reviewed rc/stable release baseline.
+`develop` integrates changes and supplies automatic npm development builds.
+Branch names here refer to Git branches,
 not LambdaDB collection branches or refs.
 
 1. Create a short-lived `feat/*` or `fix/*` branch from current `develop`.
@@ -27,13 +28,18 @@ npm test
 npm run test:package
 ```
 
-The `CI` workflow runs on pull requests targeting `develop` or `main` and on
+The `CI` workflow in `.github/workflows/publish.yaml` runs on pull requests
+targeting `develop` or `main` and on
 pushes to those branches. Its required check names are `Node.js 22` and
 `Node.js 24`. Both install the lockfile, lint, validate version metadata, check
 types, build, run the mock/local contract suite, and repeat the CLI contract
 tests against a separately installed tarball. Use Node.js 22.14 or newer locally.
-CI uses a read-only GitHub token and no LambdaDB credentials. It does not publish
-packages or contact a LambdaDB service.
+Validation jobs use a read-only GitHub token and no LambdaDB credentials. They
+do not publish packages or contact a LambdaDB service. After both jobs succeed,
+an eligible develop push can publish a dev package using a separate OIDC-enabled
+job. PRs, main pushes and manual CI runs cannot publish development packages.
+Automatic publication requires `NPM_DEV_PUBLISH_ENABLED=true`; enabling it after
+npm bootstrap and trust setup authorizes this ongoing behavior.
 
 Both long-lived branches require pull requests, one approving review, resolved
 review conversations, and both CI checks against an up-to-date base. New commits
@@ -47,22 +53,31 @@ permission to update `main`. Repository rules do not weaken organization rules.
 
 ## Promoting a release
 
-Once the desired changes and validation are complete on `develop`, open a
+Development builds do not require main promotion or manual version increments.
+CI derives a unique version from the reviewed development base and first-parent
+commit count. Keep the base in `X.Y.Z-dev.N` form; when moving to the next release
+line, update it and the lockfile through a PR. Generated build versions are not
+committed back. Stale queued builds can be skipped as newer work arrives.
+
+For an rc/stable release, once changes and validation are complete on `develop`, open a
 `develop` → `main` pull request. Record the version, changes, local/CI evidence,
 and whether live verification was performed. Merge this promotion using a merge
 commit so the shared branch ancestry is preserved. After promotion, synchronize
 `main` back into `develop` through a PR when it contains commits absent from
-`develop`, especially release-only changes or hotfixes.
+`develop`, especially release-only changes or hotfixes. Include the next intended
+development base in that synchronization PR so develop retains a dev version.
 
 A separate `release/*` branch is optional when stabilization must proceed while
 new work continues on `develop`. It is not required for the initial release.
 
-Tagging, GitHub Releases and package publication are separate, explicit release
-actions. The `0.1.0-dev.1` candidate sets `private: false` and prepares metadata
-for the `dev` channel; live verification and publication remain pending. Follow
+The first npm bootstrap, rc/stable tags and GitHub Releases remain explicit
+release actions. Subsequent dev publication is automatic once enabled.
+The `0.1.0-dev.1` candidate sets `private: false` and prepares metadata
+for the `dev` channel; the development-project smoke is recorded in
+[VALIDATION.md](VALIDATION.md), and publication remains pending. Follow
 [RELEASING.md](RELEASING.md) for package preparation, version/channel rules,
 credentialed live evidence, initial npm bootstrap and Trusted Publishing.
-Development CI and successful local tests do not authorize publication.
+Local tests and PR validation alone never trigger publication.
 
 For an urgent released-version fix, branch from `main`, review a PR back to
 `main`, then synchronize the fix into `develop`. Preserve the same checks and

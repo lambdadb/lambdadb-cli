@@ -1,7 +1,95 @@
 # Validation record
 
-Date: 2026-09-18. All test requests used loopback servers and synthetic credentials.
-No LambdaDB service was contacted for runtime validation.
+Date: 2026-09-18. Local contract tests use loopback servers and synthetic
+credentials. A separate authenticated development-project smoke is recorded below.
+
+## Automatic development-release validation
+
+On Node.js 24.15.0, lint, type checking and all 46 source tests passed, including
+six release-automation tests. The tests cover deterministic first-parent version
+numbers, numeric channel ordering, stale commits, registry lookup failures,
+artifact/commit conflicts, identical reruns and uncertain publication outcomes.
+Registry writes use an injected fake npm runner; no package was published.
+A real read-only npm lookup also confirmed the structured E404 handling.
+
+A temporary local Git repository and bare remote exercised the actual prepare
+command, including rejected PR/wrong-commit contexts and stale remote heads.
+A separate clean source copy generated `0.1.0-dev.2`, installed locked
+dependencies, packed and installed the generated artifact, and passed all 35
+installed-CLI contracts. Its source `gitHead` and license metadata were preserved
+and its Git HEAD did not change. The normal `0.1.0-dev.1` artifact also passed
+all 35 installed-CLI contracts.
+
+`actionlint` 1.7.12 accepted the combined CI/publishing workflow. The existing
+`Node.js 22` and `Node.js 24` check names are retained. Publishing needs both jobs
+and is restricted to explicit releases or opted-in develop pushes. The repository
+variable enabling automatic dev publication was not set during this validation.
+Actual OIDC authentication, registry writes, provenance and GitHub job ordering
+remain unverified until the first authorized automated publication.
+
+## Authenticated development-project smoke
+
+Tested the CLI from develop commit `a040f53` (version `0.1.0-dev.1`, SDK `0.5.1`)
+with Node.js 24.15.0 against the development target supplied by the maintainer in
+the primary checkout's ignored `.env.local`. The designated development target is:
+
+- Endpoint: `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`
+- Project: `bench-recall`
+
+The API key is excluded from this record. The file used `LAMBDADB_BASE_URL`,
+`LAMBDADB_PROJECT_NAME`, `LAMBDADB_PROJECT_API_KEY` and an explicit
+`LAMBDADB_RUN_LIVE_TESTS=1`. An in-memory launcher mapped the first three to
+`LAMBDADB_ENDPOINT`, `LAMBDADB_PROJECT`, `LAMBDADB_API_KEY`, and supplied the
+confirmed development project as `LAMBDADB_LIVE_CONFIRM_PROJECT` for this run.
+Neither the file nor the CLI's environment-variable contract was changed.
+
+After `npm run build`, the launcher ran `node --test test/live/cli.test.mjs`:
+
+- The original 75-second query observation window failed after writes were
+  accepted. This was a failed smoke, not proof of a service or CLI defect.
+- The follow-up harness allows up to 300 seconds per read stage, matching the
+  SDK live smoke's committed-document observation window. It reports elapsed
+  time and matched-document counts without printing responses or credentials.
+- The follow-up run passed: doctor and creation completed within the first
+  second; two ordinary writes (3 MiB payload each) and one bulk write were
+  accepted at about 2 seconds. Query returned all three expected documents with
+  exact contents at about 65 seconds, and ID fetch verified them at about 66
+  seconds. Both reads selected `branch:main` without a pending-write overlay.
+- Cleanup was accepted for both temporary collections. Subsequent SDK get calls
+  returned `ResourceNotFoundError` for
+  `cli-smoke-9797d164-abb3-4a7e-ae26-f5ae251ad72c` and
+  `cli-smoke-b926fd65-c371-462f-9727-9d5d9edecc1c`, confirming their absence.
+
+The two runs demonstrate variable observation time; 300 seconds is a test budget,
+not a readiness or latency guarantee. Full content was verified for a combined
+response above 6 MiB, but the CLI harness did not inspect the service's wire
+response to prove selection of `docsUrl`. Live tag/alias reads remain unverified.
+
+### Review follow-up: enforce the observation budget
+
+The harness now uses a monotonic deadline, caps CLI and child-process timeouts
+to the remaining budget, and limits the final polling sleep. It checks the
+deadline after each observation, including content comparison, before accepting
+success. Process termination and event-loop scheduling can delay reporting, but
+a response at or after the deadline cannot pass the stage.
+
+On Node.js 24.15.0, lint, type checking and all 53 source tests passed. Seven new
+deterministic tests cover timely success, late success/failure, success exactly
+at the deadline, a capped final sleep, an in-flight timeout and an earlier fatal
+error. The regression reproduces a response arriving at 318 seconds and rejects
+it; the final request receives only the remaining 2-second budget.
+The packed and separately installed CLI also passed all 35 contract tests.
+
+Re-ran `node --test test/live/cli.test.mjs` with this review fix in the working
+tree based on `6642eeb`, using the same designated endpoint/project and launcher
+above. The CLI runtime source remained identical to `a040f53`; SDK version was
+`0.5.1`. Doctor and collection creation passed within the first second, ordinary
+and bulk writes were accepted at about 3 seconds, and exact query/fetch contents
+passed at about 91 seconds (test duration: 91.231 seconds). Both reads used
+`branch:main`. Cleanup was accepted for
+`cli-smoke-3cb15833-414d-4265-9b57-70df164b28ef`; a subsequent SDK get returned
+`ResourceNotFoundError`, confirming absence. Deadline boundary cases were
+verified deterministically above, not by inducing a live service timeout.
 
 ## 0.1.0-dev.1 release preparation
 
@@ -14,8 +102,8 @@ compares the executable against package metadata instead of a fixed version.
 `RELEASE_TAG=v0.1.0-dev.1 RELEASE_PRERELEASE=true npm run check:version -- --release`
 passed and selected the `dev` channel. This checks release metadata only; it does
 not publish or establish main ancestry, npm permissions or live-service behavior.
-No development endpoint, project, API key or live-test opt-in was set in this
-session, so authenticated live validation was not attempted.
+At the initial release-preparation stage no development connection settings were
+supplied, so live validation was not attempted then. See the later smoke above.
 
 ## Completed local validation
 
@@ -24,7 +112,7 @@ session, so authenticated live validation was not attempted.
 | `npm run typecheck` | Passed with TypeScript 5.8.3. |
 | `npm run lint` and `npm run check:version` | Passed; package and lockfile metadata agree. |
 | `npm test` on Node.js 24.15.0 | 40 tests passed, zero failed or skipped. |
-| Same test suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 40 tests passed, zero failed or skipped. |
+| Prior CLI MVP suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 40 tests passed, zero failed or skipped; new automation tests are recorded separately above. |
 | Fresh temporary source directory: `npm ci`, `npm run build`, CLI version | Passed without the development checkout's node_modules or dist. |
 | `npm run test:package`: pack, inspect inventory, install in a temporary consumer, invoke executable version/help and repeat CLI contracts | 35 installed-CLI tests passed on Node 24. Package was never published. |
 | `actionlint` on CI and publish workflows | Passed. This is static validation, not an OIDC publication. |
@@ -96,31 +184,32 @@ deployment state of an individual LambdaDB endpoint.
 
 ## Not performed / not established
 
-- No authenticated live-service validation: the task did not designate a
-  development project and credential set. Credentials were not searched for in
-  other repositories.
-- No proof of live query/index readiness, search ranking, managed embedding
-  behavior, real signed-storage policies, or production-scale performance.
+- The live smoke verifies one designated development target and a bounded sample;
+  it does not establish general query/index readiness, search ranking, managed
+  embedding behavior, exhaustive signed-storage policies or production-scale
+  performance. Credentials were not searched for in other repositories.
 - No proof of exactly-once delivery, durable resume, or a committed-through write
   receipt. Those capabilities are not implemented.
 - No Windows-specific permission or signal validation. POSIX modes and injected
   SIGINT/SIGTERM were checked on macOS; CI targets Linux.
 - No npm publication, Trusted Publisher configuration, registry provenance or
   release-workflow execution. The `0.1.0-dev.1` candidate sets `private: false`
-  and targets the `dev` channel. npm organization permissions, live verification,
-  promotion to main and authorized bootstrap publication remain pending;
+  and targets the `dev` channel. npm organization permissions, authorized
+  bootstrap publication, trust setup and automatic-dev activation remain pending.
+  Main promotion is required for explicit rc/stable releases;
   Apache-2.0 is recorded in LICENSE and package metadata.
-- Large response tests cover SDK routing/credential separation at 1 MiB, not an
-  exhaustive memory/size stress test. Imports buffer a maximum 64 MiB source file
+- Mock large-response tests cover SDK routing/credential separation at 1 MiB;
+  the live sample verifies combined content above 6 MiB. Neither is an exhaustive
+  memory/size stress test. Imports buffer a maximum 64 MiB source file
   and retain at most 100,000 documents. Complex documents can still use much more
   memory than their serialized size; the count limit is not a process memory cap.
 
 ## Requirements for live verification
 
 Follow the explicit settings and `npm run test:live` procedure in
-[RELEASING.md](RELEASING.md#explicit-live-smoke). The new live harness has only had
-its missing-opt-in failure exercised locally; its authenticated flow and cleanup
-remain unverified. For non-main refs, supply existing development branch/tag/alias
+[RELEASING.md](RELEASING.md#explicit-live-smoke). The authenticated main-branch
+flow and cleanup have been exercised as recorded above. For non-main refs,
+supply existing development branch/tag/alias
 targets whose expected contents are known. Record evidence without keys or signed
 URLs. Temporary collection deletion is performed by the harness through the SDK,
 not exposed as a CLI command.

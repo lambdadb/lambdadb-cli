@@ -25,6 +25,9 @@ try {
   }
   const consumer = join(temp, 'consumer');
   execFileSync(npm, ['install', '--prefix', consumer, '--no-audit', '--no-fund', tarball], { stdio: 'inherit' });
+  const installed = JSON.parse(readFileSync(join(consumer, 'node_modules', pkg.name, 'package.json'), 'utf8'));
+  assert.equal(installed.license, pkg.license);
+  if (pkg.gitHead) assert.equal(installed.gitHead, pkg.gitHead, 'Development artifact must identify the verified source commit.');
   const bin = join(consumer, 'node_modules', pkg.name, 'dist/cli.js');
   if (process.platform !== 'win32') {
     const executable = join(consumer, 'node_modules', '.bin', 'lambdadb');
