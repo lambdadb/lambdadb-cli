@@ -1,26 +1,67 @@
-name: Publish npm package
+name: CI
 
 on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
   release:
     types: [published]
 
 permissions:
   contents: read
-  id-token: write
-
-concurrency:
-  group: npm-release-${{ github.event.release.tag_name }}
-  cancel-in-progress: false
 
 jobs:
-  publish:
+  validate:
+    name: Node.js ${{ matrix.node }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
     steps:
-      - name: Check out release source
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Validate locked source and installed package
+        run: |
+          npm ci
+          npm run lint
+          npm run check:version
+          npm run typecheck
+          npm test
+          npm run test:package
+
+  publish:
+    needs: validate
+    if: >-
+      github.repository == 'lambdadb/lambdadb-cli' &&
+      (github.event_name == 'release' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/develop' &&
+        vars.NPM_DEV_PUBLISH_ENABLED == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      # Never interrupt a registry write. New pending dev jobs replace older ones.
+      group: npm-${{ github.event_name == 'release' && github.event.release.tag_name || 'dev' }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Set up publishing runtime
@@ -29,34 +70,42 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - name: Verify release metadata and channel
-        id: metadata
+      - name: Require an OIDC-capable npm
+        run: |
+          node -e 'const {execFileSync}=require("node:child_process"); const v=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(v[0]<11 || (v[0]===11 && (v[1]<5 || (v[1]===5 && v[2]<1)))) throw Error("npm >=11.5.1 required");'
+      - name: Prepare deterministic development version
+        if: github.event_name == 'push'
+        id: dev
+        run: node scripts/dev-release.mjs prepare
+      - name: Verify explicit release metadata and main ancestry
+        if: github.event_name == 'release'
+        id: release
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
-        run: node scripts/check-release.mjs --release
-      - name: Require reviewed main history and an OIDC-capable npm
         run: |
           git merge-base --is-ancestor HEAD origin/main
-          node -e 'const {execFileSync}=require("node:child_process"); const v=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(v[0]<11 || (v[0]===11 && (v[1]<5 || (v[1]===5 && v[2]<1)))) throw Error("npm >=11.5.1 required");'
-      - name: Validate source
-        run: |
-          npm ci
-          npm run lint
-          npm run typecheck
-          npm test
-      - name: Pack once
+          node scripts/check-release.mjs --release
+          node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json","utf8")); if(p.version.includes("-dev.")) throw Error("Development versions publish through develop pushes, not GitHub Releases.");'
+      - name: Pack once and test the exact publication artifact
+        if: github.event_name == 'release' || steps.dev.outputs.ready == 'true'
         id: package
         shell: bash
         run: |
+          npm ci
+          npm run check:version
           npm pack --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/package.json"
-          node --input-type=module -e 'import fs from "node:fs"; const file=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/package.json","utf8"))[0].filename; fs.appendFileSync(process.env.GITHUB_OUTPUT,`tarball=${process.env.RUNNER_TEMP}/${file}\n`);'
-      - name: Test the exact release artifact
+          CLI_TARBALL=$(node --input-type=module -e 'import fs from "node:fs"; const file=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/package.json","utf8"))[0].filename; console.log(`${process.env.RUNNER_TEMP}/${file}`);')
+          npm run test:package -- "$CLI_TARBALL"
+          echo "tarball=$CLI_TARBALL" >> "$GITHUB_OUTPUT"
+      - name: Publish development version and verify registry state
+        if: github.event_name == 'push' && steps.dev.outputs.ready == 'true'
         env:
           CLI_TARBALL: ${{ steps.package.outputs.tarball }}
-        run: npm run test:package -- "$CLI_TARBALL"
-      - name: Publish using npm Trusted Publishing
+        run: node scripts/dev-release.mjs publish
+      - name: Publish explicit release using npm Trusted Publishing
+        if: github.event_name == 'release'
         env:
           CLI_TARBALL: ${{ steps.package.outputs.tarball }}
-          NPM_CHANNEL: ${{ steps.metadata.outputs.channel }}
+          NPM_CHANNEL: ${{ steps.release.outputs.channel }}
         run: npm publish "$CLI_TARBALL" --access public --tag "$NPM_CHANNEL" --provenance

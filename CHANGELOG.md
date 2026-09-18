@@ -15,6 +15,9 @@
 - Local transport contracts, installed-package contracts, release metadata checks
   and an opt-in development-project live smoke with temporary collection cleanup.
 - Development/release procedures and a prepared npm OIDC publishing workflow.
+- Opt-in automatic develop publication after Node 22/24 CI, deterministic dev
+  build versions, exact-artifact rerun verification and stale-build guards.
+  Explicit rc/stable releases continue to require reviewed main history.
 - Apache-2.0 license text and package license metadata.
 
 ### Fixed
@@ -34,6 +37,7 @@
 
 Prepared for the first public development release on npm's `dev` channel. This
 entry records the candidate contents and preparation date, not a publication.
-The development-project smoke is recorded in VALIDATION.md. Promotion to main,
-npm organization permission verification and authorized bootstrap publication
-remain pending.
+The development-project smoke is recorded in VALIDATION.md. npm organization
+permission verification, authorized bootstrap publication and Trusted Publishing
+setup remain pending. Automatic dev publication is disabled until maintainers
+enable `NPM_DEV_PUBLISH_ENABLED`; main promotion is required only for rc/stable.

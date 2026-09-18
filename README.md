@@ -268,7 +268,11 @@ SDK backoff with a two-second retry budget; its sleep can add up to approximatel
 ## Development and boundaries
 
 Development changes target the Git `develop` branch; reviewed release promotions
-target `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch roles, PR checks
+for rc/stable target `main`. Once npm setup is complete and automatic publication
+is enabled, successful develop push CI publishes uniquely versioned packages on
+the `dev` channel. CI generates the number; developers do not increment it for
+every merge. Newer work may supersede pending builds. Stable releases remain
+explicit and use `latest`. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch roles, PR checks
 and the release boundary. [RELEASING.md](RELEASING.md) covers version channels,
 npm bootstrap, Trusted Publishing and release checks. CI validates Node.js 22
 and 24 using local contracts and the same CLI contracts against an installed

@@ -3,6 +3,30 @@
 Date: 2026-09-18. Local contract tests use loopback servers and synthetic
 credentials. A separate authenticated development-project smoke is recorded below.
 
+## Automatic development-release validation
+
+On Node.js 24.15.0, lint, type checking and all 46 source tests passed, including
+six release-automation tests. The tests cover deterministic first-parent version
+numbers, numeric channel ordering, stale commits, registry lookup failures,
+artifact/commit conflicts, identical reruns and uncertain publication outcomes.
+Registry writes use an injected fake npm runner; no package was published.
+A real read-only npm lookup also confirmed the structured E404 handling.
+
+A temporary local Git repository and bare remote exercised the actual prepare
+command, including rejected PR/wrong-commit contexts and stale remote heads.
+A separate clean source copy generated `0.1.0-dev.2`, installed locked
+dependencies, packed and installed the generated artifact, and passed all 35
+installed-CLI contracts. Its source `gitHead` and license metadata were preserved
+and its Git HEAD did not change. The normal `0.1.0-dev.1` artifact also passed
+all 35 installed-CLI contracts.
+
+`actionlint` 1.7.12 accepted the combined CI/publishing workflow. The existing
+`Node.js 22` and `Node.js 24` check names are retained. Publishing needs both jobs
+and is restricted to explicit releases or opted-in develop pushes. The repository
+variable enabling automatic dev publication was not set during this validation.
+Actual OIDC authentication, registry writes, provenance and GitHub job ordering
+remain unverified until the first authorized automated publication.
+
 ## Authenticated development-project smoke
 
 Tested the CLI from develop commit `a040f53` (version `0.1.0-dev.1`, SDK `0.5.1`)
@@ -58,7 +82,7 @@ supplied, so live validation was not attempted then. See the later smoke above.
 | `npm run typecheck` | Passed with TypeScript 5.8.3. |
 | `npm run lint` and `npm run check:version` | Passed; package and lockfile metadata agree. |
 | `npm test` on Node.js 24.15.0 | 40 tests passed, zero failed or skipped. |
-| Same test suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 40 tests passed, zero failed or skipped. |
+| Prior CLI MVP suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 40 tests passed, zero failed or skipped; new automation tests are recorded separately above. |
 | Fresh temporary source directory: `npm ci`, `npm run build`, CLI version | Passed without the development checkout's node_modules or dist. |
 | `npm run test:package`: pack, inspect inventory, install in a temporary consumer, invoke executable version/help and repeat CLI contracts | 35 installed-CLI tests passed on Node 24. Package was never published. |
 | `actionlint` on CI and publish workflows | Passed. This is static validation, not an OIDC publication. |
@@ -140,8 +164,9 @@ deployment state of an individual LambdaDB endpoint.
   SIGINT/SIGTERM were checked on macOS; CI targets Linux.
 - No npm publication, Trusted Publisher configuration, registry provenance or
   release-workflow execution. The `0.1.0-dev.1` candidate sets `private: false`
-  and targets the `dev` channel. npm organization permissions, promotion to main
-  and authorized bootstrap publication remain pending;
+  and targets the `dev` channel. npm organization permissions, authorized
+  bootstrap publication, trust setup and automatic-dev activation remain pending.
+  Main promotion is required for explicit rc/stable releases;
   Apache-2.0 is recorded in LICENSE and package metadata.
 - Mock large-response tests cover SDK routing/credential separation at 1 MiB;
   the live sample verifies combined content above 6 MiB. Neither is an exhaustive
