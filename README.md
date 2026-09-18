@@ -2,12 +2,30 @@
 
 A first, project-scoped CLI for developers, coding agents and CI. It uses
 `@functional-systems/lambdadb@0.5.1` for authentication, HTTP, read retries,
-pagination, bulk transfers and large response downloads. This local MVP is not
-published to a package registry.
+pagination, bulk transfers and large response downloads.
 
 ## Install and run
 
 Requires Node.js 22.14 or newer and npm.
+
+### Install from npm
+
+After the first development version is published, install the `dev` channel:
+
+```sh
+npm install --global @functional-systems/lambdadb-cli@dev
+lambdadb --version
+lambdadb --help
+```
+
+The `dev` channel contains prerelease versions. For reproducible CI runs, pin an
+exact published version instead of the moving `dev` tag. See
+[RELEASING.md](RELEASING.md#current-status) for release preparation status and
+[VALIDATION.md](VALIDATION.md) for verification results and remaining limitations.
+
+### Build from source
+
+From a checkout of this repository:
 
 ```sh
 npm ci

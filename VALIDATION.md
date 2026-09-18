@@ -3,6 +3,20 @@
 Date: 2026-09-18. All test requests used loopback servers and synthetic credentials.
 No LambdaDB service was contacted for runtime validation.
 
+## 0.1.0-dev.1 release preparation
+
+Revalidated on 2026-09-18 in a fresh worktree based on develop commit `52e7aa2`
+with Node.js 24.15.0 and npm 11.12.1. `npm ci`, lint, type checking and version
+checks passed. Source tests passed (40), and the separately installed tarball's
+CLI tests passed (35), with no failures or skips. The version assertion now
+compares the executable against package metadata instead of a fixed version.
+
+`RELEASE_TAG=v0.1.0-dev.1 RELEASE_PRERELEASE=true npm run check:version -- --release`
+passed and selected the `dev` channel. This checks release metadata only; it does
+not publish or establish main ancestry, npm permissions or live-service behavior.
+No development endpoint, project, API key or live-test opt-in was set in this
+session, so authenticated live validation was not attempted.
+
 ## Completed local validation
 
 | Check | Result |
@@ -92,9 +106,10 @@ deployment state of an individual LambdaDB endpoint.
 - No Windows-specific permission or signal validation. POSIX modes and injected
   SIGINT/SIGTERM were checked on macOS; CI targets Linux.
 - No npm publication, Trusted Publisher configuration, registry provenance or
-  release-workflow execution. Private-package preflight intentionally blocks
-  publication. Package ownership and the first public version remain release
-  decisions; Apache-2.0 is now recorded in LICENSE and package metadata.
+  release-workflow execution. The `0.1.0-dev.1` candidate sets `private: false`
+  and targets the `dev` channel. npm organization permissions, live verification,
+  promotion to main and authorized bootstrap publication remain pending;
+  Apache-2.0 is recorded in LICENSE and package metadata.
 - Large response tests cover SDK routing/credential separation at 1 MiB, not an
   exhaustive memory/size stress test. Imports buffer a maximum 64 MiB source file
   and retain at most 100,000 documents. Complex documents can still use much more

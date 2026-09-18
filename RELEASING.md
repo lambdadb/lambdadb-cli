@@ -2,16 +2,20 @@
 
 ## Current status
 
-Publication is prepared, not enabled: `package.json` remains `private: true`.
+The first public development candidate is `0.1.0-dev.1`, targeting npm's `dev`
+channel. Release preparation sets `private: false`; metadata now permits
+publication, but no package has been published by this project workflow.
 The CLI is licensed under [Apache-2.0](LICENSE), with matching package metadata.
-The first public version and package ownership must be confirmed in a release
-preparation PR.
+Live development-project verification, reviewed promotion to main, npm
+organization permission verification and explicit publication authorization
+remain required before the first bootstrap.
 The public npm lookup for `@functional-systems/lambdadb-cli` returned E404 on
 2026-09-18; this is not proof that the name is available or that ownership exists.
 
 The workflow rejects private packages, missing license metadata, mismatched
 versions/tags, wrong prerelease flags and missing dated changelog entries.
-Adding this workflow does not authorize merging, tagging or publishing.
+Passing metadata validation does not establish live-service verification or
+authorize merging, tagging or publishing.
 
 ## Branch and version policy
 

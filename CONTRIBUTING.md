@@ -58,8 +58,8 @@ A separate `release/*` branch is optional when stabilization must proceed while
 new work continues on `develop`. It is not required for the initial release.
 
 Tagging, GitHub Releases and package publication are separate, explicit release
-actions. A publishing workflow is prepared, but the package remains
-`private: true` and fails its publication preflight. Follow
+actions. The `0.1.0-dev.1` candidate sets `private: false` and prepares metadata
+for the `dev` channel; live verification and publication remain pending. Follow
 [RELEASING.md](RELEASING.md) for package preparation, version/channel rules,
 credentialed live evidence, initial npm bootstrap and Trusted Publishing.
 Development CI and successful local tests do not authorize publication.
