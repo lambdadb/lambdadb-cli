@@ -235,6 +235,11 @@ SDK backoff with a two-second retry budget; its sleep can add up to approximatel
 
 ## Development and boundaries
 
+Development changes target the Git `develop` branch; reviewed release promotions
+target `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch roles, PR checks
+and the release boundary. CI validates Node.js 22 and 24 using local contract
+tests and a separately installed CLI package.
+
 ```sh
 npm run typecheck
 npm test

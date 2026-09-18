@@ -5,7 +5,7 @@
   "description": "Project-scoped LambdaDB command-line tools",
   "type": "module",
   "bin": { "lambdadb": "dist/cli.js" },
-  "files": ["dist", "src", "README.md", "DESIGN.md", "VALIDATION.md", "examples"],
+  "files": ["dist", "src", "README.md", "DESIGN.md", "VALIDATION.md", "CONTRIBUTING.md", "examples"],
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "tsc && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
