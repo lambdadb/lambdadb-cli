@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Development publication verifies registry propagation for up to five minutes,
+  including bounded read subprocesses and polling sleeps. Transient read failures
+  can recover without repeating the successful publication. Authentication,
+  malformed metadata and source/artifact conflicts still fail verification.
+- Publication logs distinguish an accepted write from verification still pending;
+  a pending result remains nonzero and requires registry reads before a rerun.
+
+### Documentation
+
+- Record the completed bootstrap, initial OIDC publication, provenance/consumer
+  checks and the observed bootstrap `latest` tag behavior.
+
 ## [0.1.0-dev.1] - 2026-09-18
 
 ### Added
@@ -37,9 +51,10 @@
 
 ### Release status
 
-Prepared for the first public development release on npm's `dev` channel. This
-entry records the candidate contents and preparation date, not a publication.
-The development-project smoke is recorded in VALIDATION.md. npm organization
-permission verification, authorized bootstrap publication and Trusted Publishing
-setup remain pending. Automatic dev publication is disabled until maintainers
-enable `NPM_DEV_PUBLISH_ENABLED`; main promotion is required only for rc/stable.
+Published publicly on npm's `dev` channel on 2026-09-18 as the manual bootstrap.
+The initial OIDC build `0.1.0-dev.4` followed from the same reviewed develop
+commit; generated dev versions do not create separate source changelog entries.
+Automatic dev publication is enabled. The observed `latest` tag remains at the
+bootstrap until a reviewed stable release replaces it. Publication, provenance,
+installation and development-project smoke evidence are recorded in VALIDATION.md.
+Main promotion is required only for rc/stable.

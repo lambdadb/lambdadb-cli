@@ -72,9 +72,10 @@ new work continues on `develop`. It is not required for the initial release.
 
 The first npm bootstrap, rc/stable tags and GitHub Releases remain explicit
 release actions. Subsequent dev publication is automatic once enabled.
-The `0.1.0-dev.1` candidate sets `private: false` and prepares metadata
-for the `dev` channel; the development-project smoke is recorded in
-[VALIDATION.md](VALIDATION.md), and publication remains pending. Follow
+Bootstrap `0.1.0-dev.1` and the first OIDC development publication `0.1.0-dev.4`
+were verified on 2026-09-18; automatic dev publication is enabled. Publication,
+provenance and development-project smoke evidence are recorded in
+[VALIDATION.md](VALIDATION.md). Follow
 [RELEASING.md](RELEASING.md) for package preparation, version/channel rules,
 credentialed live evidence, initial npm bootstrap and Trusted Publishing.
 Local tests and PR validation alone never trigger publication.

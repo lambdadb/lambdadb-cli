@@ -3,7 +3,67 @@
 Date: 2026-09-18. Local contract tests use loopback servers and synthetic
 credentials. A separate authenticated development-project smoke is recorded below.
 
-## Automatic development-release validation
+## Public bootstrap and OIDC publication
+
+On 2026-09-18, the maintainer authorized the public bootstrap
+[`0.1.0-dev.1`](https://www.npmjs.com/package/@functional-systems/lambdadb-cli/v/0.1.0-dev.1)
+from reviewed develop commit `f2397ba`. Clean installation, lint, types and
+53 source tests passed; the exact tarball passed 35 installed-CLI tests and its
+published integrity matched. This local publication has no GitHub provenance.
+
+After npm Trusted Publisher setup and repository variable activation, the
+[develop push workflow, attempt 2](https://github.com/lambdadb/lambdadb-cli/actions/runs/35340278724/attempts/2)
+passed Node 22/24 validation, prepared `0.1.0-dev.4`, tested its exact tarball,
+and published with OIDC and provenance. The old six-attempt verification loop
+exhausted its five 5-second sleeps before npm metadata propagation completed, so
+the job failed after a successful publication. Read-only checks subsequently
+confirmed the artifact. The
+[protected rerun, attempt 3](https://github.com/lambdadb/lambdadb-cli/actions/runs/35340278724/attempts/3)
+completed with `result=already-published`, proving the same source/artifact was
+recognized without a second registry write.
+
+The public [`0.1.0-dev.4` provenance](https://registry.npmjs.org/-/npm/v1/attestations/@functional-systems%2flambdadb-cli@0.1.0-dev.4)
+identifies `lambdadb/lambdadb-cli`, `.github/workflows/publish.yaml`,
+`refs/heads/develop`, source commit `f2397ba102c67f1af9ed5ae0b8b8d47c06da7d4b`,
+and workflow attempt 2. Registry `gitHead`, downloaded tarball digest, installed
+lockfile integrity and provenance subject agreed. A clean `@dev` installation
+using an isolated npm cache passed version/help and all 35 CLI contract tests
+with the generated package metadata. `npm audit signatures` verified four package
+signatures and three attestations, including the CLI. No credentials were added
+to GitHub validation jobs or repository files.
+
+At this verification, `dev=0.1.0-dev.4` and `latest=0.1.0-dev.1`. Bootstrap had
+created both tags despite `--tag dev`; a removal attempt for `latest` returned
+HTTP 400. The automated dev publication left `latest` unchanged. This observation
+does not establish a general version-count rule for npm. Bootstrap and OIDC setup
+are complete; main promotion and rc/stable publication remain unperformed.
+
+## Publication verification hardening
+
+The follow-up script uses a five-minute monotonic verification budget, 15-second
+maximum read subprocesses and 10-second maximum polling sleeps. It retries only
+missing/lagging metadata and transient post-publication reads. It reports an
+accepted write separately from `published-verification-pending`, which still exits
+nonzero. Authentication, malformed responses and source/artifact mismatches fail
+closed. No late response can satisfy the deadline, and no verification path
+repeats the registry write.
+
+Deterministic tests exercise 150/180-second metadata/tag propagation, five-minute
+expiration, read time consuming the budget, capped final I/O/sleep, late success,
+temporary HTTP/transport failures and permanent errors. The changed publication
+logic passed all 59 source tests (12 release-automation tests), lint, type checks
+and version checks on Node 24.15.0; the installed tarball passed 35 CLI contracts.
+A read-only probe used the actual npm CLI and new bounded-read flags to verify
+the existing `0.1.0-dev.4` manifest/tag. Only its preflight and accepted write were
+simulated; the probe performed no registry mutation.
+
+The changed publication path has not yet run on an actual develop merge; PR CI
+cannot publish. The next reviewed merge must verify the normal push-to-publication
+flow without a manual rerun. The LambdaDB live smoke was not rerun because CLI
+runtime source is unchanged; the prior development-project evidence below remains
+separate from npm checks.
+
+## Initial local automation validation (before publication)
 
 On Node.js 24.15.0, lint, type checking and all 46 source tests passed, including
 six release-automation tests. The tests cover deterministic first-parent version
@@ -24,8 +84,9 @@ all 35 installed-CLI contracts.
 `Node.js 22` and `Node.js 24` check names are retained. Publishing needs both jobs
 and is restricted to explicit releases or opted-in develop pushes. The repository
 variable enabling automatic dev publication was not set during this validation.
-Actual OIDC authentication, registry writes, provenance and GitHub job ordering
-remain unverified until the first authorized automated publication.
+At that stage, OIDC authentication, registry writes, provenance and GitHub job
+ordering were unverified. The later publication evidence above supersedes that
+limitation; it does not turn these original local tests into live registry writes.
 
 ## Authenticated development-project smoke
 
@@ -192,12 +253,9 @@ deployment state of an individual LambdaDB endpoint.
   receipt. Those capabilities are not implemented.
 - No Windows-specific permission or signal validation. POSIX modes and injected
   SIGINT/SIGTERM were checked on macOS; CI targets Linux.
-- No npm publication, Trusted Publisher configuration, registry provenance or
-  release-workflow execution. The `0.1.0-dev.1` candidate sets `private: false`
-  and targets the `dev` channel. npm organization permissions, authorized
-  bootstrap publication, trust setup and automatic-dev activation remain pending.
-  Main promotion is required for explicit rc/stable releases;
-  Apache-2.0 is recorded in LICENSE and package metadata.
+- No main promotion, explicit rc/stable publication or GitHub Release workflow
+  execution. Public bootstrap and automatic dev/OIDC publication are verified
+  above; the new five-minute verification behavior awaits its first develop merge.
 - Mock large-response tests cover SDK routing/credential separation at 1 MiB;
   the live sample verifies combined content above 6 MiB. Neither is an exhaustive
   memory/size stress test. Imports buffer a maximum 64 MiB source file

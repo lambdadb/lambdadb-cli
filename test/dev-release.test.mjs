@@ -51,22 +51,29 @@ test('stale jobs cannot publish or move dev backward, and reruns verify commit a
   assert.throws(() => publicationPlan({ ...state, existing: manifest }), /points elsewhere/);
 });
 
-function registry({ publishFailure = false, lag = false } = {}) {
+function registry({ publishFailure = false, lag = false, manifestDelayMs = 0, tagDelayMs = 0 } = {}) {
   let published = false;
+  let elapsed = 0;
   const calls = [];
-  const run = args => {
+  const pauses = [], reports = [], timeouts = [];
+  const run = (args, options) => {
     calls.push(args);
+    timeouts.push(options?.timeoutMs);
     if (args[0] === 'publish') {
       published = true;
       return { status: publishFailure ? 1 : 0, stdout: '' };
     }
     const visible = published && !lag;
-    if (args[2] === 'dist-tags') return { status: 0, stdout: JSON.stringify({ dev: visible ? version : '0.1.0-dev.11', latest: '0.0.1' }) };
-    return visible
+    if (args[2] === 'dist-tags') return { status: 0, stdout: JSON.stringify({ dev: visible && elapsed >= tagDelayMs ? version : '0.1.0-dev.11', latest: '0.0.1' }) };
+    return visible && elapsed >= manifestDelayMs
       ? { status: 0, stdout: JSON.stringify(manifest) }
       : { status: 1, stdout: JSON.stringify({ error: { code: 'E404' } }) };
   };
-  return { calls, run, head: () => sha, pause: async () => {} };
+  return { calls, run, timeouts, pauses, reports, head: () => sha, now: () => elapsed,
+    advance: ms => { elapsed += ms; },
+    pause: async ms => { pauses.push(ms); elapsed += ms; },
+    report: message => reports.push(message),
+  };
 }
 
 test('publishes the tested artifact once on dev and skips an identical rerun', async () => {
@@ -92,6 +99,130 @@ test('publish failures and verification lag never retry the registry write', asy
   const missingPackage = registry();
   missingPackage.run = () => ({ status: 1, stdout: JSON.stringify({ error: { code: 'E404' } }) });
   await assert.rejects(publishDevelopment(artifact, missingPackage), /lookup failed/);
+});
+
+test('publication verification tolerates independently delayed metadata and dev tags beyond 25 seconds', async () => {
+  for (const options of [{ manifestDelayMs: 150000 }, { tagDelayMs: 180000 }]) {
+    const api = registry(options);
+    assert.equal(await publishDevelopment(artifact, api), 'published');
+    assert.ok(api.now() >= 150000);
+    assert.equal(api.calls.filter(args => args[0] === 'publish').length, 1);
+    const reads = api.calls.slice(3);
+    assert.ok(reads.every(args => args.includes('--prefer-online') && args.includes('--fetch-retries=0') && args.includes('--fetch-timeout=15000')));
+    assert.match(api.reports[0], /npm publish succeeded/);
+  }
+});
+
+test('publication verification distinguishes five-minute propagation timeout from a failed write', async () => {
+  const api = registry({ lag: true });
+  await assert.rejects(publishDevelopment(artifact, api), error => {
+    assert.equal(error.code, 'REGISTRY_VERIFICATION_PENDING');
+    assert.match(error.message, /npm publish succeeded.*pending after 300 seconds/);
+    return true;
+  });
+  assert.equal(api.now(), 300000);
+  assert.equal(api.pauses.length, 30);
+  assert.equal(api.calls.filter(args => args[0] === 'publish').length, 1);
+});
+
+test('publication verification includes read time, caps remaining I/O and sleep, and rejects a late success', async () => {
+  const api = registry({ lag: true });
+  const run = api.run;
+  api.run = (args, options) => {
+    const result = run(args, options);
+    if (args.includes('--prefer-online')) api.advance(args[2] === 'dist-tags' ? 1000 : 294000);
+    return result;
+  };
+  await assert.rejects(publishDevelopment(artifact, api), { code: 'REGISTRY_VERIFICATION_PENDING' });
+  assert.equal(api.now(), 300000);
+  assert.deepEqual(api.pauses, [5000]);
+  assert.equal(api.timeouts.at(-1), 6000);
+  assert.ok(api.calls.at(-1).includes('--fetch-timeout=6000'));
+
+  const late = registry();
+  const lateRun = late.run;
+  late.run = (args, options) => {
+    const result = lateRun(args, options);
+    if (args.includes('--prefer-online')) late.advance(300000);
+    return result;
+  };
+  await assert.rejects(publishDevelopment(artifact, late), { code: 'REGISTRY_VERIFICATION_PENDING' });
+  assert.equal(late.calls.length, 4, 'A late manifest must not start a tag lookup.');
+  assert.deepEqual(late.pauses, []);
+});
+
+test('only post-publication reads retry transient registry and subprocess failures', async () => {
+  for (const failure of [
+    { status: 1, stdout: JSON.stringify({ error: { code: 'E503' } }) },
+    { status: 1, stdout: JSON.stringify({ error: { code: 'E429' } }) },
+    { status: 1, stdout: JSON.stringify({ error: { code: 'ECONNRESET' } }) },
+    { status: null, stdout: '', error: { code: 'ETIMEDOUT' } },
+  ]) {
+    const api = registry();
+    const run = api.run;
+    let failures = 0;
+    api.run = (args, options) => {
+      const result = run(args, options);
+      if (args.includes('--prefer-online') && failures++ === 0) return failure;
+      return result;
+    };
+    assert.equal(await publishDevelopment(artifact, api), 'published');
+    assert.equal(api.now(), 10000);
+    assert.equal(api.calls.filter(args => args[0] === 'publish').length, 1);
+    const before = registry();
+    before.run = args => { before.calls.push(args); return failure; };
+    await assert.rejects(publishDevelopment(artifact, before), /lookup failed/);
+    assert.equal(before.calls.filter(args => args[0] === 'publish').length, 0);
+  }
+});
+
+test('post-publication authentication, schema and artifact failures remain fatal', async () => {
+  for (const failure of [
+    { status: 1, stdout: JSON.stringify({ error: { code: 'E401' } }) },
+    { status: 1, stdout: JSON.stringify({ error: { code: 'E403' } }) },
+    { status: 0, stdout: 'invalid JSON' },
+    { status: 0, stdout: '[]' },
+    { status: 0, stdout: JSON.stringify({ ...manifest, gitHead: 'other-commit' }) },
+    { status: 0, stdout: JSON.stringify({ ...manifest, dist: { integrity: 'different' } }) },
+  ]) {
+    const api = registry({ tagDelayMs: 100000 });
+    const run = api.run;
+    api.run = (args, options) => {
+      const result = run(args, options);
+      return args.includes('--prefer-online') ? failure : result;
+    };
+    await assert.rejects(publishDevelopment(artifact, api), /npm publish succeeded, but registry verification failed/);
+    assert.deepEqual(api.pauses, []);
+    assert.equal(api.calls.filter(args => args[0] === 'publish').length, 1);
+  }
+  for (const dev of [123, 'not-a-development-version']) {
+    const api = registry();
+    const run = api.run;
+    api.run = (args, options) => {
+      const result = run(args, options);
+      return args.includes('--prefer-online') && args[2] === 'dist-tags'
+        ? { status: 0, stdout: JSON.stringify({ dev }) } : result;
+    };
+    await assert.rejects(publishDevelopment(artifact, api), /verification failed/);
+    assert.deepEqual(api.pauses, []);
+  }
+});
+
+test('missing post-publication tag metadata is retried without treating preflight as optional', async () => {
+  const api = registry();
+  const run = api.run;
+  let missing = true;
+  api.run = (args, options) => {
+    const result = run(args, options);
+    if (missing && args.includes('--prefer-online') && args[2] === 'dist-tags') {
+      missing = false;
+      return { status: 1, stdout: JSON.stringify({ error: { code: 'E404' } }) };
+    }
+    return result;
+  };
+  assert.equal(await publishDevelopment(artifact, api), 'published');
+  assert.deepEqual(api.pauses, [10000]);
+  assert.equal(api.calls.filter(args => args[0] === 'publish').length, 1);
 });
 
 test('preparation uses real Git history, updates both lock versions, and rejects stale or untrusted runs', t => {
