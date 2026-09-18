@@ -10,12 +10,19 @@ Requires Node.js 22.14 or newer and npm.
 
 ### Install from npm
 
-After the first development version is published, install the `dev` channel:
+The verified development build is available on the `dev` channel:
 
 ```sh
 npm install --global @functional-systems/lambdadb-cli@dev
 lambdadb --version
 lambdadb --help
+```
+
+This checkout prepares `0.1.0`. Once its GitHub Release and npm publication are
+complete, install the stable version with:
+
+```sh
+npm install --global @functional-systems/lambdadb-cli@0.1.0
 ```
 
 The `dev` channel contains prerelease versions. For reproducible CI runs, pin an

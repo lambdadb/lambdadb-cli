@@ -2,6 +2,22 @@
 
 ## Current status
 
+The `release/0.1.0` candidate prepares the first stable version from reviewed
+`develop` commit `c8947e9`. It changes package/lock versions and release documents;
+CLI runtime, dependencies, tests and workflows match the verified development build.
+The promotion PR targets `main` directly so `develop` keeps its automatic dev base.
+Merge with a merge commit, then obtain authorization for `v0.1.0` and a non-prerelease
+GitHub Release. Main promotion alone does not publish npm. After publication,
+verify `latest=0.1.0`, provenance and a clean consumer installation. Synchronize
+main back to develop through a PR that also sets the next development base.
+Stable publication has not yet been performed.
+
+The ordinary develop merge published `0.1.0-dev.5` through OIDC in
+[one successful workflow attempt](https://github.com/lambdadb/lambdadb-cli/actions/runs/35344153978).
+The new verification logic handled approximately three minutes of registry
+propagation without repeating the write or rerunning the workflow. A fresh npm
+installation passed 35 CLI contracts, integrity and provenance/signature checks.
+
 Bootstrap and initial OIDC publication were completed on 2026-09-18:
 
 - `0.1.0-dev.1` was published publicly from reviewed develop as the manual bootstrap.

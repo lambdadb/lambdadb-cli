@@ -3,6 +3,44 @@
 Date: 2026-09-18. Local contract tests use loopback servers and synthetic
 credentials. A separate authenticated development-project smoke is recorded below.
 
+## Stable 0.1.0 candidate
+
+Prepared `release/0.1.0` from reviewed develop commit
+`c8947e96308283ac593e712716f0732121bb1958`. Relative to that commit, only package
+versions and release documents change. Runtime source, dependencies, tests,
+examples and workflows are unchanged. Stable publication remains pending.
+
+On Node.js 24.15.0 / npm 11.12.1, a new worktree passed `npm ci`, lint, type
+checking, all 59 source tests, and 35 installed-package contract tests.
+`RELEASE_TAG=v0.1.0 RELEASE_PRERELEASE=false npm run check:version -- --release`
+passed and selected `latest`. CI results for the final commit belong to the
+promotion PR; local success is not a substitute for those required checks.
+
+A newly packed `0.1.0` tarball was installed into an isolated temporary consumer.
+Its executable reported `0.1.0` and was selected with `LAMBDADB_TEST_CLI` while
+running `node --test --test-reporter=tap test/live/cli.test.mjs`. The launcher used
+the maintainer's existing opt-in development settings and the in-memory variable
+mapping described below; it did not change or copy `.env.local` into the worktree.
+Target: `bench-recall` at
+`https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`.
+
+- Doctor and temporary collection creation passed within the first second.
+- Two ordinary documents with 3 MiB payloads each and one bulk document were
+  accepted at approximately 3 seconds. Acceptance did not imply search visibility.
+- Query and ID fetch on `branch:main` returned all three documents with exact
+  contents at approximately 69 seconds, without a pending-write overlay.
+- The live test passed in 69.6 seconds. Cleanup was accepted, then an independent
+  SDK get returned `ResourceNotFoundError` for
+  `cli-smoke-b854ef72-1448-42ae-8c9a-ce5c0441f104`, confirming its absence.
+- The source `.env.local` was byte-for-byte unchanged, and the temporary consumer
+  and tarball were removed. No key or signed URL is recorded here.
+
+Only documentation was updated after this live run; the final package is checked
+again with the installed-package contracts. This is development-service evidence
+for a bounded sample, not a latency/readiness guarantee or live tag/alias coverage.
+The stable npm artifact and release-event workflow remain unverified until the
+explicit publication and subsequent consumer/provenance checks.
+
 ## Public bootstrap and OIDC publication
 
 On 2026-09-18, the maintainer authorized the public bootstrap
@@ -57,11 +95,18 @@ A read-only probe used the actual npm CLI and new bounded-read flags to verify
 the existing `0.1.0-dev.4` manifest/tag. Only its preflight and accepted write were
 simulated; the probe performed no registry mutation.
 
-The changed publication path has not yet run on an actual develop merge; PR CI
-cannot publish. The next reviewed merge must verify the normal push-to-publication
-flow without a manual rerun. The LambdaDB live smoke was not rerun because CLI
-runtime source is unchanged; the prior development-project evidence below remains
-separate from npm checks.
+The [ordinary develop merge workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/35344153978)
+published `0.1.0-dev.5` from `c8947e96308283ac593e712716f0732121bb1958`
+on attempt 1. Node 22/24 validation and exact-artifact tests passed. Publication
+succeeded at 12:22:09 UTC; registry verification completed at 12:25:10 UTC with
+`result=published`. The approximately 181-second propagation delay required only
+read retries, with no manual rerun or repeated publication.
+
+A fresh npm `@dev` install with an isolated cache passed all 35 CLI contract tests,
+version/help, tarball/lockfile integrity checks and npm signature verification.
+Provenance identified the expected repository, develop ref, workflow, source
+commit and attempt 1. `dev=0.1.0-dev.5`; `latest` remained `0.1.0-dev.1`.
+These registry checks are separate from the development-service smoke below.
 
 ## Initial local automation validation (before publication)
 
@@ -255,7 +300,7 @@ deployment state of an individual LambdaDB endpoint.
   SIGINT/SIGTERM were checked on macOS; CI targets Linux.
 - No main promotion, explicit rc/stable publication or GitHub Release workflow
   execution. Public bootstrap and automatic dev/OIDC publication are verified
-  above; the new five-minute verification behavior awaits its first develop merge.
+  above, including the five-minute verification behavior on an ordinary develop merge.
 - Mock large-response tests cover SDK routing/credential separation at 1 MiB;
   the live sample verifies combined content above 6 MiB. Neither is an exhaustive
   memory/size stress test. Imports buffer a maximum 64 MiB source file

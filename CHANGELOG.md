@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-18
+
+### Added
+
+- First stable release of the project-scoped LambdaDB CLI: configure, doctor,
+  collection list/describe/create, JSONL ordinary/bulk import, query and ID fetch.
+- Explicit branch/tag/alias read targets, noninteractive commands, versioned JSON
+  output and documented exit codes, including partial and unknown write outcomes.
+- Reuse of TypeScript SDK 0.5.1 for authentication, transport, read retries,
+  pagination, bulk transfers and large response downloads.
+- Apache-2.0 licensing, installed-package contract tests, opt-in development-project
+  smoke tests and provenance-enabled npm publication.
+
 ### Fixed
 
 - Development publication verifies registry propagation for up to five minutes,
