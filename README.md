@@ -281,3 +281,7 @@ Use `npm run test:live` with the explicit opt-in settings in
 [RELEASING.md](RELEASING.md#explicit-live-smoke). It exercises ordinary/bulk import
 and committed query/fetch contents in a random temporary collection, then uses
 the SDK to clean up that collection. The normal test suite and CI never run it.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).

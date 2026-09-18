@@ -51,5 +51,6 @@
   "homepage": "https://github.com/lambdadb/lambdadb-cli#readme",
   "bugs": {
     "url": "https://github.com/lambdadb/lambdadb-cli/issues"
-  }
+  },
+  "license": "Apache-2.0"
 }

@@ -13,6 +13,7 @@
 - Local transport contracts, installed-package contracts, release metadata checks
   and an opt-in development-project live smoke with temporary collection cleanup.
 - Development/release procedures and a prepared npm OIDC publishing workflow.
+- Apache-2.0 license text and package license metadata.
 
 ### Fixed
 

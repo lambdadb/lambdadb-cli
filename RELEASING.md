@@ -3,8 +3,9 @@
 ## Current status
 
 Publication is prepared, not enabled: `package.json` remains `private: true`.
-The license, first public version and package ownership must be confirmed in a
-release preparation PR. Do not infer a license from another LambdaDB repository.
+The CLI is licensed under [Apache-2.0](LICENSE), with matching package metadata.
+The first public version and package ownership must be confirmed in a release
+preparation PR.
 The public npm lookup for `@functional-systems/lambdadb-cli` returned E404 on
 2026-09-18; this is not proof that the name is available or that ownership exists.
 

@@ -16,6 +16,7 @@ No LambdaDB service was contacted for runtime validation.
 | `actionlint` on CI and publish workflows | Passed. This is static validation, not an OIDC publication. |
 | Live command without opt-in | Expected nonzero exit before network calls; not counted as a live test pass. |
 | npm install dependency audit | Zero vulnerabilities reported at installation time. |
+| Apache-2.0 license packaging | Official license text from apache.org is included byte-for-byte as `package/LICENSE` in the built tarball; package.json and lockfile license metadata agree. |
 | Reference SDK status and specified sbrain file status | Unchanged. |
 
 Tests use the actual published SDK and CLI subprocesses; they do not replace the
@@ -92,7 +93,8 @@ deployment state of an individual LambdaDB endpoint.
   SIGINT/SIGTERM were checked on macOS; CI targets Linux.
 - No npm publication, Trusted Publisher configuration, registry provenance or
   release-workflow execution. Private-package preflight intentionally blocks
-  publication. Package ownership and licensing remain first-release decisions.
+  publication. Package ownership and the first public version remain release
+  decisions; Apache-2.0 is now recorded in LICENSE and package metadata.
 - Large response tests cover SDK routing/credential separation at 1 MiB, not an
   exhaustive memory/size stress test. Imports buffer a maximum 64 MiB source file
   and retain at most 100,000 documents. Complex documents can still use much more
