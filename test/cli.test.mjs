@@ -350,6 +350,53 @@ test('credential matching an error code does not rewrite error categories or imp
   assert.equal(failed.json.error.code, 'AUTH_ERROR');
 });
 
+test('query and fetch preserve colliding redacted keys, existing suffixes and nested values in either input order', async t => {
+  let doc;
+  const f = await fixture(t, (_r, send) => send(200, {
+    took: 1, total: 1, isDocsInline: true, docs: [{ collection: 'demo-docs', score: 1, doc }],
+  }));
+  const entries = [['a', 1], ['[REDACTED]', 2], ['[REDACTED]#1', 3], ['a#1', 4]];
+  const expected = { '[REDACTED]#2': 1, '[REDACTED]': 2, '[REDACTED]#1': 3, '[REDACTED]#1#1': 4 };
+  for (const ordered of [entries, [...entries].reverse()]) {
+    const fields = Object.fromEntries(ordered);
+    doc = { id: 'doc-1', ...fields, nested: [fields] };
+    for (const args of [
+      ['query', '--file', resolve('examples/query.json')],
+      ['docs', 'fetch', '--ids', 'doc-1'],
+    ]) {
+      const r = await f.run([...args, '--collection', 'demo-docs', '--ref', 'branch:main', '--json'], { LAMBDADB_API_KEY: 'a' });
+      assert.equal(r.code, 0);
+      assert.equal(r.json.schemaVersion, 1);
+      assert.deepEqual(r.json.data.docs[0].doc, { id: 'doc-1', ...expected, nested: [expected] });
+      assert.ok(!JSON.stringify(r.json.data.docs[0].doc).includes('a'));
+    }
+  }
+  // Several distinct keys can collapse even without an unchanged base key.
+  const colliding = [['a[REDACTED]', 5], ['[REDACTED]a', 6], ['aa', 7], ['[REDACTED][REDACTED]#1', 8]];
+  for (const ordered of [colliding, [...colliding].reverse()]) {
+    doc = { id: 'doc-1', ...Object.fromEntries(ordered) };
+    const r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', 'doc-1', '--json'], { LAMBDADB_API_KEY: 'a' });
+    assert.equal(r.code, 0);
+    const { id, ...fields } = r.json.data.docs[0].doc;
+    assert.equal(id, 'doc-1');
+    assert.deepEqual(Object.values(fields).sort(), [5, 6, 7, 8]);
+    assert.equal(fields['[REDACTED][REDACTED]#1'], 8);
+    assert.ok(!JSON.stringify(fields).includes('a'));
+  }
+});
+
+test('colliding metadata keys retain each tag and index configuration', async t => {
+  const f = await fixture(t, (_r, send) => send(200, {
+    collection: { ...metadata, tags: { a: 'first', '[REDACTED]': 'second' },
+      indexConfigs: { a: { type: 'keyword' }, '[REDACTED]': { type: 'text', analyzers: ['english'] } } },
+  }));
+  const r = await f.run(['collections', 'describe', '--collection', 'demo-docs', '--json'], { LAMBDADB_API_KEY: 'a' });
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.data.collection.tags, { '[REDACTED]#1': 'first', '[REDACTED]': 'second' });
+  assert.equal(r.json.data.collection.indexConfigs['[REDACTED]#1'].type, 'keyword');
+  assert.equal(r.json.data.collection.indexConfigs['[REDACTED]'].type, 'text');
+});
+
 test('a million tiny documents fail preflight within a 128 MiB heap, before any API request', async t => {
   const f = await fixture(t, (_r, send) => send(500, {}));
   const path = await f.file('many.jsonl', '{}\n'.repeat(1_000_000));

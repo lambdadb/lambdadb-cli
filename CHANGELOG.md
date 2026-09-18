@@ -16,6 +16,8 @@
 
 ### Fixed
 
+- Colliding redacted document/metadata keys receive unique suffixes instead of
+  silently overwriting values; unchanged field names remain intact.
 - Credential redaction preserves fixed JSON fields, command/status tokens and
   error categories when a credential is short or matches a protocol token.
 - JSONL preflight caps imports at 100,000 documents and scans physical lines

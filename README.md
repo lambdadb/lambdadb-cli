@@ -227,6 +227,9 @@ ref-kind and error-code tokens, even when a short credential coincides with one
 of them. It redacts variable string values and arbitrary document, index-config
 and tag-map keys. Returned data can therefore differ from the stored data when
 it contains the selected credential; public protocol tokens remain unchanged.
+If redacted map keys collide, unchanged keys keep their names and renamed keys
+receive unique `#N` suffixes, skipping existing names. Every entry is retained,
+with values still subject to credential redaction. Suffixes are local to each map.
 
 | Exit | Meaning |
 | --- | --- |

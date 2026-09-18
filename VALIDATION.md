@@ -9,10 +9,10 @@ No LambdaDB service was contacted for runtime validation.
 | --- | --- |
 | `npm run typecheck` | Passed with TypeScript 5.8.3. |
 | `npm run lint` and `npm run check:version` | Passed; package and lockfile metadata agree. |
-| `npm test` on Node.js 24.15.0 | 38 tests passed, zero failed or skipped. |
-| Same test suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 38 tests passed, zero failed or skipped. |
+| `npm test` on Node.js 24.15.0 | 40 tests passed, zero failed or skipped. |
+| Same test suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 40 tests passed, zero failed or skipped. |
 | Fresh temporary source directory: `npm ci`, `npm run build`, CLI version | Passed without the development checkout's node_modules or dist. |
-| `npm run test:package`: pack, inspect inventory, install in a temporary consumer, invoke executable version/help and repeat CLI contracts | 33 installed-CLI tests passed on Node 24. Package was never published. |
+| `npm run test:package`: pack, inspect inventory, install in a temporary consumer, invoke executable version/help and repeat CLI contracts | 35 installed-CLI tests passed on Node 24. Package was never published. |
 | `actionlint` on CI and publish workflows | Passed. This is static validation, not an OIDC publication. |
 | Live command without opt-in | Expected nonzero exit before network calls; not counted as a live test pass. |
 | npm install dependency audit | Zero vulnerabilities reported at installation time. |
@@ -60,6 +60,10 @@ cover byte accounting and cancellation between batches.
 - Short keys preserve JSON envelope fields, CLI command/state/check tokens,
   ref kinds and error codes. Arbitrary document/index/tag keys and variable
   values remain redacted; human output retains its structured data section.
+- Redacted map-key collisions preserve all entries and unchanged field names.
+  Query/fetch regressions cover both input orders, multiple colliding renamed
+  keys, preexisting suffixes and nested maps; collection metadata covers tag and
+  index-config collisions. Generated suffixes cannot overwrite reserved names.
 - Exactly 100,000 documents are accepted by input preflight; excess rows are
   rejected with their physical line number, excluding blank lines from the count.
   CRLF and a final line without a newline are covered.

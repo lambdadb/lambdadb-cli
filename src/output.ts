@@ -37,10 +37,22 @@ export class Output {
       if (typeof value === 'string') return !freeForm && protocolValues.has(path) ? value : this.redact(value);
       if (Array.isArray(value)) return value.map(item => sanitize(item, `${path}.*`, freeForm));
       if (value && typeof value === 'object') {
-        return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-          freeForm ? this.redact(key) : key,
-          sanitize(item, path ? `${path}.${key}` : key, freeForm || freeFormMaps.has(key)),
-        ]));
+        const entries = Object.entries(value).map(([key, item]) => ({ key, item, name: freeForm ? this.redact(key) : key }));
+        // Reserve every base name, including unchanged keys that appear later.
+        // Only renamed keys receive suffixes; unrelated field names stay intact.
+        const reserved = new Set(entries.map(entry => entry.name));
+        const used = new Set(entries.filter(entry => entry.key === entry.name).map(entry => entry.name));
+        const suffixes = new Map<string, number>();
+        return Object.fromEntries(entries.map(({ key, item, name }) => {
+          let unique = name;
+          if (key !== name && used.has(unique)) {
+            let suffix = suffixes.get(name) ?? 1;
+            do { unique = `${name}#${suffix++}`; } while (reserved.has(unique) || used.has(unique));
+            suffixes.set(name, suffix);
+          }
+          used.add(unique);
+          return [unique, sanitize(item, path ? `${path}.${key}` : key, freeForm || freeFormMaps.has(key))];
+        }));
       }
       return value;
     };
