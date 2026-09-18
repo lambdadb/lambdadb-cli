@@ -8,10 +8,13 @@ No LambdaDB service was contacted for runtime validation.
 | Check | Result |
 | --- | --- |
 | `npm run typecheck` | Passed with TypeScript 5.8.3. |
-| `npm test` on Node.js 24.15.0 | 28 tests passed, zero failed or skipped. |
-| Same test suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 28 tests passed, zero failed or skipped. |
+| `npm run lint` and `npm run check:version` | Passed; package and lockfile metadata agree. |
+| `npm test` on Node.js 24.15.0 | 33 tests passed, zero failed or skipped. |
+| Same test suite on Node.js 22.23.2 via `npm exec --yes --package=node@22 -- node --test test/*.test.mjs` | 33 tests passed, zero failed or skipped. |
 | Fresh temporary source directory: `npm ci`, `npm run build`, CLI version | Passed without the development checkout's node_modules or dist. |
-| Local `npm pack`, install tarball in a separate temporary consumer, invoke installed `lambdadb --version` and `--help` | Passed. Package was never published. |
+| `npm run test:package`: pack, inspect inventory, install in a temporary consumer, invoke executable version/help and repeat CLI contracts | 29 installed-CLI tests passed on Node 24. Package was never published. |
+| `actionlint` on CI and publish workflows | Passed. This is static validation, not an OIDC publication. |
+| Live command without opt-in | Expected nonzero exit before network calls; not counted as a live test pass. |
 | npm install dependency audit | Zero vulnerabilities reported at installation time. |
 | Reference SDK status and specified sbrain file status | Unchanged. |
 
@@ -42,6 +45,10 @@ cover byte accounting and cancellation between batches.
   because the SDK helper has no structured error stage.
 - Shared deadline applies to API calls, signed downloads and signed uploads;
   cancellation between batches leaves unsent rows not attempted.
+- Actual SIGINT/SIGTERM during an active second write preserve the accepted first
+  batch, mark the active batch unknown and leave the third batch unattempted.
+- Release channels and rejection of version drift, invalid tags/flags, private
+  publication and missing license metadata.
 - Empty results succeed; 401/403 authentication failures, other API failures and
   invalid response schemas fail; creation conflicts differ from uncertain writes.
 - All documented exit codes, JSON parseability, stdout/stderr separation, human
@@ -67,23 +74,28 @@ deployment state of an individual LambdaDB endpoint.
   behavior, real signed-storage policies, or production-scale performance.
 - No proof of exactly-once delivery, durable resume, or a committed-through write
   receipt. Those capabilities are not implemented.
-- No Windows-specific permission or signal validation. POSIX modes were checked
-  on macOS. SIGINT/SIGTERM share the abort path; the process-signal path itself was
-  not separately injected in this suite.
+- No Windows-specific permission or signal validation. POSIX modes and injected
+  SIGINT/SIGTERM were checked on macOS; CI targets Linux.
+- No npm publication, Trusted Publisher configuration, registry provenance or
+  release-workflow execution. Private-package preflight intentionally blocks
+  publication. Package ownership and licensing remain first-release decisions.
 - Large response tests cover SDK routing/credential separation at 1 MiB, not an
   exhaustive memory/size stress test. Imports buffer a maximum 64 MiB source file,
   and parsed/serialized memory can exceed that size.
 
 ## Requirements for live verification
 
-Supply an explicitly designated development `LAMBDADB_ENDPOINT`,
-`LAMBDADB_PROJECT` and `LAMBDADB_API_KEY` (or configured key-variable name).
-Use a new development collection and execute the README first-use flow. Query and
-fetch expected IDs and contents with `consistentRead: false` after acceptance.
-For non-main ref validation, supply existing development branch/tag/alias targets
-whose expected contents are known. Record actual request/result evidence without
-keys or signed URLs. Collection deletion is not part of this CLI MVP.
+Follow the explicit settings and `npm run test:live` procedure in
+[RELEASING.md](RELEASING.md#explicit-live-smoke). The new live harness has only had
+its missing-opt-in failure exercised locally; its authenticated flow and cleanup
+remain unverified. For non-main refs, supply existing development branch/tag/alias
+targets whose expected contents are known. Record evidence without keys or signed
+URLs. Temporary collection deletion is performed by the harness through the SDK,
+not exposed as a CLI command.
 
-The working branch is `feat/cli-mvp`. At the time of the local MVP validation,
-no commit, push, publication, deployment or remote repository creation had been
-performed. Subsequent commits and pushes are recorded in Git history.
+During expanded validation, a second-write timeout hung repeatedly in the source
+and installed package. An explicit timer alone was insufficient; binding the
+command signal through SDK HTTPClient fetch dispatch resolved the observed local
+regressions. See [DESIGN.md](DESIGN.md) for the compatibility boundary; the exact
+upstream cause is not claimed. Commits, pushes and CI runs are recorded in Git
+and the pull request; local checks do not imply service or publication success.

@@ -35,17 +35,13 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
+      - name: Check lint and version metadata
+        run: |
+          npm run lint
+          npm run check:version
       - name: Check types
         run: npm run typecheck
       - name: Build and run local contract tests
         run: npm test
-      - name: Verify installed package executable
-        shell: bash
-        run: |
-          npm pack --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/cli-package.json"
-          cli_package=$(node -e 'const fs = require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/cli-package.json", "utf8"))[0].filename)')
-          npm install --prefix "$RUNNER_TEMP/cli-consumer" "$RUNNER_TEMP/$cli_package"
-          cli_bin="$RUNNER_TEMP/cli-consumer/node_modules/.bin/lambdadb"
-          expected_version=$(node -p 'require("./package.json").version')
-          test "$("$cli_bin" --version)" = "$expected_version"
-          "$cli_bin" --help
+      - name: Test installed package contracts
+        run: npm run test:package

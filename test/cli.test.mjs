@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const cli = resolve('dist/cli.js');
+const cli = process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js');
 const secret = 'test-secret-never-print';
 const indexConfigs = { text: { type: 'text', analyzers: ['english'] } };
 const created = { collectionName: 'demo-docs', description: '', tags: {}, defaultBranchName: 'main', snapshotRetentionInDays: 30, createdAt: 1789689600000 };
@@ -33,7 +33,7 @@ async function fixture(t, handler) {
     await writeFile(path, typeof value === 'string' ? value : JSON.stringify(value));
     return path;
   }
-  async function run(args, env = {}) {
+  async function run(args, env = {}, onSpawn = () => {}) {
     const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_') && key !== 'XDG_CONFIG_HOME'));
     const child = spawn(process.execPath, [cli, ...args], {
       env: { ...cleanEnv, XDG_CONFIG_HOME: temp, LAMBDADB_ENDPOINT: base, LAMBDADB_PROJECT: 'dev-project', LAMBDADB_API_KEY: secret, ...env },
@@ -41,6 +41,7 @@ async function fixture(t, handler) {
     });
     let stdout = '', stderr = '';
     const timer = setTimeout(() => child.kill('SIGKILL'), 8000);
+    onSpawn(child);
     child.stdout.on('data', c => stdout += c);
     child.stderr.on('data', c => stderr += c);
     const code = await new Promise((r, reject) => { child.on('error', reject); child.on('close', r); });
@@ -51,6 +52,24 @@ async function fixture(t, handler) {
   }
   return { run, file, requests, base, temp };
 }
+
+test('SIGINT and SIGTERM preserve accepted batches and classify an active write as unknown', async t => {
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    await t.test(signal, async t => {
+      let child;
+      let calls = 0;
+      const f = await fixture(t, (_r, send) => {
+        if (++calls === 1) send(202, { message: 'accepted' });
+        else child.kill(signal);
+      });
+      const r = await f.run(['docs', 'import', '--collection', 'demo-docs', '--branch', 'main',
+        '--batch-size', '1', '--file', resolve('examples/documents.jsonl'), '--json'], {}, spawned => { child = spawned; });
+      assert.equal(r.code, 5);
+      assert.equal(calls, 2);
+      assert.deepEqual([r.json.data.accepted, r.json.data.unknown, r.json.data.notAttempted], [1, 1, 1]);
+    });
+  }
+});
 
 test('local end-to-end configure → doctor → create → import → query → fetch, plus describe and SDK pagination', async t => {
   const stored = [];

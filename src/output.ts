@@ -17,6 +17,7 @@ export class Output {
   }
 
   diagnostic(message: string) {
+    // eslint-disable-next-line no-control-regex -- Strip terminal control bytes from diagnostics.
     process.stderr.write(`${this.redact(message).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')}\n`);
   }
 

@@ -98,6 +98,14 @@ No upstream edit was required. Local regressions cover these adaptation points:
    failures. A future typed stage/error contract would enable more precise
    failed-versus-unknown reporting. The current CLI never parses error messages
    or claims a finalize receipt.
+5. Expanded installed-package tests reproduced a stalled second upsert despite a
+   600 ms command timeout on Node 24.15.0. Retaining an explicit timer alone did
+   not eliminate it. The CLI now binds its command signal directly at fetch
+   dispatch through the SDK's supported HTTPClient hook, for separate API and
+   transfer clients. SDK authentication, request construction, retry and transfer
+   logic remain in use. Local source and installed-package regressions verify
+   timeout and SIGINT/SIGTERM accounting. The precise upstream/runtime root cause
+   has not been established; no reference SDK source was changed.
 
 These findings do not require a new SDK release to use the CLI. SDK updates should
 retain contract tests before changing the pinned version.

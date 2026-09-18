@@ -7,7 +7,7 @@ published to a package registry.
 
 ## Install and run
 
-Requires Node.js 22 or newer and npm.
+Requires Node.js 22.14 or newer and npm.
 
 ```sh
 npm ci
@@ -237,12 +237,17 @@ SDK backoff with a two-second retry budget; its sleep can add up to approximatel
 
 Development changes target the Git `develop` branch; reviewed release promotions
 target `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch roles, PR checks
-and the release boundary. CI validates Node.js 22 and 24 using local contract
-tests and a separately installed CLI package.
+and the release boundary. [RELEASING.md](RELEASING.md) covers version channels,
+npm bootstrap, Trusted Publishing and release checks. CI validates Node.js 22
+and 24 using local contracts and the same CLI contracts against an installed
+tarball.
 
 ```sh
+npm run lint
+npm run check:version
 npm run typecheck
 npm test
+npm run test:package
 ```
 
 Tests execute the real CLI and installed SDK against loopback HTTP servers. They
@@ -258,5 +263,7 @@ plugins and publication. There are no changes to the SDK or reference repositori
 
 Live verification requires an explicitly designated development project, endpoint
 and project key. Do not discover or borrow credentials from another repository.
-Use the first-use flow only after those are supplied, then verify expected document
-contents with committed reads. Collection cleanup is outside this CLI's scope.
+Use `npm run test:live` with the explicit opt-in settings in
+[RELEASING.md](RELEASING.md#explicit-live-smoke). It exercises ordinary/bulk import
+and committed query/fetch contents in a random temporary collection, then uses
+the SDK to clean up that collection. The normal test suite and CI never run it.

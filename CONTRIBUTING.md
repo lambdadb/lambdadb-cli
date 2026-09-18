@@ -20,14 +20,18 @@ review includes the CLI implementation, tests, documentation and CI setup.
 
 ```sh
 npm ci
+npm run lint
+npm run check:version
 npm run typecheck
 npm test
+npm run test:package
 ```
 
 The `CI` workflow runs on pull requests targeting `develop` or `main` and on
 pushes to those branches. Its required check names are `Node.js 22` and
-`Node.js 24`. Both install the lockfile, check types, build, run the mock/local
-contract suite, pack the CLI, and execute a separately installed package.
+`Node.js 24`. Both install the lockfile, lint, validate version metadata, check
+types, build, run the mock/local contract suite, and repeat the CLI contract
+tests against a separately installed tarball. Use Node.js 22.14 or newer locally.
 CI uses a read-only GitHub token and no LambdaDB credentials. It does not publish
 packages or contact a LambdaDB service.
 
@@ -54,9 +58,11 @@ A separate `release/*` branch is optional when stabilization must proceed while
 new work continues on `develop`. It is not required for the initial release.
 
 Tagging, GitHub Releases and package publication are separate, explicit release
-actions. No publishing workflow exists yet, and the package remains
-`private: true`. Before enabling publication, define the release procedure,
-package metadata and registry credentials independently of development CI.
+actions. A publishing workflow is prepared, but the package remains
+`private: true` and fails its publication preflight. Follow
+[RELEASING.md](RELEASING.md) for package preparation, version/channel rules,
+credentialed live evidence, initial npm bootstrap and Trusted Publishing.
+Development CI and successful local tests do not authorize publication.
 
 For an urgent released-version fix, branch from `main`, review a PR back to
 `main`, then synchronize the fix into `develop`. Preserve the same checks and
@@ -69,3 +75,16 @@ servers with synthetic credentials. Live tests require an explicitly designated
 development project and credential set; local or CI success is not proof of
 live-service readiness. See [README.md](README.md) and
 [VALIDATION.md](VALIDATION.md) for the current contract and evidence boundaries.
+
+## Compatibility and maintenance
+
+Treat documented flags, JSON schema, exit codes, explicit target selection and
+failure semantics as public contracts. Add regression coverage for changes to
+these behaviors; do not script against human summaries. Update the changelog
+and document a migration when changing a contract. Preserve `--help` and
+noninteractive operation in the installed artifact, not only the source tree.
+
+Review dependency updates through the same PR checks, including the actual SDK
+contract and installed-package tests. Keep workflow actions pinned to commit
+SHAs and document version updates in their comments. Do not copy another
+repository's runtime matrix or release tooling without checking this CLI's needs.

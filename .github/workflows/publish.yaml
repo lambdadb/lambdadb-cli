@@ -1,0 +1,62 @@
+name: Publish npm package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up publishing runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Verify release metadata and channel
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: node scripts/check-release.mjs --release
+      - name: Require reviewed main history and an OIDC-capable npm
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          node -e 'const {execFileSync}=require("node:child_process"); const v=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(v[0]<11 || (v[0]===11 && (v[1]<5 || (v[1]===5 && v[2]<1)))) throw Error("npm >=11.5.1 required");'
+      - name: Validate source
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm test
+      - name: Pack once
+        id: package
+        shell: bash
+        run: |
+          npm pack --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/package.json"
+          node --input-type=module -e 'import fs from "node:fs"; const file=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/package.json","utf8"))[0].filename; fs.appendFileSync(process.env.GITHUB_OUTPUT,`tarball=${process.env.RUNNER_TEMP}/${file}\n`);'
+      - name: Test the exact release artifact
+        env:
+          CLI_TARBALL: ${{ steps.package.outputs.tarball }}
+        run: npm run test:package -- "$CLI_TARBALL"
+      - name: Publish using npm Trusted Publishing
+        env:
+          CLI_TARBALL: ${{ steps.package.outputs.tarball }}
+          NPM_CHANNEL: ${{ steps.metadata.outputs.channel }}
+        run: npm publish "$CLI_TARBALL" --access public --tag "$NPM_CHANNEL" --provenance
