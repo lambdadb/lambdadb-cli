@@ -5,8 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { LambdaDBClient } from '@functional-systems/lambdadb';
+import { observeWithin } from '../helpers/observation.mjs';
 
 test('explicit development-project CLI smoke with temporary collection cleanup', { timeout: 900000 }, async t => {
   // Fail instead of silently skipping a release prerequisite. Never load .env files.
@@ -27,11 +27,11 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   delete env.LAMBDADB_DEBUG;
   delete process.env.LAMBDADB_DEBUG;
   const cli = process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js');
-  async function run(args) {
+  async function run(args, remainingMs = 20000) {
     return new Promise((accept, reject) => execFile(process.execPath, [cli, ...args,
       '--endpoint', endpoint.origin, '--project', process.env.LAMBDADB_PROJECT,
-      '--config', join(temp, 'config.json'), '--timeout-ms', '15000', '--json',
-    ], { env, timeout: 20000, maxBuffer: 32 * 1024 * 1024 }, (error, stdout) => {
+      '--config', join(temp, 'config.json'), '--timeout-ms', String(Math.min(15000, remainingMs)), '--json',
+    ], { env, timeout: Math.min(20000, remainingMs), maxBuffer: 32 * 1024 * 1024 }, (error, stdout) => {
       try {
         if (error && (typeof error.code !== 'number' || error.killed)) throw new Error('Live CLI process could not complete.');
         accept({ code: error?.code ?? 0, result: JSON.parse(stdout) });
@@ -77,12 +77,10 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   progress('Ordinary writes (2) and bulk write (1) accepted; search visibility is not yet verified.');
   const expected = [...rows, bulkRow];
   async function waitForContents(args, stage) {
-    // Match the SDK live smoke's bounded committed-document observation window.
-    const deadline = Date.now() + 300000;
     let nextProgressAt = 0;
-    let lastObservation;
-    do {
-      const response = await run(args);
+    let lastObservation = 'no completed response';
+    const observed = await observeWithin({ timeoutMs: 300000, intervalMs: 2000, poll: async remainingMs => {
+      const response = await run(args, remainingMs);
       if (response.code !== 0) {
         const status = response.result.error?.httpStatus;
         lastObservation = `exit=${response.code}, HTTP=${status ?? 'not available'}`;
@@ -96,17 +94,17 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
             const doc = docs.find(doc => doc.id === row.id);
             return doc.text === row.text && doc.payload === row.payload;
           }), `${stage} returned different document contents.`);
-          progress(`${stage}: all expected document contents verified.`);
-          return;
+          return true;
         }
       }
       if (Date.now() >= nextProgressAt) {
         progress(`${stage}: waiting for committed documents (${lastObservation}).`);
         nextProgressAt = Date.now() + 15000;
       }
-      await delay(2000);
-    } while (Date.now() < deadline);
-    throw new Error(`${stage} did not return expected committed documents within 300 seconds (${lastObservation}).`);
+      return false;
+    } });
+    if (!observed) throw new Error(`${stage} did not return expected committed documents within 300 seconds (${lastObservation}).`);
+    progress(`${stage}: all expected document contents verified.`);
   }
   await waitForContents(['query', '--collection', collection, '--ref', 'branch:main', '--file', resolve('examples/query.json')], 'query');
   await waitForContents(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', ...expected.map(row => row.id)], 'fetch');

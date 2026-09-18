@@ -24,6 +24,8 @@
 
 - Live smoke observes committed documents for up to 300 seconds per read stage
   and reports safe progress diagnostics after a 75-second observation failure.
+  Requests and polling sleeps respect the remaining budget; late results cannot
+  pass. The validation record identifies the designated development target.
 - Colliding redacted document/metadata keys receive unique suffixes instead of
   silently overwriting values; unchanged field names remain intact.
 - Credential redaction preserves fixed JSON fields, command/status tokens and

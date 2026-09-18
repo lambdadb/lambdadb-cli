@@ -31,8 +31,12 @@ remain unverified until the first authorized automated publication.
 
 Tested the CLI from develop commit `a040f53` (version `0.1.0-dev.1`, SDK `0.5.1`)
 with Node.js 24.15.0 against the development target supplied by the maintainer in
-the primary checkout's ignored `.env.local`. Target values and credentials are
-not copied into this public record. The file used `LAMBDADB_BASE_URL`,
+the primary checkout's ignored `.env.local`. The designated development target is:
+
+- Endpoint: `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`
+- Project: `bench-recall`
+
+The API key is excluded from this record. The file used `LAMBDADB_BASE_URL`,
 `LAMBDADB_PROJECT_NAME`, `LAMBDADB_PROJECT_API_KEY` and an explicit
 `LAMBDADB_RUN_LIVE_TESTS=1`. An in-memory launcher mapped the first three to
 `LAMBDADB_ENDPOINT`, `LAMBDADB_PROJECT`, `LAMBDADB_API_KEY`, and supplied the
@@ -60,6 +64,32 @@ The two runs demonstrate variable observation time; 300 seconds is a test budget
 not a readiness or latency guarantee. Full content was verified for a combined
 response above 6 MiB, but the CLI harness did not inspect the service's wire
 response to prove selection of `docsUrl`. Live tag/alias reads remain unverified.
+
+### Review follow-up: enforce the observation budget
+
+The harness now uses a monotonic deadline, caps CLI and child-process timeouts
+to the remaining budget, and limits the final polling sleep. It checks the
+deadline after each observation, including content comparison, before accepting
+success. Process termination and event-loop scheduling can delay reporting, but
+a response at or after the deadline cannot pass the stage.
+
+On Node.js 24.15.0, lint, type checking and all 53 source tests passed. Seven new
+deterministic tests cover timely success, late success/failure, success exactly
+at the deadline, a capped final sleep, an in-flight timeout and an earlier fatal
+error. The regression reproduces a response arriving at 318 seconds and rejects
+it; the final request receives only the remaining 2-second budget.
+The packed and separately installed CLI also passed all 35 contract tests.
+
+Re-ran `node --test test/live/cli.test.mjs` with this review fix in the working
+tree based on `6642eeb`, using the same designated endpoint/project and launcher
+above. The CLI runtime source remained identical to `a040f53`; SDK version was
+`0.5.1`. Doctor and collection creation passed within the first second, ordinary
+and bulk writes were accepted at about 3 seconds, and exact query/fetch contents
+passed at about 91 seconds (test duration: 91.231 seconds). Both reads used
+`branch:main`. Cleanup was accepted for
+`cli-smoke-3cb15833-414d-4265-9b57-70df164b28ef`; a subsequent SDK get returned
+`ResourceNotFoundError`, confirming absence. Deadline boundary cases were
+verified deterministically above, not by inducing a live service timeout.
 
 ## 0.1.0-dev.1 release preparation
 

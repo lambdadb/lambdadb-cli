@@ -209,8 +209,11 @@ npm run test:live
 The test fails before API calls when required settings are absent. It creates a
 random temporary collection, imports two 3 MiB documents plus a bulk document,
 and checks committed query/fetch contents with a maximum 300-second observation
-window per stage. It reports elapsed time and matched-document counts; a timeout
-is a failed smoke, not proof that accepted writes were rejected or lost.
+window per stage. Request timeouts and polling sleeps are capped to the remaining
+budget, and responses at or after the deadline cannot pass. Process termination
+and event-loop scheduling may delay reporting. It reports elapsed time and
+matched-document counts; a timeout is a failed smoke, not proof that accepted
+writes were rejected or lost.
 Collection cleanup uses the SDK because deletion is outside the public CLI MVP.
 Only the test's own collection is eligible for cleanup. An interrupted process
 or failed cleanup may leave that named collection; inspect it manually.
