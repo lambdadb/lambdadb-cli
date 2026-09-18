@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { LambdaDBClient } from '@functional-systems/lambdadb';
 
-test('explicit development-project CLI smoke with temporary collection cleanup', { timeout: 360000 }, async t => {
+test('explicit development-project CLI smoke with temporary collection cleanup', { timeout: 900000 }, async t => {
   // Fail instead of silently skipping a release prerequisite. Never load .env files.
   assert.equal(process.env.LAMBDADB_RUN_LIVE_TESTS, '1', 'Set LAMBDADB_RUN_LIVE_TESTS=1 only for an explicitly designated development project.');
   for (const key of ['LAMBDADB_ENDPOINT', 'LAMBDADB_PROJECT', 'LAMBDADB_API_KEY']) {
@@ -19,6 +19,8 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   assert.equal(endpoint.protocol, 'https:', 'Live tests require HTTPS.');
   assert.ok(!endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash && endpoint.pathname === '/', 'Use an API origin without credentials, query, fragment or path.');
   const collection = `cli-smoke-${randomUUID()}`;
+  const startedAt = Date.now();
+  const progress = message => console.info(`[live +${Math.round((Date.now() - startedAt) / 1000)}s] ${message}`);
   const temp = await mkdtemp(join(tmpdir(), 'lambdadb-live-'));
   t.after(() => rm(temp, { recursive: true, force: true }));
   const env = { ...process.env, LAMBDADB_API_KEY_ENV: 'LAMBDADB_API_KEY' };
@@ -43,6 +45,7 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   // An explicit config prevents accidental reads of an existing user's saved target.
   await writeFile(join(temp, 'config.json'), JSON.stringify({ endpoint: endpoint.origin, project: process.env.LAMBDADB_PROJECT, apiKeyEnv: 'LAMBDADB_API_KEY' }), { mode: 0o600 });
   success(await run(['doctor']), 'doctor');
+  progress('Doctor passed.');
   const created = await run(['collections', 'create', '--collection', collection, '--index-config', resolve('examples/index-config.json')]);
   if (created.code === 0 || created.code === 5) {
     t.after(async () => {
@@ -56,6 +59,7 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     });
   }
   success(created, 'create');
+  progress(`Created temporary collection ${collection}.`);
   const rows = [
     { id: 'large-1', text: 'serverless smoke', payload: 'a'.repeat(3 * 1024 * 1024) },
     { id: 'large-2', text: 'serverless smoke', payload: 'b'.repeat(3 * 1024 * 1024) },
@@ -70,28 +74,39 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   await writeFile(bulkFile, JSON.stringify(bulkRow) + '\n');
   const bulk = success(await run(['docs', 'import', '--collection', collection, '--branch', 'main', '--mode', 'bulk', '--file', bulkFile]), 'bulk');
   assert.equal(bulk.accepted, 1);
+  progress('Ordinary writes (2) and bulk write (1) accepted; search visibility is not yet verified.');
   const expected = [...rows, bulkRow];
   async function waitForContents(args, stage) {
-    const deadline = Date.now() + 75000;
+    // Match the SDK live smoke's bounded committed-document observation window.
+    const deadline = Date.now() + 300000;
+    let nextProgressAt = 0;
+    let lastObservation;
     do {
       const response = await run(args);
       if (response.code !== 0) {
         const status = response.result.error?.httpStatus;
+        lastObservation = `exit=${response.code}, HTTP=${status ?? 'not available'}`;
         if (response.code !== 3 || ![404, 409, 503].includes(status)) success(response, stage);
       } else {
         const docs = response.result.data.docs.map(item => item.doc);
+        lastObservation = `matched=${expected.filter(row => docs.some(doc => doc.id === row.id)).length}/${expected.length}`;
         if (expected.every(row => docs.some(doc => doc.id === row.id))) {
           // Avoid assertion dumps containing the large returned payloads.
           assert.ok(expected.every(row => {
             const doc = docs.find(doc => doc.id === row.id);
             return doc.text === row.text && doc.payload === row.payload;
           }), `${stage} returned different document contents.`);
+          progress(`${stage}: all expected document contents verified.`);
           return;
         }
       }
-      await delay(1000);
+      if (Date.now() >= nextProgressAt) {
+        progress(`${stage}: waiting for committed documents (${lastObservation}).`);
+        nextProgressAt = Date.now() + 15000;
+      }
+      await delay(2000);
     } while (Date.now() < deadline);
-    throw new Error(`${stage} did not return expected committed documents within the observation window.`);
+    throw new Error(`${stage} did not return expected committed documents within 300 seconds (${lastObservation}).`);
   }
   await waitForContents(['query', '--collection', collection, '--ref', 'branch:main', '--file', resolve('examples/query.json')], 'query');
   await waitForContents(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', ...expected.map(row => row.id)], 'fetch');

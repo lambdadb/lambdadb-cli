@@ -19,6 +19,8 @@
 
 ### Fixed
 
+- Live smoke observes committed documents for up to 300 seconds per read stage
+  and reports safe progress diagnostics after a 75-second observation failure.
 - Colliding redacted document/metadata keys receive unique suffixes instead of
   silently overwriting values; unchanged field names remain intact.
 - Credential redaction preserves fixed JSON fields, command/status tokens and
@@ -32,5 +34,6 @@
 
 Prepared for the first public development release on npm's `dev` channel. This
 entry records the candidate contents and preparation date, not a publication.
-Live development-project verification, promotion to main, npm organization
-permission verification and authorized bootstrap publication remain pending.
+The development-project smoke is recorded in VALIDATION.md. Promotion to main,
+npm organization permission verification and authorized bootstrap publication
+remain pending.
