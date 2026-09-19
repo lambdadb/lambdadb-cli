@@ -25,6 +25,12 @@ Installed CLIs do not update themselves. See
 [RELEASING.md](RELEASING.md#current-status) for release status and
 [VALIDATION.md](VALIDATION.md) for verification results and remaining limitations.
 
+### Homebrew
+
+Homebrew support is being prepared for macOS and Linux. The formula and local
+installation checks are in [the maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme).
+The public tap is not published yet; use npm for installation today.
+
 ### Build from source
 
 From a checkout of this repository:

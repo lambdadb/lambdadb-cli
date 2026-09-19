@@ -252,6 +252,16 @@ live behavior, or exactly-once writes. A large result alone does not prove the
 service selected docsUrl; mock tests explicitly exercise that transport path.
 Use existing known development tag/alias refs for additional live ref evidence.
 
+## Homebrew handoff
+
+The stable formula is maintained in `packaging/homebrew/Formula/lambdadb-cli.rb`.
+It consumes the verified npm artifact and the lockfile from its immutable release
+commit. Development publication does not update Homebrew. After each stable npm
+release, follow the [Homebrew maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme) to
+update checksums, pass installation checks and prepare a tap PR. Tap publication
+is separate from this repository's npm workflow; no cross-repository write or
+automatic tap update is configured. The public tap has not been published yet.
+
 ## Design references
 
 - LambdaDB TypeScript client `RELEASING.md` and `publish.yaml`: canonical channels,

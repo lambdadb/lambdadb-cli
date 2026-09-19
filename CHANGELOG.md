@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- A Homebrew formula for the published stable CLI, with a managed Node 24 runtime,
+  checksummed npm/lockfile inputs and isolated production dependencies.
+- Local Homebrew installation checks, installed CLI contracts and macOS/Linux PR
+  validation. Public tap publication remains a separate pending step.
+
 ### Maintenance
 
 - Synchronize the 0.1.0 release history into develop and start the 0.1.1 development
