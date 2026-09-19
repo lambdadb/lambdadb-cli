@@ -16,6 +16,11 @@
 - Synchronize the 0.1.0 release history into develop and start the 0.1.1 development
   line. Stable installs use npm's default channel; dev builds remain opt-in.
 
+### Documentation
+
+- Document the published stable npm channel, public Homebrew installation and
+  completed release verification on the default branch.
+
 ## [0.1.0] - 2026-09-19
 
 ### Added
