@@ -7,7 +7,7 @@
 - Synchronize the 0.1.0 release history into develop and start the 0.1.1 development
   line. Stable installs use npm's default channel; dev builds remain opt-in.
 
-## [0.1.0] - 2026-09-18
+## [0.1.0] - 2026-09-19
 
 ### Added
 
