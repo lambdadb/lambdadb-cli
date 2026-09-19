@@ -6,9 +6,9 @@ pagination, bulk transfers and large response downloads.
 
 ## Install and run
 
-Requires Node.js 22.14 or newer and npm.
-
 ### Install from npm
+
+Requires Node.js 22.14 or newer and npm.
 
 Install the stable channel:
 
@@ -27,13 +27,28 @@ Installed CLIs do not update themselves. See
 
 ### Homebrew
 
-Homebrew support is being prepared for macOS and Linux. The formula and local
-installation checks are in [the maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme).
-The public tap is not published yet; use npm for installation today.
+On macOS or Linux with [Homebrew](https://brew.sh/) installed:
+
+```sh
+brew install lambdadb/tap/lambdadb-cli
+lambdadb --version
+lambdadb --help
+```
+
+The [LambdaDB tap](https://github.com/lambdadb/homebrew-tap) installs the stable CLI
+and its Node 24 runtime. No separate Node/npm setup is needed. Update with
+`brew update` followed by `brew upgrade lambdadb/tap/lambdadb-cli`; remove with
+`brew uninstall lambdadb/tap/lambdadb-cli`.
+
+If another installation provides `lambdadb`, check `command -v lambdadb` before
+switching package managers. Follow Homebrew's formula trust prompts without
+disabling trust checks. See the
+[maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme)
+for packaging and validation details.
 
 ### Build from source
 
-From a checkout of this repository:
+Requires Node.js 22.14 or newer and npm. From a checkout of this repository:
 
 ```sh
 npm ci

@@ -2,11 +2,11 @@
 
 ## Availability
 
-This directory prepares a third-party tap for the published stable CLI, currently
-`0.1.0`. The formula is tested from a disposable local tap. No public
-`lambdadb/homebrew-tap` repository has been created by this change, so the public
-Homebrew command below is **not available yet**. npm remains the supported public
-installation method until tap publication is completed.
+The public [LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides the
+published stable CLI, currently `0.1.0`, on macOS and Linux. This directory keeps
+the formula used for CLI-side review and full installed-contract checks. The tap
+contains the reviewed copy used by Homebrew consumers and its own installation CI.
+See [validation evidence](../../VALIDATION.md#homebrew-publication).
 
 ## Packaging contract
 
@@ -56,20 +56,15 @@ dependency state is required.
 24.04 for relevant PRs. It performs no LambdaDB service calls, npm publication or
 remote tap writes. Full CLI runtime CI remains separate.
 
-## Publishing the tap
+## Public installation and tap maintenance
 
-Tap creation/publication is a separate repository action. Once authorized:
+The tap was published on 2026-09-19 with the reviewed formula, Apache-2.0 license,
+consumer instructions and macOS/Linux installation CI. Normal changes target its
+`main` branch through PRs requiring one approving review, resolved conversations
+and both installation checks. Organization rules apply in addition to repository
+protection. The tap does not need a separate `develop` branch or npm credentials.
 
-1. Create the public `lambdadb/homebrew-tap` repository and set up its default
-   branch and review protections.
-2. Copy the reviewed `Formula/lambdadb-cli.rb` from this directory. Include the
-   root Apache-2.0 `LICENSE` and a tap README with installation/update/removal
-   instructions. Add formula installation checks before accepting later updates.
-3. Publish the reviewed initial contents, then verify installation from the actual
-   remote tap on a clean consumer. Local-tap CI does not establish this step.
-4. Update the CLI README's availability statement only after remote verification.
-
-After that publication, the intended consumer commands are:
+Consumer commands:
 
 ```sh
 brew install lambdadb/tap/lambdadb-cli
@@ -80,6 +75,13 @@ brew uninstall lambdadb/tap/lambdadb-cli
 
 Homebrew adds the tap on fully qualified installation. Follow any formula trust
 prompt shown by the installed Homebrew version; do not disable trust checks.
+
+The tap's `scripts/test-install.sh local` checks PR formulae in a temporary tap.
+Its `remote` mode exercises the public installation command and compares the
+downloaded formula with the checkout. Pushes to tap `main` run remote checks;
+PRs run local checks. Test cleanup removes only the temporary installation and
+tap, retaining dependencies and caches. See the
+[tap instructions](https://github.com/lambdadb/homebrew-tap#installation-checks).
 
 ## Updating for a stable release
 

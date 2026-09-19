@@ -3,6 +3,39 @@
 Updated: 2026-09-19. Local contract tests use loopback servers and synthetic
 credentials. A separate authenticated development-project smoke is recorded below.
 
+## Homebrew publication
+
+On 2026-09-19, the public
+[lambdadb/homebrew-tap](https://github.com/lambdadb/homebrew-tap) was initialized at
+`ca84485149d7915131df686b4c68868d47c00cd5`. Its CLI formula is byte-for-byte equal
+to the formula merged in CLI PR #7 (`3eefaaa`), selecting stable `0.1.0` and the
+release lockfile at `c8d389f`.
+
+- Local macOS 26.4 arm64 / Homebrew 6.0.17 verification used the tap's new harness
+  in both local and remote modes. Remote mode invoked
+  `brew install --formula lambdadb/tap/lambdadb-cli` with no existing tap or CLI,
+  exercising automatic public tap discovery and formula-specific trust.
+- Installation, downloaded formula equality, Homebrew style, `brew test`, version
+  `0.1.0`, JSON configuration with mode 0600, and the wrapper with an unusable
+  ambient Node all passed. No trust checks were disabled.
+- Test installations and taps were removed; existing taps, fnm Node and CLI
+  `.env.local` were preserved. Dependencies and caches remain installed.
+- [Tap CI](https://github.com/lambdadb/homebrew-tap/actions/runs/35433096180)
+  passed remote installation, style, smoke, runtime selection and cleanup on both
+  macOS 15 and Ubuntu 24.04 at the published tap commit.
+- Simulated existing CLI, broken prefix executable symlink and existing remote
+  tap cases stopped the new harness before mutations; invalid mode returned 2
+  without invoking Homebrew.
+- Tap main protection requires both installation checks, one approving review,
+  resolved conversations and an up-to-date base; force pushes and deletion are
+  disabled. Organization-level default-branch rules also apply.
+
+This publishes an installation path for the existing stable artifact, without a
+new npm release or another LambdaDB live-service smoke. Upgrade behavior between
+two distinct stable versions remains unverified until the next formula update.
+The earlier 35-contract Homebrew verification below used the same stable artifact;
+this tap publication ran the installation smoke checks rather than repeating it.
+
 ## Homebrew preparation
 
 On 2026-09-19, macOS 26.4 arm64 / Homebrew 6.0.17 installed stable `0.1.0`
@@ -29,9 +62,9 @@ matched registry integrity. The release lockfile resource is fixed to `c8d389f`.
   not change.
 
 macOS/Linux Homebrew CI is configured separately from runtime CI; current PR job
-results are the authority for hosted-runner coverage. No public tap repository
-was created and installation from a public tap remains unverified. No new npm
-version was published by this work. LambdaDB service smoke was not repeated for
+results are the authority for hosted-runner coverage. This initial preparation
+did not create the public tap; publication evidence is recorded above. No new npm
+version was published by the preparation. LambdaDB service smoke was not repeated for
 this packaging-only change; the stable candidate evidence below remains separate.
 
 ## Stable 0.1.0 publication

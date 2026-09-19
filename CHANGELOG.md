@@ -7,7 +7,9 @@
 - A Homebrew formula for the published stable CLI, with a managed Node 24 runtime,
   checksummed npm/lockfile inputs and isolated production dependencies.
 - Local Homebrew installation checks, installed CLI contracts and macOS/Linux PR
-  validation. Public tap publication remains a separate pending step.
+  validation.
+- Public installation with `brew install lambdadb/tap/lambdadb-cli`, backed by the
+  LambdaDB Homebrew tap and remote installation checks.
 
 ### Maintenance
 
