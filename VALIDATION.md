@@ -3,6 +3,37 @@
 Updated: 2026-09-19. Local contract tests use loopback servers and synthetic
 credentials. A separate authenticated development-project smoke is recorded below.
 
+## Homebrew preparation
+
+On 2026-09-19, macOS 26.4 arm64 / Homebrew 6.0.17 installed stable `0.1.0`
+from `packaging/homebrew/Formula/lambdadb-cli.rb` through a disposable local tap.
+The npm tarball SHA-256 was checked against the downloaded bytes, whose SHA-512
+matched registry integrity. The release lockfile resource is fixed to `c8d389f`.
+
+- Homebrew formula style, installation and `brew test` passed. The formula checks
+  CLI version, JSON configuration and mode 0600 without contacting a service.
+- A deliberately unusable `node` placed first on ambient PATH did not prevent
+  the installed wrapper from running; it selected Homebrew's Node 24.21.0.
+- All 35 CLI contracts from the stable release commit passed against the installed
+  Homebrew package. The harness uses the release commit's tests/examples so future
+  development-only features do not create false failures for an older stable CLI.
+- Simulated existing-formula and broken-executable-symlink cases both stopped the
+  harness before any installation or tap mutation.
+- The temporary CLI installation and tap were removed. The final harness disables
+  automatic dependency removal and cleanup, and does not persist developer mode.
+  Homebrew dependencies/caches remain: installing Node also upgraded the required
+  ca-certificates, openssl@3, readline, sqlite and xz packages during initial setup.
+  The existing fnm-managed Node and global npm CLI were not replaced.
+- Normal clean-install, lint, version/type checks, 59 source tests and 35 npm
+  installed-package contracts also passed. CLI runtime and SDK dependencies did
+  not change.
+
+macOS/Linux Homebrew CI is configured separately from runtime CI; current PR job
+results are the authority for hosted-runner coverage. No public tap repository
+was created and installation from a public tap remains unverified. No new npm
+version was published by this work. LambdaDB service smoke was not repeated for
+this packaging-only change; the stable candidate evidence below remains separate.
+
 ## Stable 0.1.0 publication
 
 On 2026-09-19, [GitHub Release v0.1.0](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.0)
