@@ -2,49 +2,38 @@
 
 ## Current status
 
-The `release/0.1.0` candidate prepares the first stable version from reviewed
-`develop` commit `c8947e9`. It changes package/lock versions and release documents;
-CLI runtime, dependencies, tests and workflows match the verified development build.
-The promotion PR targets `main` directly so `develop` keeps its automatic dev base.
-Merge with a merge commit, then obtain authorization for `v0.1.0` and a non-prerelease
-GitHub Release. Main promotion alone does not publish npm. After publication,
-verify `latest=0.1.0`, provenance and a clean consumer installation. Synchronize
-main back to develop through a PR that also sets the next development base.
-Stable publication has not yet been performed.
+The first stable version, `0.1.0`, was published on 2026-09-19 through
+[GitHub Release v0.1.0](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.0)
+and the [OIDC release workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/35421226854).
+Tag and main release commit `c8d389f` have the same tree as the reviewed and
+live-tested candidate `658ea7c`. The workflow passed on attempt 1, including Node
+22/24 validation and tests of the exact publication tarball.
 
-The ordinary develop merge published `0.1.0-dev.5` through OIDC in
-[one successful workflow attempt](https://github.com/lambdadb/lambdadb-cli/actions/runs/35344153978).
-The new verification logic handled approximately three minutes of registry
-propagation without repeating the write or rerunning the workflow. A fresh npm
-installation passed 35 CLI contracts, integrity and provenance/signature checks.
+Registry verification confirmed `latest=0.1.0` and `dev=0.1.0-dev.5`. A clean,
+unqualified npm install passed all 35 CLI contracts, version/help, integrity,
+provenance and signature checks. Version/tag and attestation metadata propagated
+separately; verification used read retries without republishing.
 
-Bootstrap and initial OIDC publication were completed on 2026-09-18:
+The post-release synchronization merged main history back into develop with
+`0.1.1-dev.1` as its development base. After the Homebrew documentation merge,
+[develop CI](https://github.com/lambdadb/lambdadb-cli/actions/runs/35434313586)
+published and verified `0.1.1-dev.8` from `225dec3` on 2026-09-19. Registry and
+provenance metadata identify that commit; `latest` remains `0.1.0`. Development
+builds do not require a separate stable release or tag.
 
-- `0.1.0-dev.1` was published publicly from reviewed develop as the manual bootstrap.
-- `0.1.0-dev.4` was published by GitHub Actions with verified provenance for
-  commit `f2397ba`. Its registry installation passed all 35 CLI contract tests.
-- The repository variable `NPM_DEV_PUBLISH_ENABLED=true` enables eligible develop
-  pushes after Node 22/24 CI. Main promotion is required only for rc/stable.
+Bootstrap `0.1.0-dev.1` and the first OIDC development builds were verified on
+2026-09-18. The ordinary develop merge published `0.1.0-dev.5` in
+[one successful attempt](https://github.com/lambdadb/lambdadb-cli/actions/runs/35344153978),
+handling approximately three minutes of registry propagation without another write.
+The bootstrap initially assigned `latest` to `0.1.0-dev.1`, and a removal attempt
+returned HTTP 400. The stable publication replaces that temporary tag state.
+Do not repeat bootstrap or change tags to work around propagation delays.
 
-These are recorded validation milestones, not a continuously updated list of
-versions. Check npm for current dist-tags. At verification, `dev` pointed to
-`0.1.0-dev.4` and `latest` remained at the bootstrap `0.1.0-dev.1`: the first
-publication created both tags despite `--tag dev`, and removing `latest` returned
-HTTP 400. The next dev publication preserved `latest`. No stable version has been
-published; explicitly select `@dev` or an exact development version until a
-reviewed rc/stable release is available. Do not repeatedly delete the bootstrap
-tag or publish a placeholder to work around it.
-
-The CLI is licensed under [Apache-2.0](LICENSE), with matching package metadata.
-Publication, provenance and development-project smoke evidence are recorded in
-[VALIDATION.md](VALIDATION.md). Local bootstrap has no GitHub Actions provenance;
-the automated development artifact does.
-
-The workflow rejects private packages and missing license metadata. Explicit
-rc/stable releases also require matching tags, prerelease flags and dated
-changelog entries. Passing metadata validation does not establish live-service
-verification. Enabling automatic dev publication authorizes eligible develop
-pushes to publish after CI; rc/stable publication remains an explicit action.
+These are dated validation milestones, not a continuously updated version list.
+Check npm for current dist-tags. Apache-2.0 licensing, publication, provenance,
+consumer checks and development-project smoke evidence are recorded in
+[VALIDATION.md](VALIDATION.md). Automatic dev publication is enabled;
+future stable/rc tags and GitHub Releases remain explicit release actions.
 
 ## Branch and version policy
 
@@ -263,6 +252,19 @@ This sample does not prove global index readiness, ranking quality, every ref's
 live behavior, or exactly-once writes. A large result alone does not prove the
 service selected docsUrl; mock tests explicitly exercise that transport path.
 Use existing known development tag/alias refs for additional live ref evidence.
+
+## Homebrew handoff
+
+The stable formula is maintained on develop in
+[`packaging/homebrew/Formula/lambdadb-cli.rb`](https://github.com/lambdadb/lambdadb-cli/blob/develop/packaging/homebrew/Formula/lambdadb-cli.rb).
+It consumes the verified npm artifact and the lockfile from its immutable release
+commit. Development publication does not update Homebrew. After each stable npm
+release, follow the [Homebrew maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme) to
+update checksums, pass installation checks and prepare a tap PR. Tap publication
+is separate from this repository's npm workflow; no cross-repository write or
+automatic tap update is configured. The public
+[LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides stable `0.1.0`;
+installation evidence is recorded in [VALIDATION.md](VALIDATION.md#homebrew-publication).
 
 ## Design references
 
