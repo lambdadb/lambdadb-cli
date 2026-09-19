@@ -3,6 +3,21 @@
 Updated: 2026-09-19. Local contract tests use loopback servers and synthetic
 credentials. A separate authenticated development-project smoke is recorded below.
 
+## Development publication after Homebrew documentation
+
+On 2026-09-19, the [develop push workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/35434313586)
+completed successfully for `225dec37f48dd5603af7fe777c1eb24d9041188c`, the merge of
+PR #8. Node 22/24 validation and tests of the exact publication tarball passed.
+The publish job accepted `0.1.1-dev.8`, retried registry reads during propagation,
+and finished with `result=published` without repeating the write.
+
+Subsequent read-only registry checks confirmed `dev=0.1.1-dev.8`,
+`latest=0.1.0`, and the package's `gitHead` matching the merge commit. Decoded
+provenance metadata identifies that same commit, `refs/heads/develop`,
+`.github/workflows/publish.yaml` and workflow attempt 1; its subject digest matches
+registry integrity. This metadata inspection did not repeat signature verification,
+a consumer installation or the LambdaDB live smoke.
+
 ## Homebrew publication
 
 On 2026-09-19, the public

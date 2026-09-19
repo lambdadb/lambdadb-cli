@@ -14,11 +14,12 @@ unqualified npm install passed all 35 CLI contracts, version/help, integrity,
 provenance and signature checks. Version/tag and attestation metadata propagated
 separately; verification used read retries without republishing.
 
-The post-release synchronization brings main history back into develop with
-`0.1.1-dev.1` as the next development base. Its promotion PR must preserve shared
-ancestry with a merge commit. Once merged, the normal develop push workflow
-publishes a numbered `0.1.1-dev.N` build on `dev`; it does not move `latest`.
-No separate stable release or tag is needed for this maintenance step.
+The post-release synchronization merged main history back into develop with
+`0.1.1-dev.1` as its development base. After the Homebrew documentation merge,
+[develop CI](https://github.com/lambdadb/lambdadb-cli/actions/runs/35434313586)
+published and verified `0.1.1-dev.8` from `225dec3` on 2026-09-19. Registry and
+provenance metadata identify that commit; `latest` remains `0.1.0`. Development
+builds do not require a separate stable release or tag.
 
 Bootstrap `0.1.0-dev.1` and the first OIDC development builds were verified on
 2026-09-18. The ordinary develop merge published `0.1.0-dev.5` in
@@ -254,7 +255,8 @@ Use existing known development tag/alias refs for additional live ref evidence.
 
 ## Homebrew handoff
 
-The stable formula is maintained in `packaging/homebrew/Formula/lambdadb-cli.rb`.
+The stable formula is maintained on develop in
+[`packaging/homebrew/Formula/lambdadb-cli.rb`](https://github.com/lambdadb/lambdadb-cli/blob/develop/packaging/homebrew/Formula/lambdadb-cli.rb).
 It consumes the verified npm artifact and the lockfile from its immutable release
 commit. Development publication does not update Homebrew. After each stable npm
 release, follow the [Homebrew maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme) to
