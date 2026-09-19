@@ -66,7 +66,7 @@ development base in that synchronization PR so develop retains a dev version.
 
 A separate `release/*` branch can be created from reviewed develop and target
 main when preparing rc/stable metadata while develop retains its automatic dev
-base. The first stable release uses `release/0.1.0` for this reason. Do not merge
+base. The first stable release used `release/0.1.0` for this reason. Do not merge
 stable package metadata into develop without setting its next dev base, because
 automatic development publication requires an `X.Y.Z-dev.N` version.
 

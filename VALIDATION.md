@@ -1,14 +1,123 @@
 # Validation record
 
-Date: 2026-09-18. Local contract tests use loopback servers and synthetic
+Updated: 2026-09-19. Local contract tests use loopback servers and synthetic
 credentials. A separate authenticated development-project smoke is recorded below.
+
+## Development publication after Homebrew documentation
+
+On 2026-09-19, the [develop push workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/35434313586)
+completed successfully for `225dec37f48dd5603af7fe777c1eb24d9041188c`, the merge of
+PR #8. Node 22/24 validation and tests of the exact publication tarball passed.
+The publish job accepted `0.1.1-dev.8`, retried registry reads during propagation,
+and finished with `result=published` without repeating the write.
+
+Subsequent read-only registry checks confirmed `dev=0.1.1-dev.8`,
+`latest=0.1.0`, and the package's `gitHead` matching the merge commit. Decoded
+provenance metadata identifies that same commit, `refs/heads/develop`,
+`.github/workflows/publish.yaml` and workflow attempt 1; its subject digest matches
+registry integrity. This metadata inspection did not repeat signature verification,
+a consumer installation or the LambdaDB live smoke.
+
+## Homebrew publication
+
+On 2026-09-19, the public
+[lambdadb/homebrew-tap](https://github.com/lambdadb/homebrew-tap) was initialized at
+`ca84485149d7915131df686b4c68868d47c00cd5`. Its CLI formula is byte-for-byte equal
+to the formula merged in CLI PR #7 (`3eefaaa`), selecting stable `0.1.0` and the
+release lockfile at `c8d389f`.
+
+- Local macOS 26.4 arm64 / Homebrew 6.0.17 verification used the tap's new harness
+  in both local and remote modes. Remote mode invoked
+  `brew install --formula lambdadb/tap/lambdadb-cli` with no existing tap or CLI,
+  exercising automatic public tap discovery and formula-specific trust.
+- Installation, downloaded formula equality, Homebrew style, `brew test`, version
+  `0.1.0`, JSON configuration with mode 0600, and the wrapper with an unusable
+  ambient Node all passed. No trust checks were disabled.
+- Test installations and taps were removed; existing taps, fnm Node and CLI
+  `.env.local` were preserved. Dependencies and caches remain installed.
+- [Tap CI](https://github.com/lambdadb/homebrew-tap/actions/runs/35433096180)
+  passed remote installation, style, smoke, runtime selection and cleanup on both
+  macOS 15 and Ubuntu 24.04 at the published tap commit.
+- Simulated existing CLI, broken prefix executable symlink and existing remote
+  tap cases stopped the new harness before mutations; invalid mode returned 2
+  without invoking Homebrew.
+- Tap main protection requires both installation checks, one approving review,
+  resolved conversations and an up-to-date base; force pushes and deletion are
+  disabled. Organization-level default-branch rules also apply.
+
+This publishes an installation path for the existing stable artifact, without a
+new npm release or another LambdaDB live-service smoke. Upgrade behavior between
+two distinct stable versions remains unverified until the next formula update.
+The earlier 35-contract Homebrew verification below used the same stable artifact;
+this tap publication ran the installation smoke checks rather than repeating it.
+
+## Homebrew preparation
+
+On 2026-09-19, macOS 26.4 arm64 / Homebrew 6.0.17 installed stable `0.1.0`
+from `packaging/homebrew/Formula/lambdadb-cli.rb` through a disposable local tap.
+The npm tarball SHA-256 was checked against the downloaded bytes, whose SHA-512
+matched registry integrity. The release lockfile resource is fixed to `c8d389f`.
+
+- Homebrew formula style, installation and `brew test` passed. The formula checks
+  CLI version, JSON configuration and mode 0600 without contacting a service.
+- A deliberately unusable `node` placed first on ambient PATH did not prevent
+  the installed wrapper from running; it selected Homebrew's Node 24.21.0.
+- All 35 CLI contracts from the stable release commit passed against the installed
+  Homebrew package. The harness uses the release commit's tests/examples so future
+  development-only features do not create false failures for an older stable CLI.
+- Simulated existing-formula and broken-executable-symlink cases both stopped the
+  harness before any installation or tap mutation.
+- The temporary CLI installation and tap were removed. The final harness disables
+  automatic dependency removal and cleanup, and does not persist developer mode.
+  Homebrew dependencies/caches remain: installing Node also upgraded the required
+  ca-certificates, openssl@3, readline, sqlite and xz packages during initial setup.
+  The existing fnm-managed Node and global npm CLI were not replaced.
+- Normal clean-install, lint, version/type checks, 59 source tests and 35 npm
+  installed-package contracts also passed. CLI runtime and SDK dependencies did
+  not change.
+
+macOS/Linux Homebrew CI is configured separately from runtime CI; current PR job
+results are the authority for hosted-runner coverage. This initial preparation
+did not create the public tap; publication evidence is recorded above. No new npm
+version was published by the preparation. LambdaDB service smoke was not repeated for
+this packaging-only change; the stable candidate evidence below remains separate.
+
+## Stable 0.1.0 publication
+
+On 2026-09-19, [GitHub Release v0.1.0](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.0)
+and its annotated tag identified main commit
+`c8d389f3264d641ae6eafc7737fedd5ea046ddf1`. Its tree exactly matches the reviewed
+candidate `658ea7ccdce535bbd4f2e29ae06813e2f2e716e2` from PR #5, including the
+runtime verified by the installed-candidate development smoke below. That smoke
+was not repeated because release contents were unchanged.
+
+The [release-event workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/35421226854)
+passed on attempt 1. Node 22/24 validation and exact-tarball contracts passed;
+Trusted Publishing published `0.1.0` on `latest` at 04:27:06 UTC. Version/tag
+metadata and attestation metadata propagated separately. Verification retried
+reads only; no second publication or workflow rerun was needed.
+
+A clean, unqualified npm install with an isolated cache resolved to `0.1.0` and
+passed version/help plus all 35 CLI contract tests. The downloaded tarball digest,
+installed lockfile integrity and provenance subject matched. The decoded SLSA
+provenance identified this repository, `.github/workflows/publish.yaml`,
+`refs/tags/v0.1.0`, release commit `c8d389f` and workflow attempt 1.
+`npm audit signatures` reported no invalid or missing signatures.
+At verification, `latest=0.1.0` and `dev=0.1.0-dev.5`; the stable release replaced
+the initial bootstrap latest tag without changing the dev channel.
+
+The subsequent main-to-develop synchronization sets `0.1.1-dev.1` as the next
+base. Its local clean install, lint, types, version checks, 59 source tests and
+35 installed-package contracts passed. This maintenance change updates versions
+and documentation only; CLI runtime, dependencies, tests and workflows match
+`v0.1.0`. Its PR validation does not itself publish a new dev version.
 
 ## Stable 0.1.0 candidate
 
 Prepared `release/0.1.0` from reviewed develop commit
 `c8947e96308283ac593e712716f0732121bb1958`. Relative to that commit, only package
 versions and release documents change. Runtime source, dependencies, tests,
-examples and workflows are unchanged. Stable publication remains pending.
+examples and workflows are unchanged. This records the pre-publication candidate.
 
 On Node.js 24.15.0 / npm 11.12.1, a new worktree passed `npm ci`, lint, type
 checking, all 59 source tests, and 35 installed-package contract tests.
@@ -38,8 +147,8 @@ Target: `bench-recall` at
 Only documentation was updated after this live run; the final package is checked
 again with the installed-package contracts. This is development-service evidence
 for a bounded sample, not a latency/readiness guarantee or live tag/alias coverage.
-The stable npm artifact and release-event workflow remain unverified until the
-explicit publication and subsequent consumer/provenance checks.
+The stable npm artifact and release-event workflow were not verified at candidate
+preparation time; the subsequent publication evidence is recorded above.
 
 ## Public bootstrap and OIDC publication
 
@@ -74,7 +183,8 @@ At this verification, `dev=0.1.0-dev.4` and `latest=0.1.0-dev.1`. Bootstrap had
 created both tags despite `--tag dev`; a removal attempt for `latest` returned
 HTTP 400. The automated dev publication left `latest` unchanged. This observation
 does not establish a general version-count rule for npm. Bootstrap and OIDC setup
-are complete; main promotion and rc/stable publication remain unperformed.
+were complete at that stage; main promotion and stable publication followed as
+recorded above.
 
 ## Publication verification hardening
 
@@ -298,9 +408,6 @@ deployment state of an individual LambdaDB endpoint.
   receipt. Those capabilities are not implemented.
 - No Windows-specific permission or signal validation. POSIX modes and injected
   SIGINT/SIGTERM were checked on macOS; CI targets Linux.
-- No main promotion, explicit rc/stable publication or GitHub Release workflow
-  execution. Public bootstrap and automatic dev/OIDC publication are verified
-  above, including the five-minute verification behavior on an ordinary develop merge.
 - Mock large-response tests cover SDK routing/credential separation at 1 MiB;
   the live sample verifies combined content above 6 MiB. Neither is an exhaustive
   memory/size stress test. Imports buffer a maximum 64 MiB source file

@@ -6,33 +6,49 @@ pagination, bulk transfers and large response downloads.
 
 ## Install and run
 
-Requires Node.js 22.14 or newer and npm.
-
 ### Install from npm
 
-The verified development build is available on the `dev` channel:
+Requires Node.js 22.14 or newer and npm.
+
+Install the stable channel:
 
 ```sh
-npm install --global @functional-systems/lambdadb-cli@dev
+npm install --global @functional-systems/lambdadb-cli
 lambdadb --version
 lambdadb --help
 ```
 
-This checkout prepares `0.1.0`. Once its GitHub Release and npm publication are
-complete, install the stable version with:
+For reproducible CI runs, pin an exact published version such as
+`@functional-systems/lambdadb-cli@0.1.0`. To try development builds, explicitly use
+`@functional-systems/lambdadb-cli@dev`; this moving channel contains prereleases.
+Installed CLIs do not update themselves. See
+[RELEASING.md](RELEASING.md#current-status) for release status and
+[VALIDATION.md](VALIDATION.md) for verification results and remaining limitations.
+
+### Homebrew
+
+On macOS or Linux with [Homebrew](https://brew.sh/) installed:
 
 ```sh
-npm install --global @functional-systems/lambdadb-cli@0.1.0
+brew install lambdadb/tap/lambdadb-cli
+lambdadb --version
+lambdadb --help
 ```
 
-The `dev` channel contains prerelease versions. For reproducible CI runs, pin an
-exact published version instead of the moving `dev` tag. See
-[RELEASING.md](RELEASING.md#current-status) for release preparation status and
-[VALIDATION.md](VALIDATION.md) for verification results and remaining limitations.
+The [LambdaDB tap](https://github.com/lambdadb/homebrew-tap) installs the stable CLI
+and its Node 24 runtime. No separate Node/npm setup is needed. Update with
+`brew update` followed by `brew upgrade lambdadb/tap/lambdadb-cli`; remove with
+`brew uninstall lambdadb/tap/lambdadb-cli`.
+
+If another installation provides `lambdadb`, check `command -v lambdadb` before
+switching package managers. Follow Homebrew's formula trust prompts without
+disabling trust checks. See the
+[maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme)
+for packaging and validation details.
 
 ### Build from source
 
-From a checkout of this repository:
+Requires Node.js 22.14 or newer and npm. From a checkout of this repository:
 
 ```sh
 npm ci

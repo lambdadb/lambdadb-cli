@@ -2,7 +2,12 @@
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-18
+### Documentation
+
+- Document the published stable npm channel, public Homebrew installation and
+  completed release verification on the default branch.
+
+## [0.1.0] - 2026-09-19
 
 ### Added
 
