@@ -1,0 +1,5 @@
+{
+  "size": 10,
+  "query": { "queryString": { "query": "serverless", "defaultField": "text" } },
+  "consistentRead": false
+}
