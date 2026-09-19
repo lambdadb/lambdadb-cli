@@ -14,9 +14,6 @@ not LambdaDB collection branches or refs.
 4. Address review feedback and pass both required CI checks before merging.
 5. Delete the short-lived branch after verifying the merge.
 
-For the initial MVP, `feat/cli-mvp` targets the initial `develop` commit. The
-review includes the CLI implementation, tests, documentation and CI setup.
-
 ## Local and CI validation
 
 ```sh
@@ -67,8 +64,11 @@ commit so the shared branch ancestry is preserved. After promotion, synchronize
 `develop`, especially release-only changes or hotfixes. Include the next intended
 development base in that synchronization PR so develop retains a dev version.
 
-A separate `release/*` branch is optional when stabilization must proceed while
-new work continues on `develop`. It is not required for the initial release.
+A separate `release/*` branch can be created from reviewed develop and target
+main when preparing rc/stable metadata while develop retains its automatic dev
+base. The first stable release used `release/0.1.0` for this reason. Do not merge
+stable package metadata into develop without setting its next dev base, because
+automatic development publication requires an `X.Y.Z-dev.N` version.
 
 The first npm bootstrap, rc/stable tags and GitHub Releases remain explicit
 release actions. Subsequent dev publication is automatic once enabled.

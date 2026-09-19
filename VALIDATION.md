@@ -1,7 +1,75 @@
 # Validation record
 
-Date: 2026-09-18. Local contract tests use loopback servers and synthetic
+Updated: 2026-09-19. Local contract tests use loopback servers and synthetic
 credentials. A separate authenticated development-project smoke is recorded below.
+
+## Stable 0.1.0 publication
+
+On 2026-09-19, [GitHub Release v0.1.0](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.0)
+and its annotated tag identified main commit
+`c8d389f3264d641ae6eafc7737fedd5ea046ddf1`. Its tree exactly matches the reviewed
+candidate `658ea7ccdce535bbd4f2e29ae06813e2f2e716e2` from PR #5, including the
+runtime verified by the installed-candidate development smoke below. That smoke
+was not repeated because release contents were unchanged.
+
+The [release-event workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/35421226854)
+passed on attempt 1. Node 22/24 validation and exact-tarball contracts passed;
+Trusted Publishing published `0.1.0` on `latest` at 04:27:06 UTC. Version/tag
+metadata and attestation metadata propagated separately. Verification retried
+reads only; no second publication or workflow rerun was needed.
+
+A clean, unqualified npm install with an isolated cache resolved to `0.1.0` and
+passed version/help plus all 35 CLI contract tests. The downloaded tarball digest,
+installed lockfile integrity and provenance subject matched. The decoded SLSA
+provenance identified this repository, `.github/workflows/publish.yaml`,
+`refs/tags/v0.1.0`, release commit `c8d389f` and workflow attempt 1.
+`npm audit signatures` reported no invalid or missing signatures.
+At verification, `latest=0.1.0` and `dev=0.1.0-dev.5`; the stable release replaced
+the initial bootstrap latest tag without changing the dev channel.
+
+The subsequent main-to-develop synchronization sets `0.1.1-dev.1` as the next
+base. Its local clean install, lint, types, version checks, 59 source tests and
+35 installed-package contracts passed. This maintenance change updates versions
+and documentation only; CLI runtime, dependencies, tests and workflows match
+`v0.1.0`. Its PR validation does not itself publish a new dev version.
+
+## Stable 0.1.0 candidate
+
+Prepared `release/0.1.0` from reviewed develop commit
+`c8947e96308283ac593e712716f0732121bb1958`. Relative to that commit, only package
+versions and release documents change. Runtime source, dependencies, tests,
+examples and workflows are unchanged. This records the pre-publication candidate.
+
+On Node.js 24.15.0 / npm 11.12.1, a new worktree passed `npm ci`, lint, type
+checking, all 59 source tests, and 35 installed-package contract tests.
+`RELEASE_TAG=v0.1.0 RELEASE_PRERELEASE=false npm run check:version -- --release`
+passed and selected `latest`. CI results for the final commit belong to the
+promotion PR; local success is not a substitute for those required checks.
+
+A newly packed `0.1.0` tarball was installed into an isolated temporary consumer.
+Its executable reported `0.1.0` and was selected with `LAMBDADB_TEST_CLI` while
+running `node --test --test-reporter=tap test/live/cli.test.mjs`. The launcher used
+the maintainer's existing opt-in development settings and the in-memory variable
+mapping described below; it did not change or copy `.env.local` into the worktree.
+Target: `bench-recall` at
+`https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`.
+
+- Doctor and temporary collection creation passed within the first second.
+- Two ordinary documents with 3 MiB payloads each and one bulk document were
+  accepted at approximately 3 seconds. Acceptance did not imply search visibility.
+- Query and ID fetch on `branch:main` returned all three documents with exact
+  contents at approximately 69 seconds, without a pending-write overlay.
+- The live test passed in 69.6 seconds. Cleanup was accepted, then an independent
+  SDK get returned `ResourceNotFoundError` for
+  `cli-smoke-b854ef72-1448-42ae-8c9a-ce5c0441f104`, confirming its absence.
+- The source `.env.local` was byte-for-byte unchanged, and the temporary consumer
+  and tarball were removed. No key or signed URL is recorded here.
+
+Only documentation was updated after this live run; the final package is checked
+again with the installed-package contracts. This is development-service evidence
+for a bounded sample, not a latency/readiness guarantee or live tag/alias coverage.
+The stable npm artifact and release-event workflow were not verified at candidate
+preparation time; the subsequent publication evidence is recorded above.
 
 ## Public bootstrap and OIDC publication
 
@@ -36,7 +104,8 @@ At this verification, `dev=0.1.0-dev.4` and `latest=0.1.0-dev.1`. Bootstrap had
 created both tags despite `--tag dev`; a removal attempt for `latest` returned
 HTTP 400. The automated dev publication left `latest` unchanged. This observation
 does not establish a general version-count rule for npm. Bootstrap and OIDC setup
-are complete; main promotion and rc/stable publication remain unperformed.
+were complete at that stage; main promotion and stable publication followed as
+recorded above.
 
 ## Publication verification hardening
 
@@ -57,11 +126,18 @@ A read-only probe used the actual npm CLI and new bounded-read flags to verify
 the existing `0.1.0-dev.4` manifest/tag. Only its preflight and accepted write were
 simulated; the probe performed no registry mutation.
 
-The changed publication path has not yet run on an actual develop merge; PR CI
-cannot publish. The next reviewed merge must verify the normal push-to-publication
-flow without a manual rerun. The LambdaDB live smoke was not rerun because CLI
-runtime source is unchanged; the prior development-project evidence below remains
-separate from npm checks.
+The [ordinary develop merge workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/35344153978)
+published `0.1.0-dev.5` from `c8947e96308283ac593e712716f0732121bb1958`
+on attempt 1. Node 22/24 validation and exact-artifact tests passed. Publication
+succeeded at 12:22:09 UTC; registry verification completed at 12:25:10 UTC with
+`result=published`. The approximately 181-second propagation delay required only
+read retries, with no manual rerun or repeated publication.
+
+A fresh npm `@dev` install with an isolated cache passed all 35 CLI contract tests,
+version/help, tarball/lockfile integrity checks and npm signature verification.
+Provenance identified the expected repository, develop ref, workflow, source
+commit and attempt 1. `dev=0.1.0-dev.5`; `latest` remained `0.1.0-dev.1`.
+These registry checks are separate from the development-service smoke below.
 
 ## Initial local automation validation (before publication)
 
@@ -253,9 +329,6 @@ deployment state of an individual LambdaDB endpoint.
   receipt. Those capabilities are not implemented.
 - No Windows-specific permission or signal validation. POSIX modes and injected
   SIGINT/SIGTERM were checked on macOS; CI targets Linux.
-- No main promotion, explicit rc/stable publication or GitHub Release workflow
-  execution. Public bootstrap and automatic dev/OIDC publication are verified
-  above; the new five-minute verification behavior awaits its first develop merge.
 - Mock large-response tests cover SDK routing/credential separation at 1 MiB;
   the live sample verifies combined content above 6 MiB. Neither is an exhaustive
   memory/size stress test. Imports buffer a maximum 64 MiB source file
