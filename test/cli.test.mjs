@@ -501,3 +501,17 @@ test('create forwards all 16 SDK analyzers unchanged and rejects unknown names b
   }
   assert.equal(f.requests.length, 4);
 });
+
+test('short credentials redact facet names and values while preserving bucket schema keys', async t => {
+  for (const key of ['a', 'buckets', 'count']) {
+    const facets = { [key]: { buckets: [{ value: key, count: 1 }] },
+      doc: { buckets: [{ value: key, count: 2 }] } };
+    const f = await fixture(t, (_r, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [], facets }));
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-facets-only.json'), '--json'], { LAMBDADB_API_KEY: key });
+    assert.equal(r.code, 0);
+    assert.deepEqual(r.json.data.facets, {
+      '[REDACTED]': { buckets: [{ value: '[REDACTED]', count: 1 }] },
+      doc: { buckets: [{ value: '[REDACTED]', count: 2 }] },
+    });
+  }
+});

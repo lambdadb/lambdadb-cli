@@ -12,7 +12,7 @@ const protocolValues = new Set([
   'data.checks.*.name', 'data.checks.*.status',
 ]);
 // These response maps carry user-defined field names.
-const freeFormMaps = new Set(['doc', 'indexConfigs', 'tags', 'facets']);
+const freeFormMaps = new Set(['doc', 'indexConfigs', 'tags']);
 
 export class Output {
   json = false;
@@ -37,7 +37,9 @@ export class Output {
       if (typeof value === 'string') return !freeForm && protocolValues.has(path) ? value : this.redact(value);
       if (Array.isArray(value)) return value.map(item => sanitize(item, `${path}.*`, freeForm));
       if (value && typeof value === 'object') {
-        const entries = Object.entries(value).map(([key, item]) => ({ key, item, name: freeForm ? this.redact(key) : key }));
+        // Facet names are arbitrary, but their bucket/result keys are SDK schema.
+        const facetFields = path === 'data.facets';
+        const entries = Object.entries(value).map(([key, item]) => ({ key, item, name: freeForm || facetFields ? this.redact(key) : key }));
         // Reserve every base name, including unchanged keys that appear later.
         // Only renamed keys receive suffixes; unrelated field names stay intact.
         const reserved = new Set(entries.map(entry => entry.name));
@@ -51,7 +53,7 @@ export class Output {
             suffixes.set(name, suffix);
           }
           used.add(unique);
-          return [unique, sanitize(item, path ? `${path}.${key}` : key, freeForm || freeFormMaps.has(key))];
+          return [unique, sanitize(item, path ? `${path}.${key}` : key, freeForm || (!facetFields && freeFormMaps.has(key)))];
         }));
       }
       return value;

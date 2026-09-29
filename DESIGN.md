@@ -53,7 +53,8 @@ duplicates and ordering pass through unchanged; duplicate rejection is server-ow
 
 The query facade spreads response metadata when downloading `docsUrl`; CLI JSON
 preserves `facets` while removing the consumed signed URL. Facet field names join
-other user-defined maps in credential redaction, including collision preservation.
+other user-defined maps in credential redaction, including collision preservation;
+fixed facet result/bucket keys retain their SDK schema even for short credentials.
 Loopback subprocess tests cover serialization and output through the published SDK,
 and the installed-tarball suite repeats these contracts. Live evidence is separate
 in [VALIDATION.md](VALIDATION.md).
