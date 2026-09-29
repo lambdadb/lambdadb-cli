@@ -1,7 +1,57 @@
 # Validation record
 
-Updated: 2026-09-19. Local contract tests use loopback servers and synthetic
-credentials. A separate authenticated development-project smoke is recorded below.
+Updated: 2026-09-29. Local contract tests use loopback servers and synthetic
+credentials. Authenticated development-project evidence is recorded separately.
+
+## SDK 0.6.0 integration
+
+Validated on 2026-09-29 from an isolated worktree based on develop
+`513af6e4d262edd380013c86d51a20aad16274d7`, with Node.js 24.15.0 and the
+published `@functional-systems/lambdadb@0.6.0` dependency. npm `latest` was 0.6.0.
+The release tag resolves to `491d01e0eb54bd135823fab79cbe32396ec03691`;
+installed query schema, analyzer schema and client facade source files matched
+that tag byte-for-byte. The lockfile records the published package integrity.
+
+- `npm ci`, `npm run lint`, `npm run check:version`, `npm run typecheck`: passed.
+- `npm test`: 64 tests passed, including subprocess requests through the actual
+  SDK for facet-only success, zero without facets rejection, omitted query,
+  malformed facets, bounds, null/default preservation and ref consistency.
+- `npm run test:package`: 40 installed-tarball CLI tests passed. Facet metadata,
+  inline documents and `docsUrl` downloads survive JSON output; signed URLs and
+  credentials remain excluded. Arbitrary facet-name redaction preserves collisions;
+  short credentials do not change fixed bucket/result schema keys.
+- All 16 analyzer names passed create serialization and reached the loopback API;
+  unknown/case-mismatched names failed before HTTP. Omitted, empty and duplicate
+  analyzer lists were forwarded unchanged. This does not mean the live server
+  accepts duplicate names.
+- `git diff --check`: passed. GitHub Node 22/24 CI results are reported on the PR;
+  the local run above used Node 24 only.
+
+The credentialed live harness (`node --test test/live/cli.test.mjs`, after build)
+used the previously designated development endpoint
+`https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`, project `bench-recall`.
+An in-memory launcher used the existing ignored `.env.local` mapping documented
+below; no credential file was changed or copied into the worktree.
+
+- Doctor and temporary Collection creation with `english` and new `chinese`
+  analyzers succeeded. Two ordinary 3 MiB writes and one bulk write were accepted
+  at about 2 seconds in the final run.
+- Committed query/fetch contents for all three documents were verified at about
+  87 seconds in the final run, without a pending-write overlay.
+- Both checked-in facet examples passed: omitted-query `size: 0` returned no
+  documents; document+facet returned three. Both returned exact category buckets
+  `database: 2` and `developer-tools: 1` through CLI JSON output.
+- The final test passed in 87.8 seconds after the short-credential output fix.
+  Temporary Collection `cli-smoke-dcd3b60a-b65d-4126-b6e4-ad78904f4eb3` was deleted
+  and a subsequent SDK get returned HTTP 404. The earlier integration smoke also
+  passed in 53.6 seconds; its temporary Collection
+  `cli-smoke-e9f9a7c8-babf-4a62-a8d8-48bfa4683f66` was likewise deleted with 404
+  verification.
+
+This proves the bounded sample against one supporting development deployment,
+not production availability, all analyzer language behavior or old-index support.
+No existing Collection/index was migrated. No CLI merge, tag, GitHub Release or
+npm publication was performed as part of this integration.
 
 ## Development publication after Homebrew documentation
 

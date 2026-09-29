@@ -33,6 +33,32 @@ workflow SDK additions are proposals. Its September 14 registry baseline
 This CLI reuses currently available SDK capabilities; it does not assume proposed
 `ingestDocuments`, `waitForDocuments` or mutation receipts exist.
 
+## SDK 0.6.0 contract update (2026-09-29)
+
+The published dependency is pinned to `@functional-systems/lambdadb@0.6.0`.
+The [release tag](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.6.0)
+resolves to `491d01e0eb54bd135823fab79cbe32396ec03691`; npm `latest` was 0.6.0
+when checked. The historical MVP baseline above remains a dated record.
+
+Inspected the installed package's `src/models/operations/querycollection.ts`,
+`src/models/indexconfigsunion.ts` and `src/client.ts`; all three matched the release
+tag byte-for-byte. The query serializer accepts
+omitted `query`, validates up to five strict facet requests with nullable 1–100
+bucket sizes, and requires nonempty facets for `size: 0`. It enforces integer
+query size but lacks document-size bounds, so the CLI retains only the 0–100
+range check and null-to-omission adapter. Ref conflicts remain CLI-owned;
+Branch-only `consistentRead` validation stays with the SDK. The create serializer
+accepts all 16 analyzer names without a CLI allowlist. Omission, empty lists,
+duplicates and ordering pass through unchanged; duplicate rejection is server-owned.
+
+The query facade spreads response metadata when downloading `docsUrl`; CLI JSON
+preserves `facets` while removing the consumed signed URL. Facet field names join
+other user-defined maps in credential redaction, including collision preservation;
+fixed facet result/bucket keys retain their SDK schema even for short credentials.
+Loopback subprocess tests cover serialization and output through the published SDK,
+and the installed-tarball suite repeats these contracts. Live evidence is separate
+in [VALIDATION.md](VALIDATION.md).
+
 ## Architecture
 
 ```text
@@ -83,8 +109,9 @@ imports. Collection statistics describe committed main, not selected ref readine
 
 No upstream edit was required. Local regressions cover these adaptation points:
 
-1. Public query `size: null` means default size, but SDK 0.5.1's serializer accepts
-   only number/undefined. Normalize null to omission and enforce public 1–100 bounds.
+1. Public query `size: null` means default size, but SDK 0.6.0's serializer accepts
+   only number/undefined. Normalize null to omission and enforce 0–100 bounds;
+   SDK validation requires facets when size is zero.
    An upstream schema-alignment change would remove this adapter.
 2. `SDKValidationError[Symbol.hasInstance]` intentionally also matches
    `ResponseValidationError`. Check response validation first and exclude it from

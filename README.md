@@ -172,6 +172,12 @@ One page is the default; `nextPageToken` is an opaque continuation token.
 budget. No partial list is printed on failure. Collection statistics describe
 the committed head of `main`, not the selected read ref or whole-index readiness.
 The create input file is the index map itself, not a full create request body.
+SDK 0.6.0 accepts 16 lowercase text analyzer names: `standard`, `english`,
+`korean`, `japanese`, `chinese`, `cjk`, `arabic`, `french`, `german`, `hindi`,
+`indonesian`, `italian`, `portuguese`, `russian`, `spanish` and `turkish`.
+For example, `{"text":{"type":"text","analyzers":["chinese"]}}` is a valid
+index-config file. Omission preserves the server default; lists are sent unchanged.
+The server rejects duplicate analyzer names. Language detection is not automatic.
 
 ### Import JSONL
 
@@ -239,10 +245,11 @@ lambdadb docs fetch --collection cli-demo-docs --ref branch:main --ids doc-1 --c
 ```
 
 These examples require the named ref to exist. Query files use the SDK/API
-request body, including a `query` object and optional `size`, `sort`, `fields`,
+request body, with optional `query`, `facets`, `size`, `sort`, `fields`,
 `partitionFilter`, `consistentRead` and `includeVectors`. The query DSL is forwarded
 to the API, not reimplemented in the CLI. Unknown top-level fields are rejected.
-`size` accepts 1–100, `null`, or omission; null is normalized to SDK omission.
+Omit `query` for match-all. `size` accepts 1–100, `null`, or omission; null is
+normalized to SDK omission. `size: 0` is accepted only with at least one facet.
 An optional file `ref` must match the mandatory `--ref`; conflicting selectors
 are rejected. Fetch accepts up to 100 IDs and reports `missingIds` without
 turning a successful missing-document response into an error.
@@ -251,6 +258,38 @@ The SDK downloads large query/fetch responses from `docsUrl` automatically using
 its separate unauthenticated transfer client. Results are buffered, not streamed
 or truncated. The CLI omits the consumed signed URL. No ref is resolved to or
 claimed to pin a snapshot by the CLI. Branches and aliases can move between calls.
+
+### Keyword facets
+
+After creating a new collection with `examples/index-config.json` and importing
+`examples/documents.jsonl`, run:
+
+```sh
+# Match all documents and return only category counts (query is omitted).
+lambdadb query --collection cli-demo-docs --ref branch:main --file examples/query-facets-only.json --json
+# Return matching documents and category counts together.
+lambdadb query --collection cli-demo-docs --ref branch:main --file examples/query-with-facets.json --json
+```
+
+Facet-only input: `{"size":0,"facets":{"category":{"size":10}}}`.
+Up to five keyword fields can be requested, including keyword arrays and dotted
+field paths. Each facet accepts only optional `size` (1–100); omission or `null`
+uses the server default of 10. Counts are returned in
+`data.facets.category.buckets`, for example
+`[{"value":"database","count":2},{"value":"developer-tools","count":1}]`
+for the facet-only sample after all three documents are indexed. `data.docs` is
+empty for facet-only queries. Facets are retained when the SDK downloads documents
+from `docsUrl` as well. Counts use JavaScript numbers and may lose precision above
+`Number.MAX_SAFE_INTEGER`.
+
+Facets require a supporting server and newly built keyword indexes. Existing
+indexes, partial updates, segment merges and old Tags do not gain support from
+this SDK update. If migration is needed, deliberately create a new Collection and
+reinsert the source data; the CLI performs no automatic migration. Accepted imports
+and `consistentRead` are not proof of committed facet/index readiness.
+
+This source pins SDK 0.6.0. Existing CLI installations keep their packaged SDK
+until a new CLI version is published and installed.
 
 ## Output, deadlines and exit codes
 

@@ -57,13 +57,14 @@ export function queryInput(body: Record<string, unknown>, ref: ReadRef): QueryCo
     }
   }
   const input: Record<string, unknown> = { ...body, ref };
-  // Public API accepts null size, while SDK 0.5.1 only accepts undefined/number.
+  // Public API accepts null size, while SDK 0.6.0 only accepts undefined/number.
   if (input.size === null) delete input.size;
-  if (input.size !== undefined && (!Number.isInteger(input.size) || Number(input.size) < 1 || Number(input.size) > 100)) {
-    throw new InputError('Query size must be an integer from 1 to 100, null or omitted.');
+  // The SDK validates integer types and requires facets for zero, but omits bounds.
+  if (typeof input.size === 'number' && (input.size < 0 || input.size > 100)) {
+    throw new InputError('Query size must be from 0 to 100; zero requires facets.');
   }
   try { queryCollectionRequestBodyToJSON(input as QueryCollectionInput); }
-  catch { throw new InputError('Invalid query request. Check request fields and types; consistentRead:true requires a branch ref.'); }
+  catch { throw new InputError('Invalid query request. Check fields and types; size:0 requires facets, and consistentRead:true requires a branch ref.'); }
   return input as QueryCollectionInput;
 }
 

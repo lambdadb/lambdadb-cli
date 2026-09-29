@@ -46,13 +46,19 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   await writeFile(join(temp, 'config.json'), JSON.stringify({ endpoint: endpoint.origin, project: process.env.LAMBDADB_PROJECT, apiKeyEnv: 'LAMBDADB_API_KEY' }), { mode: 0o600 });
   success(await run(['doctor']), 'doctor');
   progress('Doctor passed.');
-  const created = await run(['collections', 'create', '--collection', collection, '--index-config', resolve('examples/index-config.json')]);
+  const indexFile = join(temp, 'index-config.json');
+  await writeFile(indexFile, JSON.stringify({
+    text: { type: 'text', analyzers: ['english', 'chinese'] }, category: { type: 'keyword' },
+  }));
+  const created = await run(['collections', 'create', '--collection', collection, '--index-config', indexFile]);
   if (created.code === 0 || created.code === 5) {
     t.after(async () => {
       const client = new LambdaDBClient({ baseUrl: endpoint.origin, projectName: process.env.LAMBDADB_PROJECT, projectApiKey: process.env.LAMBDADB_API_KEY });
       try {
         await client.collection(collection).delete({ timeoutMs: 15000, retries: { strategy: 'none' } });
-        t.diagnostic(`Cleanup accepted for temporary collection ${collection}.`);
+        await assert.rejects(client.collection(collection).get({ timeoutMs: 15000, retries: { strategy: 'none' } }),
+          error => error.statusCode === 404);
+        t.diagnostic(`Cleanup verified by HTTP 404 for temporary collection ${collection}.`);
       } catch {
         throw new Error(`Cleanup failed or is unconfirmed; inspect temporary collection ${collection}.`);
       }
@@ -61,8 +67,8 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   success(created, 'create');
   progress(`Created temporary collection ${collection}.`);
   const rows = [
-    { id: 'large-1', text: 'serverless smoke', payload: 'a'.repeat(3 * 1024 * 1024) },
-    { id: 'large-2', text: 'serverless smoke', payload: 'b'.repeat(3 * 1024 * 1024) },
+    { id: 'large-1', text: 'serverless smoke', category: 'database', payload: 'a'.repeat(3 * 1024 * 1024) },
+    { id: 'large-2', text: 'serverless smoke', category: 'database', payload: 'b'.repeat(3 * 1024 * 1024) },
   ];
   const input = join(temp, 'documents.jsonl');
   await writeFile(input, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
@@ -70,7 +76,7 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   assert.equal(imported.accepted, 2);
   assert.equal(imported.searchable, 'not_verified');
   const bulkFile = join(temp, 'bulk.jsonl');
-  const bulkRow = { id: 'bulk-1', text: 'serverless smoke' };
+  const bulkRow = { id: 'bulk-1', text: 'serverless smoke', category: 'developer-tools' };
   await writeFile(bulkFile, JSON.stringify(bulkRow) + '\n');
   const bulk = success(await run(['docs', 'import', '--collection', collection, '--branch', 'main', '--mode', 'bulk', '--file', bulkFile]), 'bulk');
   assert.equal(bulk.accepted, 1);
@@ -108,5 +114,13 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   }
   await waitForContents(['query', '--collection', collection, '--ref', 'branch:main', '--file', resolve('examples/query.json')], 'query');
   await waitForContents(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', ...expected.map(row => row.id)], 'fetch');
-  t.diagnostic('Doctor, create, ordinary/bulk acceptance and committed query/fetch contents passed. This is a bounded sample, not a collection readiness guarantee.');
+  for (const [file, expectedDocs] of [['query-facets-only.json', 0], ['query-with-facets.json', 3]]) {
+    const data = success(await run(['query', '--collection', collection, '--ref', 'branch:main', '--file', resolve('examples', file)]), file);
+    assert.equal(data.docs.length, expectedDocs);
+    assert.deepEqual(data.facets?.category?.buckets, [
+      { value: 'database', count: 2 }, { value: 'developer-tools', count: 1 },
+    ]);
+    progress(`${file}: document count and exact facet buckets verified.`);
+  }
+  t.diagnostic('Doctor, create with chinese analyzer, ordinary/bulk acceptance, committed query/fetch, match-all facet-only and document+facet contents passed. This is a bounded sample, not a collection readiness guarantee.');
 });

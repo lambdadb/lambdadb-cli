@@ -4,6 +4,12 @@
 
 ### Added
 
+- SDK 0.6.0: all 16 text analyzers, match-all queries with omitted `query`, and
+  keyword facets with `size: 0` for counts only or documents and facets together.
+  Facet results survive JSON output and automatic `docsUrl` downloads.
+- Facet examples, query help and transport/installed-package regression coverage.
+  Facets require a supporting server and newly built keyword indexes; existing
+  collections are not migrated automatically.
 - A Homebrew formula for the published stable CLI, with a managed Node 24 runtime,
   checksummed npm/lockfile inputs and isolated production dependencies.
 - Local Homebrew installation checks, installed CLI contracts and macOS/Linux PR
