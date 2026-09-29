@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-29
+
 ### Added
 
 - SDK 0.6.0: all 16 text analyzers, match-all queries with omitted `query`, and

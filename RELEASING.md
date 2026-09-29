@@ -1,6 +1,26 @@
 # Releasing LambdaDB CLI
 
-## Current status
+## 0.1.1 release candidate
+
+The `release/0.1.1` branch prepares a stable CLI release from develop
+`a65a2b198b484d2e4da4ca2ff438779806a87cce` (SDK 0.6.0 integration, PR #11).
+Version 0.1.1 retains the CLI command, JSON-envelope and exit-code contracts while
+adding optional keyword facets and the expanded SDK analyzer set.
+
+This is release preparation, not publication. Promote the reviewed release branch
+to `main` with a merge commit. After approval for publication, tag the verified
+main commit `v0.1.1` and publish a non-prerelease GitHub Release. The existing
+release workflow selects npm `latest`. Verify the exact package, provenance and
+installed CLI before updating the Homebrew formula/tap, which still selects 0.1.0.
+Synchronize release-only main history back into develop with the next development
+base (`0.1.2-dev.1`) through a separate PR.
+
+Facets require a supporting server and newly built keyword indexes. This release
+does not migrate existing Collections, update old indexes or upgrade installed
+CLIs automatically. Release-candidate evidence belongs in [VALIDATION.md](VALIDATION.md)
+and the promotion PR; do not treat earlier SDK integration tests as publication proof.
+
+## Prior publication status
 
 The first stable version, `0.1.0`, was published on 2026-09-19 through
 [GitHub Release v0.1.0](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.0)
