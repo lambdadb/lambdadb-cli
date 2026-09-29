@@ -3,6 +3,40 @@
 Updated: 2026-09-29. Local contract tests use loopback servers and synthetic
 credentials. Authenticated development-project evidence is recorded separately.
 
+## CLI 0.1.1 release preparation
+
+On 2026-09-29, candidate commit `6f7bb23` prepared stable metadata from develop
+`a65a2b198b484d2e4da4ca2ff438779806a87cce`. Runtime source, tests, examples,
+SDK dependency and workflows are unchanged from that reviewed integration.
+Version 0.1.1 is a release candidate here, not an npm publication claim.
+
+- Clean candidate checkout on Node.js 24.15.0: `npm ci`, lint, version metadata,
+  typecheck and all 64 tests passed. Explicit release preflight with
+  `RELEASE_TAG=v0.1.1 RELEASE_PRERELEASE=false` passed without creating a tag.
+- Packed the candidate once and ran `npm run test:package -- <tarball>`:
+  all 40 installed-CLI tests passed. A separate consumer installation verified
+  CLI 0.1.1, SDK 0.6.0 and a LICENSE identical to the source.
+- Installed-tarball live smoke used the designated `bench-recall` development
+  project at `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai` with
+  the existing secure in-memory environment mapping. The candidate tarball had
+  SHA-512 integrity
+  `sha512-1MRwAbI7kbAPKNUz2L+rd/F2tIF2I3r3wdI4kpsBNE84Y13TUYwTQF+gIDB95tvByyR1RdUi30ncH699rBhu9w==`.
+- Doctor, creation with `chinese` and `english`, ordinary/bulk acceptance, exact
+  committed query/fetch contents, match-all facet-only and document+facet buckets
+  passed in 61.0 seconds. Temporary Collection
+  `cli-smoke-a2894dda-50a2-4fa9-b320-fcc142bdf1fb` was deleted and verified by a
+  subsequent HTTP 404. No existing Collection or index was changed.
+- This evidence-only addition changes packaged documentation after that smoke.
+  The final promotion tarball is checked again by the installed-package suite;
+  runtime source, compiled JavaScript, examples and package metadata must remain
+  identical to the live-tested candidate. The promotion PR records the final
+  artifact digest and CI results separately.
+
+Publication remains a separate step after main promotion and authorization.
+The release workflow will rebuild and verify its own exact publication tarball.
+The current Homebrew formula still selects published 0.1.0; updating it requires
+verified 0.1.1 registry metadata and immutable release-commit checksums.
+
 ## SDK 0.6.0 integration
 
 Validated on 2026-09-29 from an isolated worktree based on develop
