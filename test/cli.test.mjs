@@ -416,3 +416,88 @@ test('many blank lines do not allocate a line array and retain the final error l
   assert.match(r.json.error.message, /JSONL line 10000001 must be a JSON object/);
   assert.equal(f.requests.length, 0);
 });
+
+test('facet-only, match-all and document queries preserve requests and JSON facet results', async t => {
+  const facets = { category: { buckets: [{ value: 'database', count: 2 }] }, 'metadata.labels': { buckets: [] } };
+  const doc = { collection: 'demo-docs', doc: { id: 'doc-1', category: ['database', 'search'] } };
+  const f = await fixture(t, (r, send) => send(200, {
+    took: 1, total: r.body.size === 0 ? 0 : 1, isDocsInline: true,
+    docs: r.body.size === 0 ? [] : [doc], ...(r.body.facets ? { facets } : {}),
+  }));
+  const inputs = [
+    JSON.parse(await readFile('examples/query-facets-only.json', 'utf8')),
+    JSON.parse(await readFile('examples/query-with-facets.json', 'utf8')),
+    {}, { size: null, facets: { category: { size: null }, 'metadata.labels': {} }, consistentRead: true },
+    { size: 100, facets: Object.fromEntries(['a', 'b', 'c', 'd', 'e'].map(field => [field, { size: 100 }])) },
+    { size: 1, facets: { category: { size: 1 } } },
+  ];
+  for (const [i, body] of inputs.entries()) {
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file(`facet-${i}.json`, body), '--json']);
+    assert.equal(r.code, 0, r.stderr);
+    const expected = { ...body, ref: { kind: 'branch', name: 'main' }, consistentRead: body.consistentRead ?? false, includeVectors: false };
+    if (expected.size === null) delete expected.size;
+    assert.deepEqual(f.requests.at(-1).body, expected);
+    assert.deepEqual(r.json.data.docs, body.size === 0 ? [] : [doc]);
+    assert.deepEqual(r.json.data.facets, body.facets ? facets : undefined);
+    assert.equal(r.stdout.trim().split('\n').length, 1);
+  }
+  const help = await f.run(['query', '--help']);
+  assert.match(help.stdout, /omit query for match-all/);
+  assert.match(help.stdout, /query-facets-only.json/);
+  assert.match(help.stdout, /query-with-facets.json/);
+});
+
+test('facets survive SDK docsUrl download and redact arbitrary facet names without losing collisions', async t => {
+  const facets = { category: { buckets: [{ value: 'database', count: 2 }] },
+    [secret]: { buckets: [{ value: secret, count: 1 }] }, '[REDACTED]': { buckets: [] } };
+  const docs = [{ collection: 'demo-docs', doc: { id: 'doc-1' } }];
+  const f = await fixture(t, (r, send, _req, _res, base) => {
+    if (r.url.pathname === '/download') return send(200, docs);
+    send(200, { took: 1, total: 1, isDocsInline: false, docs: [], facets, docsUrl: `${base}/download?signature=private-url` });
+  });
+  const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'tag:release', '--file', resolve('examples/query-with-facets.json'), '--json']);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.data.facets, { category: facets.category, '[REDACTED]#1': { buckets: [{ value: '[REDACTED]', count: 1 }] }, '[REDACTED]': { buckets: [] } });
+  assert.deepEqual(r.json.data.docs, docs);
+  assert.equal(r.json.data.isDocsInline, true);
+  assert.equal('docsUrl' in r.json.data, false);
+  assert.ok(!r.stdout.includes('private-url'));
+  assert.equal(f.requests.length, 2);
+  assert.deepEqual(f.requests[0].body.facets, { category: {} });
+  assert.ok(!Object.values(f.requests[1].headers).includes(secret));
+});
+
+test('invalid facets, sizes, queries and conflicting or inconsistent refs fail before HTTP', async t => {
+  const f = await fixture(t, (_r, send) => send(500, {}));
+  const bodies = [
+    { size: 0 }, { size: 0, facets: {} }, { size: -1 }, { size: 101 }, { size: 1.5 }, { size: '0', facets: { category: {} } },
+    { query: null }, { query: [] }, { facets: null }, { facets: [] }, { facets: { category: null } },
+    ...[0, 101, 1.5, '10'].map(size => ({ facets: { category: { size } } })),
+    { facets: { category: { typo: true } } },
+    { facets: Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f'].map(field => [field, {}])) },
+    { size: 0, facets: { category: {} }, consistentRead: true },
+    { facets: { category: {} }, ref: { kind: 'branch', name: 'other' } },
+  ];
+  for (const [i, body] of bodies.entries()) {
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'alias:release', '--file', await f.file(`invalid-${i}.json`, body), '--json']);
+    assert.equal(r.code, 2, `input ${i}`);
+    assert.equal(r.json.ok, false);
+  }
+  assert.equal(f.requests.length, 0);
+});
+
+test('create forwards all 16 SDK analyzers unchanged and rejects unknown names before HTTP', async t => {
+  const analyzers = ['standard', 'english', 'korean', 'japanese', 'chinese', 'cjk', 'arabic', 'french', 'german', 'hindi', 'indonesian', 'italian', 'portuguese', 'russian', 'spanish', 'turkish'];
+  const f = await fixture(t, (_r, send) => send(201, { collection: created }));
+  for (const config of [{ type: 'text', analyzers }, { type: 'text' }, { type: 'text', analyzers: [] }, { type: 'text', analyzers: ['chinese', 'chinese'] }]) {
+    const indexConfigs = { text: config };
+    const r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', await f.file('analyzers.json', indexConfigs), '--json']);
+    assert.equal(r.code, 0);
+    assert.deepEqual(f.requests.at(-1).body.indexConfigs, indexConfigs);
+  }
+  for (const analyzer of ['unknown_analyzer', 'Chinese']) {
+    const r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', await f.file('invalid-analyzer.json', { text: { type: 'text', analyzers: [analyzer] } }), '--json']);
+    assert.equal(r.code, 2);
+  }
+  assert.equal(f.requests.length, 4);
+});

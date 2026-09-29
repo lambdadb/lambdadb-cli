@@ -11,8 +11,8 @@ const protocolValues = new Set([
   'data.state', 'data.searchable', 'data.batches.*.state', 'data.batches.*.error.code',
   'data.checks.*.name', 'data.checks.*.status',
 ]);
-// These document/metadata maps carry user-defined field names in MVP responses.
-const freeFormMaps = new Set(['doc', 'indexConfigs', 'tags']);
+// These response maps carry user-defined field names.
+const freeFormMaps = new Set(['doc', 'indexConfigs', 'tags', 'facets']);
 
 export class Output {
   json = false;
