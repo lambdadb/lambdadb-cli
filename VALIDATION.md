@@ -3,6 +3,40 @@
 Updated: 2026-09-29. Local contract tests use loopback servers and synthetic
 credentials. Authenticated development-project evidence is recorded separately.
 
+## CLI 0.1.1 publication
+
+On 2026-09-29, [release v0.1.1](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.1)
+was published from tag/main commit `80a4c10628ad2ad4ebf8d90a01924d27dcb4a790`,
+whose tree equals candidate `0291970`. The
+[release workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/36557578359)
+passed on attempt 1, including Node 22/24 and exact publication-artifact tests.
+
+- Registry reads confirmed `latest=0.1.1`, `dev=0.1.1-dev.10`. The stable tarball
+  matches the final tested candidate byte-for-byte. SHA-512 integrity:
+  `sha512-5eYw4NSCDPQrJZVDwfAg9cPtdSuipPy6/FzTj08EDn94/rRJEFLb0Meih2hzbzOSqvNLOn+MJD8Ij0a+nXe99A==`.
+- Decoded provenance identifies the same release commit, `refs/tags/v0.1.1`,
+  `.github/workflows/publish.yaml`, run `36557578359`, attempt 1; its subject digest
+  matches the downloaded tarball. Stable metadata does not expose `gitHead`, so
+  source identity is established by provenance and the artifact comparison.
+- A clean unqualified consumer install selected CLI 0.1.1 and SDK 0.6.0 and passed
+  all 40 CLI contracts. `npm audit signatures` verified all four packages' registry
+  signatures and three packages' attestations. No publication was retried.
+- Credentialed live evidence remains the installed-candidate smoke below; no new
+  live call was needed for byte-identical published runtime/package contents.
+- The prepared Homebrew formula pins the verified 0.1.1 tarball and lockfile from
+  `80a4c10628ad2ad4ebf8d90a01924d27dcb4a790`. Local macOS checks passed formula
+  style, installation, `brew test`, managed Node selection and all 40 installed
+  CLI contracts. The harness removed its temporary installation and tap. Remote
+  tap publication and upgrade behavior await the separate tap PR.
+
+Post-release development changes preserve this release and start `0.1.2-dev.1`.
+The registry-verification change passes 13 focused tests, including the real script
+entrypoint with a synthetic npm command: successful publication plus timeout exits
+0 with an Actions warning/summary, while failed publication exits 1. Transient
+read failures remain bounded; authentication, schema and artifact mismatches fail.
+No live publication was used to test that change. The full local suite passed 65
+tests and the installed-package suite passed 40.
+
 ## CLI 0.1.1 release preparation
 
 On 2026-09-29, candidate commit `6f7bb23` prepared stable metadata from develop

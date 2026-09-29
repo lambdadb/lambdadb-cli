@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { developmentVersion, compareDevelopmentVersions, npmJson, publicationPlan, publishDevelopment } from '../scripts/dev-release.mjs';
@@ -89,7 +89,8 @@ test('publishes the tested artifact once on dev and skips an identical rerun', a
 test('publish failures and verification lag never retry the registry write', async () => {
   for (const options of [{ publishFailure: true }, { lag: true }]) {
     const api = registry(options);
-    await assert.rejects(publishDevelopment(artifact, api));
+    if (options.publishFailure) await assert.rejects(publishDevelopment(artifact, api));
+    else assert.equal(await publishDevelopment(artifact, api), 'published-verification-pending');
     assert.equal(api.calls.filter(args => args[0] === 'publish').length, 1);
   }
   const stale = registry();
@@ -115,11 +116,8 @@ test('publication verification tolerates independently delayed metadata and dev 
 
 test('publication verification distinguishes five-minute propagation timeout from a failed write', async () => {
   const api = registry({ lag: true });
-  await assert.rejects(publishDevelopment(artifact, api), error => {
-    assert.equal(error.code, 'REGISTRY_VERIFICATION_PENDING');
-    assert.match(error.message, /npm publish succeeded.*pending after 300 seconds/);
-    return true;
-  });
+  assert.equal(await publishDevelopment(artifact, api), 'published-verification-pending');
+  assert.match(api.reports.at(-1), /npm publish succeeded.*pending after 300 seconds/);
   assert.equal(api.now(), 300000);
   assert.equal(api.pauses.length, 30);
   assert.equal(api.calls.filter(args => args[0] === 'publish').length, 1);
@@ -133,7 +131,7 @@ test('publication verification includes read time, caps remaining I/O and sleep,
     if (args.includes('--prefer-online')) api.advance(args[2] === 'dist-tags' ? 1000 : 294000);
     return result;
   };
-  await assert.rejects(publishDevelopment(artifact, api), { code: 'REGISTRY_VERIFICATION_PENDING' });
+  assert.equal(await publishDevelopment(artifact, api), 'published-verification-pending');
   assert.equal(api.now(), 300000);
   assert.deepEqual(api.pauses, [5000]);
   assert.equal(api.timeouts.at(-1), 6000);
@@ -146,7 +144,7 @@ test('publication verification includes read time, caps remaining I/O and sleep,
     if (args.includes('--prefer-online')) late.advance(300000);
     return result;
   };
-  await assert.rejects(publishDevelopment(artifact, late), { code: 'REGISTRY_VERIFICATION_PENDING' });
+  assert.equal(await publishDevelopment(artifact, late), 'published-verification-pending');
   assert.equal(late.calls.length, 4, 'A late manifest must not start a tag lookup.');
   assert.deepEqual(late.pauses, []);
 });
@@ -173,6 +171,23 @@ test('only post-publication reads retry transient registry and subprocess failur
     before.run = args => { before.calls.push(args); return failure; };
     await assert.rejects(publishDevelopment(artifact, before), /lookup failed/);
     assert.equal(before.calls.filter(args => args[0] === 'publish').length, 0);
+  }
+});
+
+test('persistent transient lookup failures leave a successful publication pending without another write', async () => {
+  for (const failure of [
+    { status: 1, stdout: JSON.stringify({ error: { code: 'E503' } }) },
+    { status: null, stdout: '', error: { code: 'ETIMEDOUT' } },
+  ]) {
+    const api = registry();
+    const run = api.run;
+    api.run = (args, options) => {
+      const result = run(args, options);
+      return args.includes('--prefer-online') ? failure : result;
+    };
+    assert.equal(await publishDevelopment(artifact, api), 'published-verification-pending');
+    assert.equal(api.now(), 300000);
+    assert.equal(api.calls.filter(args => args[0] === 'publish').length, 1);
   }
 });
 
@@ -258,6 +273,40 @@ test('preparation uses real Git history, updates both lock versions, and rejects
   assert.equal(preparedLock.version, prepared.version);
   assert.equal(preparedLock.packages[''].version, prepared.version);
   assert.equal(runGit(repo, 'rev-parse', 'HEAD'), head, 'preparation must not create commits');
+  // Exercise the real command exit status/Actions diagnostics with no registry access.
+  const bin = join(temp, 'bin');
+  mkdirSync(bin);
+  const writes = join(temp, 'writes');
+  writeFileSync(join(bin, 'npm'), `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] === 'publish') {
+  fs.appendFileSync(process.env.TEST_WRITES, 'publish\\n');
+  process.exit(process.env.TEST_PUBLISH_FAIL === '1' ? 1 : 0);
+}
+if (args[2] === 'dist-tags') console.log(JSON.stringify({dev:'0.1.0-dev.1'}));
+else { console.log(JSON.stringify({error:{code:'E404'}})); process.exitCode = 1; }
+`, { mode: 0o755 });
+  const clock = join(temp, 'clock.mjs');
+  writeFileSync(clock, "import { performance } from 'node:perf_hooks'; let tick = 0; Object.defineProperty(performance, 'now', {value: () => tick += 300001});");
+  const tarball = join(temp, 'candidate.tgz');
+  writeFileSync(tarball, 'synthetic artifact');
+  const summary = join(temp, 'summary');
+  const publish = overrides => spawnSync(process.execPath, ['--import', clock, script, 'publish'], {
+    cwd: repo, encoding: 'utf8', env: { ...env, PATH: `${bin}:${process.env.PATH}`, CLI_TARBALL: tarball,
+      GITHUB_STEP_SUMMARY: summary, TEST_WRITES: writes, ...overrides },
+  });
+  const pending = publish();
+  assert.equal(pending.status, 0, pending.stderr);
+  assert.match(pending.stdout, /result=published-verification-pending/);
+  assert.match(pending.stderr, /::warning title=Registry verification pending::/);
+  assert.match(readFileSync(summary, 'utf8'), /Publication succeeded; registry verification pending/);
+  assert.equal(readFileSync(writes, 'utf8'), 'publish\n');
+  const failed = publish({ TEST_PUBLISH_FAIL: '1' });
+  assert.equal(failed.status, 1);
+  assert.doesNotMatch(failed.stdout, /published-verification-pending/);
+  assert.match(failed.stderr, /npm publish did not confirm success/);
+  assert.equal(readFileSync(writes, 'utf8'), 'publish\npublish\n');
   runGit(repo, 'commit', '--allow-empty', '-m', 'newer remote head');
   runGit(repo, 'push', 'origin', 'develop');
   runGit(repo, 'checkout', '--detach', head);

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A successful development publication no longer fails CI solely because registry
+  visibility exceeds the verification budget. Report a warning and explicit
+  `published-verification-pending` result; retain failures for publish errors,
+  invalid responses, authentication and artifact mismatches. Never retry writes.
+
+### Maintenance
+
+- Synchronize the 0.1.1 release history and start the 0.1.2 development line.
+- Prepare the Homebrew formula for verified stable 0.1.1 and record npm publication evidence.
+
 ## [0.1.1] - 2026-09-29
 
 ### Added

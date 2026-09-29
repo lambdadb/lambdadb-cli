@@ -1,24 +1,24 @@
 # Releasing LambdaDB CLI
 
-## 0.1.1 release candidate
+## Current status
 
-The `release/0.1.1` branch prepares a stable CLI release from develop
-`a65a2b198b484d2e4da4ca2ff438779806a87cce` (SDK 0.6.0 integration, PR #11).
-Version 0.1.1 retains the CLI command, JSON-envelope and exit-code contracts while
-adding optional keyword facets and the expanded SDK analyzer set.
+CLI 0.1.1 was published on 2026-09-29 through
+[GitHub Release v0.1.1](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.1)
+and the [OIDC release workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/36557578359).
+Tag/main commit `80a4c10628ad2ad4ebf8d90a01924d27dcb4a790` has the same tree as
+reviewed candidate `0291970`. The workflow passed on attempt 1, including Node
+22/24 validation and tests of the exact publication tarball.
 
-This is release preparation, not publication. Promote the reviewed release branch
-to `main` with a merge commit. After approval for publication, tag the verified
-main commit `v0.1.1` and publish a non-prerelease GitHub Release. The existing
-release workflow selects npm `latest`. Verify the exact package, provenance and
-installed CLI before updating the Homebrew formula/tap, which still selects 0.1.0.
-Synchronize release-only main history back into develop with the next development
-base (`0.1.2-dev.1`) through a separate PR.
+Registry reads confirmed `latest=0.1.1`, while `dev=0.1.1-dev.10` remained unchanged.
+A clean unqualified npm installation selected CLI 0.1.1 and SDK 0.6.0, passed all
+40 CLI contracts and verified registry signatures and attestations. The published
+tarball is byte-identical to the tested final candidate; provenance identifies the
+release commit, tag and workflow. See [VALIDATION.md](VALIDATION.md#cli-011-publication).
 
-Facets require a supporting server and newly built keyword indexes. This release
-does not migrate existing Collections, update old indexes or upgrade installed
-CLIs automatically. Release-candidate evidence belongs in [VALIDATION.md](VALIDATION.md)
-and the promotion PR; do not treat earlier SDK integration tests as publication proof.
+The post-release branch synchronizes main history into develop with `0.1.2-dev.1`
+and prepares the 0.1.1 Homebrew formula. The public tap update requires its separate
+review and merge. Facets still require a supporting server and newly built keyword
+indexes; publication does not migrate Collections or upgrade installed CLIs.
 
 ## Prior publication status
 
@@ -120,11 +120,13 @@ artifact conflicts remain fatal. Process termination or scheduling can delay
 reporting, but responses at or after the deadline cannot pass verification.
 
 The script reports successful publication before waiting. If propagation still
-exceeds the budget, it emits `result=published-verification-pending` and exits
-nonzero. This means the write succeeded but verification is incomplete; it does
-not authorize another publish. Retry registry reads first. Once the manifest and
-dev tag agree, rerun the failed job: an identical artifact reports
-`result=already-published` without another write. Newer dev versions and stale
+exceeds the budget, it emits `result=published-verification-pending`, a GitHub
+warning and a job summary, then exits successfully. This means publication
+succeeded but registry visibility is unverified. It does not authorize another
+publish or establish that installation/Homebrew updates can proceed. Retry reads
+before those downstream actions. Actual publish failures, authentication/schema
+errors and artifact mismatches still fail the job. Once the manifest and dev tag
+agree, an explicit rerun reports `result=already-published` without another write. Newer dev versions and stale
 commits are skipped without changing tags. A failed publish remains an uncertain
 write and is never automatically retried.
 

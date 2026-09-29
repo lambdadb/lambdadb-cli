@@ -1,7 +1,7 @@
 # LambdaDB CLI
 
 A first, project-scoped CLI for developers, coding agents and CI. It uses
-`@functional-systems/lambdadb@0.5.1` for authentication, HTTP, read retries,
+`@functional-systems/lambdadb@0.6.0` for authentication, HTTP, read retries,
 pagination, bulk transfers and large response downloads.
 
 ## Install and run
@@ -19,7 +19,7 @@ lambdadb --help
 ```
 
 For reproducible CI runs, pin an exact published version such as
-`@functional-systems/lambdadb-cli@0.1.0`. To try development builds, explicitly use
+`@functional-systems/lambdadb-cli@0.1.1`. To try development builds, explicitly use
 `@functional-systems/lambdadb-cli@dev`; this moving channel contains prereleases.
 Installed CLIs do not update themselves. See
 [RELEASING.md](RELEASING.md#current-status) for release status and
