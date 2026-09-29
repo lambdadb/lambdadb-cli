@@ -1,0 +1,34 @@
+name: Homebrew
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - packaging/homebrew/**
+      - scripts/test-homebrew.sh
+      - .github/workflows/homebrew.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Homebrew ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Use runner Homebrew on Linux
+        if: runner.os == 'Linux'
+        run: echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+      - name: Install and verify the stable formula
+        run: bash scripts/test-homebrew.sh

@@ -1,0 +1,5 @@
+{
+  "query": { "queryString": { "query": "serverless", "defaultField": "text" } },
+  "size": 10,
+  "facets": { "category": {} }
+}

@@ -175,7 +175,8 @@ program.command('query')
   .description('Submit a supported query request JSON file; empty matches are a successful result')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--ref <kind:name>', 'branch:NAME, tag:NAME or alias:NAME; must match any ref in the file')
-  .requiredOption('--file <path>', 'JSON request body including query (see examples/query.json)')
+  .requiredOption('--file <path>', 'JSON request body; omit query for match-all, use size:0 with facets for counts only')
+  .addHelpText('after', '\nExamples:\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-facets-only.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-with-facets.json --json')
   .action(async (opts, cmd: Command) => {
     const ref = parseRef(opts.ref);
     const input = queryInput(await readJson(opts.file), ref);

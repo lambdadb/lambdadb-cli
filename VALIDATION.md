@@ -1,7 +1,91 @@
 # Validation record
 
-Updated: 2026-09-19. Local contract tests use loopback servers and synthetic
-credentials. A separate authenticated development-project smoke is recorded below.
+Updated: 2026-09-29. Local contract tests use loopback servers and synthetic
+credentials. Authenticated development-project evidence is recorded separately.
+
+## CLI 0.1.1 release preparation
+
+On 2026-09-29, candidate commit `6f7bb23` prepared stable metadata from develop
+`a65a2b198b484d2e4da4ca2ff438779806a87cce`. Runtime source, tests, examples,
+SDK dependency and workflows are unchanged from that reviewed integration.
+Version 0.1.1 is a release candidate here, not an npm publication claim.
+
+- Clean candidate checkout on Node.js 24.15.0: `npm ci`, lint, version metadata,
+  typecheck and all 64 tests passed. Explicit release preflight with
+  `RELEASE_TAG=v0.1.1 RELEASE_PRERELEASE=false` passed without creating a tag.
+- Packed the candidate once and ran `npm run test:package -- <tarball>`:
+  all 40 installed-CLI tests passed. A separate consumer installation verified
+  CLI 0.1.1, SDK 0.6.0 and a LICENSE identical to the source.
+- Installed-tarball live smoke used the designated `bench-recall` development
+  project at `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai` with
+  the existing secure in-memory environment mapping. The candidate tarball had
+  SHA-512 integrity
+  `sha512-1MRwAbI7kbAPKNUz2L+rd/F2tIF2I3r3wdI4kpsBNE84Y13TUYwTQF+gIDB95tvByyR1RdUi30ncH699rBhu9w==`.
+- Doctor, creation with `chinese` and `english`, ordinary/bulk acceptance, exact
+  committed query/fetch contents, match-all facet-only and document+facet buckets
+  passed in 61.0 seconds. Temporary Collection
+  `cli-smoke-a2894dda-50a2-4fa9-b320-fcc142bdf1fb` was deleted and verified by a
+  subsequent HTTP 404. No existing Collection or index was changed.
+- This evidence-only addition changes packaged documentation after that smoke.
+  The final promotion tarball is checked again by the installed-package suite;
+  runtime source, compiled JavaScript, examples and package metadata must remain
+  identical to the live-tested candidate. The promotion PR records the final
+  artifact digest and CI results separately.
+
+Publication remains a separate step after main promotion and authorization.
+The release workflow will rebuild and verify its own exact publication tarball.
+The current Homebrew formula still selects published 0.1.0; updating it requires
+verified 0.1.1 registry metadata and immutable release-commit checksums.
+
+## SDK 0.6.0 integration
+
+Validated on 2026-09-29 from an isolated worktree based on develop
+`513af6e4d262edd380013c86d51a20aad16274d7`, with Node.js 24.15.0 and the
+published `@functional-systems/lambdadb@0.6.0` dependency. npm `latest` was 0.6.0.
+The release tag resolves to `491d01e0eb54bd135823fab79cbe32396ec03691`;
+installed query schema, analyzer schema and client facade source files matched
+that tag byte-for-byte. The lockfile records the published package integrity.
+
+- `npm ci`, `npm run lint`, `npm run check:version`, `npm run typecheck`: passed.
+- `npm test`: 64 tests passed, including subprocess requests through the actual
+  SDK for facet-only success, zero without facets rejection, omitted query,
+  malformed facets, bounds, null/default preservation and ref consistency.
+- `npm run test:package`: 40 installed-tarball CLI tests passed. Facet metadata,
+  inline documents and `docsUrl` downloads survive JSON output; signed URLs and
+  credentials remain excluded. Arbitrary facet-name redaction preserves collisions;
+  short credentials do not change fixed bucket/result schema keys.
+- All 16 analyzer names passed create serialization and reached the loopback API;
+  unknown/case-mismatched names failed before HTTP. Omitted, empty and duplicate
+  analyzer lists were forwarded unchanged. This does not mean the live server
+  accepts duplicate names.
+- `git diff --check`: passed. GitHub Node 22/24 CI results are reported on the PR;
+  the local run above used Node 24 only.
+
+The credentialed live harness (`node --test test/live/cli.test.mjs`, after build)
+used the previously designated development endpoint
+`https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`, project `bench-recall`.
+An in-memory launcher used the existing ignored `.env.local` mapping documented
+below; no credential file was changed or copied into the worktree.
+
+- Doctor and temporary Collection creation with `english` and new `chinese`
+  analyzers succeeded. Two ordinary 3 MiB writes and one bulk write were accepted
+  at about 2 seconds in the final run.
+- Committed query/fetch contents for all three documents were verified at about
+  87 seconds in the final run, without a pending-write overlay.
+- Both checked-in facet examples passed: omitted-query `size: 0` returned no
+  documents; document+facet returned three. Both returned exact category buckets
+  `database: 2` and `developer-tools: 1` through CLI JSON output.
+- The final test passed in 87.8 seconds after the short-credential output fix.
+  Temporary Collection `cli-smoke-dcd3b60a-b65d-4126-b6e4-ad78904f4eb3` was deleted
+  and a subsequent SDK get returned HTTP 404. The earlier integration smoke also
+  passed in 53.6 seconds; its temporary Collection
+  `cli-smoke-e9f9a7c8-babf-4a62-a8d8-48bfa4683f66` was likewise deleted with 404
+  verification.
+
+This proves the bounded sample against one supporting development deployment,
+not production availability, all analyzer language behavior or old-index support.
+No existing Collection/index was migrated. No CLI merge, tag, GitHub Release or
+npm publication was performed as part of this integration.
 
 ## Development publication after Homebrew documentation
 

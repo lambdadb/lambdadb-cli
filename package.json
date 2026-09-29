@@ -1,6 +1,6 @@
 {
   "name": "@functional-systems/lambdadb-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Project-scoped LambdaDB command-line tools",
   "type": "module",
@@ -33,7 +33,7 @@
     "test:live": "npm run build && node --test test/live/*.test.mjs"
   },
   "dependencies": {
-    "@functional-systems/lambdadb": "0.5.1",
+    "@functional-systems/lambdadb": "0.6.0",
     "commander": "14.0.3"
   },
   "devDependencies": {
