@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Maintenance
+
+- Synchronize the 0.1.2 release history and start the 0.1.3 development line.
+- Prepare the Homebrew formula for verified stable 0.1.2 and record npm publication evidence.
+
+## [0.1.2] - 2026-10-04
+
 ### Fixed
 
 - Preserve fixed rerank status/provider/model/criteria/reason tokens when they

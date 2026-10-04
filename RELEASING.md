@@ -2,6 +2,28 @@
 
 ## Current status
 
+CLI 0.1.2 was published on 2026-10-04 from merged main commit
+`6628fe0ed1f405c88fbd91d591e5223d3250dd73` through
+[GitHub Release v0.1.2](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.2)
+and the [successful OIDC workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/37191188846).
+It pins SDK 0.7.0 and includes 49 fixed analyzer presets, optional per-query
+managed reranking and credential-safe fixed rerank metadata.
+
+Independent registry verification confirmed latest=0.1.2 and dev=0.1.2-dev.12.
+The published tarball is byte-identical to the reviewed, live-tested candidate.
+A clean registry consumer passed all 46 CLI contracts, version/help, SDK version,
+integrity, four registry signatures and three attestations. Decoded provenance
+identifies the release commit, tag and workflow. See
+[publication evidence](VALIDATION.md#cli-012-publication-2026-10-04).
+
+This post-release branch synchronizes main into develop with 0.1.3-dev.1 and
+prepares the verified 0.1.2 Homebrew formula. The public tap still provides 0.1.1
+until its separate formula PR is reviewed and merged. Publication and bounded
+development smoke do not establish production deployment, search quality,
+load/failure coverage or billing readiness.
+
+## CLI 0.1.1 publication
+
 CLI 0.1.1 was published on 2026-09-29 through
 [GitHub Release v0.1.1](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.1)
 and the [OIDC release workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/36557578359).
@@ -16,8 +38,8 @@ tarball is byte-identical to the tested final candidate; provenance identifies t
 release commit, tag and workflow. See [VALIDATION.md](VALIDATION.md#cli-011-publication).
 
 The post-release branch synchronizes main history into develop with `0.1.2-dev.1`
-and prepares the 0.1.1 Homebrew formula. The public tap update requires its separate
-review and merge. Facets still require a supporting server and newly built keyword
+and prepares the 0.1.1 Homebrew formula. The public tap was checked on 2026-10-04
+and matches that verified 0.1.1 formula; the 0.1.2 handoff follows publication. Facets still require a supporting server and newly built keyword
 indexes; publication does not migrate Collections or upgrade installed CLIs.
 
 ## Prior publication status
@@ -260,9 +282,11 @@ npm run test:live
 
 The test fails before API calls when required settings are absent. It creates a
 random temporary collection, imports two 3 MiB documents plus a bulk document,
-uses the new `chinese` analyzer, checks exact facet-only and document+facet buckets,
-and checks committed query/fetch contents with a maximum 300-second observation
-window per stage. Request timeouts and polling sleeps are capped to the remaining
+accepts and verifies metadata for all 49 fixed analyzer presets, checks exact
+facet-only and document+facet buckets, and checks committed query/fetch contents
+with a maximum 300-second observation window per stage. It also checks managed reranking with default criteria, null
+and custom criteria, including final/retrieval scores and status metadata.
+Request timeouts and polling sleeps are capped to the remaining
 budget, and responses at or after the deadline cannot pass. Process termination
 and event-loop scheduling may delay reporting. It reports elapsed time and
 matched-document counts; a timeout is a failed smoke, not proof that accepted
@@ -287,7 +311,8 @@ release, follow the [Homebrew maintainer guide](https://github.com/lambdadb/lamb
 update checksums, pass installation checks and prepare a tap PR. Tap publication
 is separate from this repository's npm workflow; no cross-repository write or
 automatic tap update is configured. The public
-[LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides stable `0.1.0`;
+[LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides stable `0.1.1`
+(verified on 2026-10-04);
 installation evidence is recorded in [VALIDATION.md](VALIDATION.md#homebrew-publication).
 
 ## Design references

@@ -19,7 +19,7 @@ lambdadb --help
 ```
 
 For reproducible CI runs, pin an exact published version such as
-`@functional-systems/lambdadb-cli@0.1.1`. To try development builds, explicitly use
+`@functional-systems/lambdadb-cli@0.1.2`. To try development builds, explicitly use
 `@functional-systems/lambdadb-cli@dev`; this moving channel contains prereleases.
 Installed CLIs do not update themselves. See
 [RELEASING.md](RELEASING.md#current-status) for release status and
