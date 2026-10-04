@@ -26,11 +26,58 @@ and live evidence below remain historical; no new CLI package was published.
 - No local Qdrant mapping exists. The upstream stricter schema-option behavior
   and unchanged type-only mapping are documented in DESIGN.md.
 
-No authorized live target was supplied for this update, so no authenticated
-service tests or temporary Collections were used. Package test consumers were
-removed by the harness. Supporting server deployment, production availability,
-search quality, load/failure coverage and billing readiness remain unverified.
-PR/CI validation does not merge, deploy or publish this update.
+The initial update did not inspect the existing ignored `.env.local` and therefore
+ran only local tests. Steven subsequently explicitly authorized using that file;
+the development-service follow-up below supersedes the initial live-test omission.
+Supporting production deployment, search quality, load/failure coverage and billing
+readiness remain unverified. No merge, deployment or publication was performed.
+
+## SDK 0.7.0 authenticated development follow-up (2026-10-04)
+
+Tested the built CLI runtime from `b6b9cbc` (CLI `0.1.2-dev.1`, SDK `0.7.0`) on
+Node 24.15.0 with the expanded live harness in this PR. Target:
+`bench-recall` at `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`.
+The existing `.env.local` supplied the API key and `LAMBDADB_RUN_LIVE_TESTS=1`.
+A `node --env-file=.env.local` launcher mapped `LAMBDADB_BASE_URL`,
+`LAMBDADB_PROJECT_NAME` and `LAMBDADB_PROJECT_API_KEY` in memory to the CLI's
+`LAMBDADB_ENDPOINT`, `LAMBDADB_PROJECT` and `LAMBDADB_API_KEY`, and set
+`LAMBDADB_LIVE_CONFIRM_PROJECT` to the same authorized project. It ran
+`node --test --test-reporter=tap test/live/cli.test.mjs` without printing credentials.
+
+- Doctor and temporary collection creation passed. All 49 fixed presets were
+  accepted as individual text field configurations, and describe metadata
+  preserved each requested configuration. The keyword analyzer and keyword field
+  type remained distinct. Unpopulated preset fields test acceptance/metadata,
+  not language-specific indexing or search quality.
+- Two ordinary documents with 3 MiB payloads each and one bulk document were
+  accepted at about 4 seconds. Committed query and fetch contents for all three
+  passed at about 100 seconds, without a pending-write overlay.
+- Match-all facet-only and document-plus-facet queries returned exact expected
+  document counts and category buckets.
+- Default reranking and custom criteria returned `applied`, candidate/scored
+  counts of three, expected provider/model and criteria-version markers, finite
+  final evaluation and retrieval scores, descending final-score order and matching
+  maxScore. Null rerank retained ordinary results with no rerank metadata or
+  retrievalScore. All three expected IDs were preserved. These checks exercised
+  the CLI, its published SDK and the designated development service, with no Jev key.
+- The final run passed in 102.4 seconds. Cleanup was accepted and get returned
+  HTTP 404 for `cli-smoke-571da4e7-2402-4652-aa81-c44824964fdc`.
+- Two earlier attempts failed only in newly added test metadata assertions:
+  first the response's collection wrapper was missed, then the server-added
+  default id index was compared as an unexpected field. The harness now compares
+  every requested index configuration while allowing server-added fields.
+  Both temporary collections were deleted and HTTP 404 confirmed:
+  `cli-smoke-ec8b9c3f-c94f-4c4a-bfff-3dad2a24516b` and
+  `cli-smoke-7fed413e-cbe5-4e15-a7dc-e334a3fac537`.
+- Every attempt verified `.env.local` remained byte-for-byte unchanged using
+  SHA-256. Temporary local files were removed by the harness. Lint, typecheck
+  and diff checks passed after the harness changes.
+
+This is bounded development evidence. The live harness does not inspect wire
+responses to prove docsUrl selection, induce provider fallback or load failures,
+measure ranking quality, test dense vector reranking, or establish production
+feature deployment or billing readiness. Local transport regressions cover
+zero/precision/ties, docsUrl metadata, independent vector k and failure handling.
 
 ## CLI 0.1.1 publication
 
