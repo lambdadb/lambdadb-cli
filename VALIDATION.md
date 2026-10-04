@@ -29,13 +29,47 @@ which passed Node 22/24 validation and exact-artifact tests on attempt 1.
   no additional live run was performed. The earlier failed sample remains recorded.
 - Formula handoff pins this npm tarball and release lockfile SHA-256
   `e2d12af262d13c3a23073d1313b183766bb40b5360abeb0d773b5100819dac65`.
-  Public-tap installation and upgrade remain pending its separate PR merge.
+  The completed tap handoff and bounded upgrade evidence are recorded below.
 
 These checks establish artifact publication and the recorded development sample;
 production deployment, search quality, load/failure coverage and billing readiness
 remain separate dependencies.
 
+## CLI 0.1.2 post-release verification (2026-10-04)
+
+[PR #16](https://github.com/lambdadb/lambdadb-cli/pull/16) merged as
+`aefbaeed9c799e76dd7a9501ecda6ab80dc6e958`, preserving release commit `6628fe0`
+as an ancestor of develop and starting the 0.1.3-dev.1 development base.
+
+- [Automatic publication](https://github.com/lambdadb/lambdadb-cli/actions/runs/37192027479)
+  passed Node 22/24 validation and published 0.1.3-dev.13. An independent isolated
+  registry consumer passed all 46 CLI contracts, version/help, SDK 0.7.0 and
+  integrity checks. npm audit signatures verified four signatures and three
+  attestations. Decoded provenance matched the artifact digest, merge commit,
+  repository, develop ref and workflow run. At verification, dev=0.1.3-dev.13
+  and latest=0.1.2. Temporary consumer, source archive and cache were removed.
+- [Homebrew PR #6](https://github.com/lambdadb/homebrew-tap/pull/6) merged as
+  `ae9a7456acd10015d51b9ea8d58aee76afe3da28`. The public formula matches the
+  CLI-side formula and pins the verified npm 0.1.2 artifact and release lockfile.
+- [Public-tap CI](https://github.com/lambdadb/homebrew-tap/actions/runs/37192619208)
+  passed on macOS arm64 and Linux x86_64. It installed from the remote public tap
+  and checked formula equality, style, version, JSON configuration, file
+  permissions and Node runtime selection. Existing migration checks also passed;
+  no migration formula was changed. Hosted test installations and taps were removed.
+- A separate local macOS arm64 test installed 0.1.1 into a disposable tap, replaced
+  its formula with the exact merged public 0.1.2 formula, ran brew upgrade and
+  verified version 0.1.2 and brew test. Both test-owned versions and the temporary
+  tap were removed; the original user taps were preserved. This establishes the
+  formula version transition, not an existing user's public-tap upgrade or Linux
+  upgrade coverage. No LambdaDB service resources or credentials were used.
+- Merged feature branches were removed and both primary checkouts were clean.
+  The candidate and development-service evidence below remain historical samples;
+  this post-release verification did not run another live service smoke.
+
 ## CLI 0.1.2 stable candidate (2026-10-04)
+
+This section records the pre-publication candidate milestone. Publication and
+post-release results are recorded above.
 
 Prepared release/0.1.2 from reviewed develop merge `aef74a3`, retaining SDK 0.7.0
 and all reviewed runtime/test changes. The release branch changes only version
