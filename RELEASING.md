@@ -2,19 +2,25 @@
 
 ## Current status
 
-CLI 0.1.2 is ready for release review from reviewed develop commit `aef74a3` (PR #14).
-The candidate pins SDK 0.7.0, supports 49 fixed text analyzer presets and optional
-per-query managed reranking, and preserves fixed rerank metadata during credential
-redaction. The published 0.1.2-dev.12 artifact passed independent consumer,
-provenance/signature and authorized development-service checks. The separately
-installed 0.1.2 candidate also passed the expanded live smoke; its earlier failed
-attempt and independent cleanup are recorded in [VALIDATION.md](VALIDATION.md).
+CLI 0.1.2 was published on 2026-10-04 from merged main commit
+`6628fe0ed1f405c88fbd91d591e5223d3250dd73` through
+[GitHub Release v0.1.2](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.2)
+and the [successful OIDC workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/37191188846).
+It pins SDK 0.7.0 and includes 49 fixed analyzer presets, optional per-query
+managed reranking and credential-safe fixed rerank metadata.
 
-Stable 0.1.2 is not published yet. The release PR targets main; its merge, immutable
-`v0.1.2` tag and GitHub Release remain separate approved actions. After publishing,
-verify npm latest, artifact integrity/provenance and clean consumers before updating
-Homebrew. Keep develop on its dev version while this release branch is reviewed;
-synchronize main back with the next `0.1.3-dev.1` base after release.
+Independent registry verification confirmed latest=0.1.2 and dev=0.1.2-dev.12.
+The published tarball is byte-identical to the reviewed, live-tested candidate.
+A clean registry consumer passed all 46 CLI contracts, version/help, SDK version,
+integrity, four registry signatures and three attestations. Decoded provenance
+identifies the release commit, tag and workflow. See
+[publication evidence](VALIDATION.md#cli-012-publication-2026-10-04).
+
+This post-release branch synchronizes main into develop with 0.1.3-dev.1 and
+prepares the verified 0.1.2 Homebrew formula. The public tap still provides 0.1.1
+until its separate formula PR is reviewed and merged. Publication and bounded
+development smoke do not establish production deployment, search quality,
+load/failure coverage or billing readiness.
 
 ## CLI 0.1.1 publication
 

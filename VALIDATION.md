@@ -3,6 +3,38 @@
 Updated: 2026-10-04. Local contract tests use loopback servers and synthetic
 credentials. Authenticated development-project evidence is recorded separately.
 
+## CLI 0.1.2 publication (2026-10-04)
+
+[PR #15](https://github.com/lambdadb/lambdadb-cli/pull/15) merged as
+`6628fe0ed1f405c88fbd91d591e5223d3250dd73`. The annotated v0.1.2 tag points to
+that commit. [GitHub Release v0.1.2](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.2)
+triggered [OIDC publication](https://github.com/lambdadb/lambdadb-cli/actions/runs/37191188846),
+which passed Node 22/24 validation and exact-artifact tests on attempt 1.
+
+- Registry latest=0.1.2; dev=0.1.2-dev.12 remained unchanged.
+- Downloaded npm tarball is byte-identical to the reviewed final candidate and
+  merged-main pack. SHA-256:
+  `e63c2c0fd624e1d81c45c5ba24d641a11ee0ecdc60f063aba4268e06547761ea`.
+  Registry SHA-512 integrity:
+  `sha512-9l1WPN2vrX+JXRjuOh7Uz5DCVcaiV/YLpYKgZb7ORU1jphaAIx38VSWeiQitz0V2Nw/b1vTxfcXzvra6EAkaFg==`.
+- An isolated registry consumer passed all 46 installed CLI contracts and
+  version/help. Its lockfile integrity matched npm and SDK resolves to 0.7.0.
+  npm audit signatures verified four registry signatures and three attestations.
+- Decoded [provenance](https://registry.npmjs.org/-/npm/v1/attestations/@functional-systems%2flambdadb-cli@0.1.2)
+  matched the artifact digest, repository, release commit, refs/tags/v0.1.2,
+  publish.yaml and workflow run 37191188846. Verification retried registry reads
+  during propagation without another publication. Temporary consumer, archive
+  and cache were removed.
+- The candidate live evidence below applies to the identical published artifact;
+  no additional live run was performed. The earlier failed sample remains recorded.
+- Formula handoff pins this npm tarball and release lockfile SHA-256
+  `e2d12af262d13c3a23073d1313b183766bb40b5360abeb0d773b5100819dac65`.
+  Public-tap installation and upgrade remain pending its separate PR merge.
+
+These checks establish artifact publication and the recorded development sample;
+production deployment, search quality, load/failure coverage and billing readiness
+remain separate dependencies.
+
 ## CLI 0.1.2 stable candidate (2026-10-04)
 
 Prepared release/0.1.2 from reviewed develop merge `aef74a3`, retaining SDK 0.7.0
