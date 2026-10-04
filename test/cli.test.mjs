@@ -620,3 +620,53 @@ test('returnOriginal does not mask API validation, authorization, quota or admis
     assert.equal(r.json.data, undefined);
   }
 });
+
+test('colliding credentials preserve fixed rerank tokens while redacting arbitrary strings in JSON and human output', async t => {
+  const cases = [
+    ['status', 'applied'], ['status', 'skipped'], ['status', 'fallback'],
+    ['provider', 'typesafe'], ['model', 'jev-1.13.0'],
+    ['criteriaVersion', 'custom'], ['criteriaVersion', 'default-relevance-v1'],
+    ...['noCandidates', 'timeout', 'rateLimit', 'unavailable', 'invalidResponse', 'credentials'].map(reason => ['reason', reason]),
+    ['provider', 'a'],
+  ];
+  for (const [field, key] of cases) {
+    const status = field === 'status' ? key : field === 'reason' ? (key === 'noCandidates' ? 'skipped' : 'fallback') : 'applied';
+    const rerank = { status, provider: 'typesafe', model: 'jev-1.13.0', resolvedModel: `server-${key}`,
+      candidateCount: status === 'skipped' ? 0 : 1, scoredCount: status === 'applied' ? 1 : 0, took: 0,
+      ...(status === 'applied' ? { criteriaVersion: field === 'criteriaVersion' ? key : 'custom' } : {}),
+      ...(field === 'reason' ? { reason: key } : status === 'skipped' ? { reason: 'noCandidates' } : status === 'fallback' ? { reason: 'timeout' } : {}),
+    };
+    const docs = status === 'skipped' ? [] : [{ collection: 'demo-docs', score: 0, ...(status === 'applied' ? { retrievalScore: 0 } : {}),
+      doc: { text: key, rerank: { status: key, provider: key, reason: key } } }];
+    const f = await fixture(t, (r, send, _req, _res, base) => r.url.pathname === '/transfer'
+      ? send(200, docs)
+      : send(200, { took: 0, total: docs.length, isDocsInline: false, docs: [], docsUrl: `${base}/transfer`, rerank }));
+    for (const json of [true, false]) {
+      const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-rerank.json'), ...(json ? ['--json'] : [])], { LAMBDADB_API_KEY: key });
+      assert.equal(r.code, 0);
+      const data = json ? r.json.data : JSON.parse(r.stdout.split('\n').slice(2).join('\n'));
+      assert.deepEqual(data.rerank, { ...rerank, resolvedModel: 'server-[REDACTED]' });
+      if (docs.length) {
+        const doc = data.docs[0].doc;
+        assert.ok(Object.values(doc).includes('[REDACTED]'));
+        const nested = Object.values(doc).find(value => value && typeof value === 'object');
+        assert.deepEqual(Object.values(nested), ['[REDACTED]', '[REDACTED]', '[REDACTED]']);
+        assert.equal(data.docs[0].score, 0);
+      }
+    }
+  }
+});
+
+test('unknown rerank provider, model and reason remain subject to credential redaction', async t => {
+  const key = 'private-token';
+  const rerank = { status: 'fallback', provider: `provider-${key}`, model: `model-${key}`, reason: `reason-${key}`,
+    resolvedModel: key, candidateCount: 1, scoredCount: 0, took: 0 };
+  const f = await fixture(t, (_r, send) => send(200, { took: 0, total: 1, isDocsInline: true,
+    docs: [{ collection: 'demo-docs', score: 2, doc: { text: key } }], rerank }));
+  const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-rerank.json'), '--json'], { LAMBDADB_API_KEY: key });
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.data.rerank, { ...rerank, provider: 'provider-[REDACTED]', model: 'model-[REDACTED]',
+    reason: 'reason-[REDACTED]', resolvedModel: '[REDACTED]' });
+  assert.equal(r.json.data.docs[0].doc.text, '[REDACTED]');
+  assert.ok(!r.stdout.includes(key) && !r.stderr.includes(key));
+});

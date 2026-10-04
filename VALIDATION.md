@@ -32,6 +32,24 @@ the development-service follow-up below supersedes the initial live-test omissio
 Supporting production deployment, search quality, load/failure coverage and billing
 readiness remain unverified. No merge, deployment or publication was performed.
 
+## SDK 0.7.0 review follow-up: rerank token redaction (2026-10-04)
+
+The PR review identified a valid protocol regression: a credential equal to
+`applied` rewrote `data.rerank.status` to `[REDACTED]`. The new CLI regression
+failed before the fix, while the negative test for arbitrary metadata passed.
+The output sanitizer now preserves exact known status/provider/model/criteria
+version/reason tokens only at their contract paths. Unknown server values,
+resolvedModel and document content retain credential redaction; whole metadata
+paths are not exempted because the SDK accepts open strings for several fields.
+
+On Node 24.15.0, lint, typecheck, version checks, all 71 source tests and all 46
+separately installed CLI tests passed with no failures or skips. The two new
+cases cover every fixed token and a one-character credential, JSON and human
+output, docsUrl results, nested document maps and unknown provider/model/reason
+values. Repeated builds remain identical for all 21 generated files. This is a
+local redaction fix; the prior development-service evidence remains applicable
+to SDK API behavior and was not rerun with synthetic colliding credentials.
+
 ## SDK 0.7.0 authenticated development follow-up (2026-10-04)
 
 Tested the built CLI runtime from `b6b9cbc` (CLI `0.1.2-dev.1`, SDK `0.7.0`) on

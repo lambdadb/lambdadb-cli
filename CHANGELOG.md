@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Preserve fixed rerank status/provider/model/criteria/reason tokens when they
+  overlap with a credential. Continue redacting document content, resolved model
+  strings and unknown server metadata values in JSON and human output.
+
 - A successful development publication no longer fails CI solely because registry
   visibility exceeds the verification budget. Report a warning and explicit
   `published-verification-pending` result; retain failures for publish errors,
