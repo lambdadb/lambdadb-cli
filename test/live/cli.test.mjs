@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
 import { test } from 'node:test';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { LambdaDBClient } from '@functional-systems/lambdadb';
+import { Analyzer } from '@functional-systems/lambdadb/models';
 import { observeWithin } from '../helpers/observation.mjs';
 
 test('explicit development-project CLI smoke with temporary collection cleanup', { timeout: 900000 }, async t => {
@@ -47,9 +49,12 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   success(await run(['doctor']), 'doctor');
   progress('Doctor passed.');
   const indexFile = join(temp, 'index-config.json');
-  await writeFile(indexFile, JSON.stringify({
+  const indexConfigs = {
     text: { type: 'text', analyzers: ['english', 'chinese'] }, category: { type: 'keyword' },
-  }));
+    ...Object.fromEntries(Object.values(Analyzer).map(analyzer => [`preset_${analyzer}`, { type: 'text', analyzers: [analyzer] }])),
+  };
+  assert.equal(Object.values(Analyzer).length, 49);
+  await writeFile(indexFile, JSON.stringify(indexConfigs));
   const created = await run(['collections', 'create', '--collection', collection, '--index-config', indexFile]);
   if (created.code === 0 || created.code === 5) {
     t.after(async () => {
@@ -66,6 +71,10 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   }
   success(created, 'create');
   progress(`Created temporary collection ${collection}.`);
+  const described = success(await run(['collections', 'describe', '--collection', collection]), 'describe analyzers');
+  assert.ok(Object.entries(indexConfigs).every(([field, config]) => isDeepStrictEqual(described.collection?.indexConfigs?.[field], config)),
+    'Collection metadata must preserve every requested analyzer preset.');
+  progress('All 49 fixed analyzer presets accepted and metadata verified; language-specific search quality is not measured.');
   const rows = [
     { id: 'large-1', text: 'serverless smoke', category: 'database', payload: 'a'.repeat(3 * 1024 * 1024) },
     { id: 'large-2', text: 'serverless smoke', category: 'database', payload: 'b'.repeat(3 * 1024 * 1024) },
@@ -122,5 +131,34 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     ]);
     progress(`${file}: document count and exact facet buckets verified.`);
   }
-  t.diagnostic('Doctor, create with chinese analyzer, ordinary/bulk acceptance, committed query/fetch, match-all facet-only and document+facet contents passed. This is a bounded sample, not a collection readiness guarantee.');
+  const baseline = JSON.parse(await readFile(resolve('examples/query.json'), 'utf8'));
+  for (const variant of ['default', 'null', 'custom']) {
+    const rerank = variant === 'null' ? null : {
+      provider: 'typesafe', model: 'jev-1.13.0', queryText: 'How does serverless search work?', fields: ['text'],
+      ...(variant === 'custom' ? { candidateSize: 50, onFailure: 'error', criteria: [
+        'Does not address serverless search.', 'Explains serverless search directly.',
+      ] } : {}),
+    };
+    const file = join(temp, `query-rerank-${variant}.json`);
+    await writeFile(file, JSON.stringify({ ...baseline, rerank }));
+    const data = success(await run(['query', '--collection', collection, '--ref', 'branch:main', '--file', file], 60000), `rerank ${variant}`);
+    assert.equal(data.docs.length, 3);
+    assert.ok(expected.every(row => data.docs.some(hit => hit.doc.id === row.id)));
+    if (variant === 'null') {
+      assert.equal(data.rerank, undefined);
+      assert.ok(data.docs.every(hit => hit.retrievalScore === undefined));
+    } else {
+      assert.equal(data.rerank?.status, 'applied');
+      assert.equal(data.rerank?.provider, 'typesafe');
+      assert.equal(data.rerank?.model, 'jev-1.13.0');
+      assert.equal(data.rerank?.criteriaVersion, variant === 'custom' ? 'custom' : 'default-relevance-v1');
+      assert.equal(data.rerank?.candidateCount, 3);
+      assert.equal(data.rerank?.scoredCount, 3);
+      assert.ok(data.docs.every(hit => Number.isFinite(hit.score) && hit.score >= 0 && hit.score <= 1 && Number.isFinite(hit.retrievalScore)));
+      assert.ok(data.docs.every((hit, i) => i === 0 || data.docs[i - 1].score >= hit.score));
+      assert.equal(data.maxScore, data.docs[0].score);
+    }
+    progress(`Managed reranking ${variant}: document envelopes and status metadata verified.`);
+  }
+  t.diagnostic('Doctor, all 49 analyzer preset metadata, ordinary/bulk acceptance, committed query/fetch, facets and managed reranking default/null/custom passed. This is a bounded development sample, not a production readiness or search-quality guarantee.');
 });

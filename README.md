@@ -1,7 +1,7 @@
 # LambdaDB CLI
 
 A first, project-scoped CLI for developers, coding agents and CI. It uses
-`@functional-systems/lambdadb@0.5.1` for authentication, HTTP, read retries,
+`@functional-systems/lambdadb@0.7.0` for authentication, HTTP, read retries,
 pagination, bulk transfers and large response downloads.
 
 ## Install and run
@@ -19,7 +19,7 @@ lambdadb --help
 ```
 
 For reproducible CI runs, pin an exact published version such as
-`@functional-systems/lambdadb-cli@0.1.0`. To try development builds, explicitly use
+`@functional-systems/lambdadb-cli@0.1.1`. To try development builds, explicitly use
 `@functional-systems/lambdadb-cli@dev`; this moving channel contains prereleases.
 Installed CLIs do not update themselves. See
 [RELEASING.md](RELEASING.md#current-status) for release status and
@@ -172,12 +172,59 @@ One page is the default; `nextPageToken` is an opaque continuation token.
 budget. No partial list is printed on failure. Collection statistics describe
 the committed head of `main`, not the selected read ref or whole-index readiness.
 The create input file is the index map itself, not a full create request body.
-SDK 0.6.0 accepts 16 lowercase text analyzer names: `standard`, `english`,
-`korean`, `japanese`, `chinese`, `cjk`, `arabic`, `french`, `german`, `hindi`,
-`indonesian`, `italian`, `portuguese`, `russian`, `spanish` and `turkish`.
+SDK 0.7.0 accepts 49 fixed lowercase text analyzer presets:
+`standard`, `english`, `korean`, `japanese`, `chinese`, `cjk`, `arabic`,
+`french`, `german`, `hindi`, `indonesian`, `italian`, `portuguese`, `russian`,
+`spanish`, `turkish`, `armenian`, `basque`, `bengali`, `brazilian`, `bulgarian`,
+`catalan`, `czech`, `danish`, `dutch`, `estonian`, `finnish`, `galician`, `greek`,
+`hungarian`, `irish`, `latvian`, `lithuanian`, `norwegian`, `persian`, `romanian`,
+`serbian`, `sorani`, `swedish`, `thai`, `simple`, `whitespace`, `stop`, `keyword`,
+`pattern`, `fingerprint`, `nepali`, `tamil` and `telugu`.
 For example, `{"text":{"type":"text","analyzers":["chinese"]}}` is a valid
-index-config file. Omission preserves the server default; lists are sent unchanged.
-The server rejects duplicate analyzer names. Language detection is not automatic.
+index-config file. Omission preserves the `standard` server default; lists are
+sent unchanged. The server rejects duplicate names. Custom pipelines/options
+are unsupported, and language detection is not automatic. The `keyword` text
+analyzer does not confer keyword field sorting/facets. Nepali/Tamil/Telugu are
+Lucene extensions, not common Elasticsearch/OpenSearch support. See the
+[SDK analyzer contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/models/analyzer.md).
+
+### Managed reranking
+
+```sh
+lambdadb query --collection cli-demo-docs --ref branch:main \
+  --file examples/query-rerank.json --json
+```
+
+Add optional `rerank` to a query file; omission/null keeps existing searches.
+This is a per-query setting, with LambdaDB-managed credentials and no Jev key.
+Use `provider: "typesafe"`, `model: "jev-1.13.0"`, nonblank `queryText` (also for
+raw vectors, up to 8 KiB UTF-8), and 1–8 unique stored scalar text `fields`.
+Returned-field projection remains independent of these model inputs.
+`candidateSize` defaults on the server to `max(50, size)` and must satisfy
+`size <= candidateSize <= 100`. Final `size` is 1–100 (default 10); dense
+`knn.k` stays unchanged and must be raised explicitly for more vector candidates.
+Optional `criteria` replaces defaults with 2–10 distinct nonblank descriptions
+ordered from low to high relevance (2 KiB each, 8 KiB total UTF-8).
+Null optional settings use server defaults; the CLI does not insert them.
+
+Reranking requires a scoring query and rejects `sort`, query-less requests and
+filter-only queries. Existing lexical facet restrictions still apply; vector
+and hybrid facets are not enabled. Facet-only `size: 0` works without reranking.
+Selected candidate fields and model availability remain server validations.
+
+Read `data.rerank.status` and its metadata. Applied document envelope `score` is
+the final evaluation score, not a probability; `retrievalScore` retains the search
+score. Output preserves zero, precision and server order, including `docsUrl`
+downloads. Empty results report `skipped`/`noCandidates` with no `maxScore`.
+Unused reranking omits metadata and `retrievalScore`. With `onFailure: "returnOriginal"`, eligible provider failures return retained search order/scores,
+without `retrievalScore`, and report `fallback`; partial evaluations are discarded.
+The default policy is `error`. Validation, authorization, retrieval, quota and
+admission failures remain errors. See the
+[full reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/managed-reranking.md).
+
+These features need a supporting server deployment. SDK publication and shared
+development checks do not establish production deployment, search quality,
+load/failure coverage or billing readiness.
 
 ### Import JSONL
 
@@ -288,7 +335,7 @@ this SDK update. If migration is needed, deliberately create a new Collection an
 reinsert the source data; the CLI performs no automatic migration. Accepted imports
 and `consistentRead` are not proof of committed facet/index readiness.
 
-This source pins SDK 0.6.0. Existing CLI installations keep their packaged SDK
+This source pins SDK 0.7.0. Existing CLI installations keep their packaged SDK
 until a new CLI version is published and installed.
 
 ## Output, deadlines and exit codes

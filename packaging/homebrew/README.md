@@ -3,10 +3,13 @@
 ## Availability
 
 The public [LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides the
-published stable CLI, currently `0.1.0`, on macOS and Linux. This directory keeps
-the formula used for CLI-side review and full installed-contract checks. The tap
+published stable CLI, currently `0.1.1` (verified on 2026-10-04), on macOS and
+Linux. This directory keeps the formula used for CLI-side review and full installed-contract checks. The tap
 contains the reviewed copy used by Homebrew consumers and its own installation CI.
-See [validation evidence](../../VALIDATION.md#homebrew-publication).
+The checked-in formula matches the public tap's verified npm 0.1.1 artifact and
+immutable release lockfile. The 0.1.2 tap update follows stable npm publication
+and the checks below.
+See [0.1.1 validation evidence](../../VALIDATION.md#cli-011-publication).
 
 ## Packaging contract
 
@@ -40,7 +43,7 @@ The script creates a disposable local tap from the checked-in formula, runs
 Homebrew style checks, installs the stable package, and runs `brew test`. The
 formula test checks version, noninteractive JSON configuration and file permissions
 without API access. The harness also verifies the wrapper with a deliberately
-unusable ambient Node and runs the 35 CLI contracts from the formula's stable
+unusable ambient Node and runs the CLI contracts from the formula's stable
 release commit against the installed package. A full Git checkout is required;
 this avoids testing an older stable package against unreleased develop features.
 

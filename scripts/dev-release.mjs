@@ -151,9 +151,8 @@ export async function publishDevelopment({ name, version, sha, integrity, tarbal
     if (sleepMs <= 0) break;
     await pause(sleepMs);
   }
-  const error = new Error('npm publish succeeded, but registry verification is still pending after 300 seconds. Retry registry reads before rerunning this job; do not republish.');
-  error.code = 'REGISTRY_VERIFICATION_PENDING';
-  throw error;
+  report('npm publish succeeded, but registry verification is still pending after 300 seconds. Retry registry reads; do not republish.');
+  return 'published-verification-pending';
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -168,9 +167,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       const integrity = `sha512-${createHash('sha512').update(readFileSync(tarball)).digest('base64')}`;
       const result = await publishDevelopment({ name: pkg.name, version: pkg.version, sha, tarball, integrity });
       output('result', result);
+      if (result === 'published-verification-pending') {
+        console.error('::warning title=Registry verification pending::npm publish succeeded; registry verification is pending. Retry registry reads; do not republish.');
+        if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+          '\n### Publication succeeded; registry verification pending\n\nThe verification budget expired after a successful npm publish. Retry registry reads before installation or Homebrew updates. Do not republish.\n');
+      }
     } else throw new Error('Usage: node scripts/dev-release.mjs prepare|publish');
   } catch (error) {
-    if (error.code === 'REGISTRY_VERIFICATION_PENDING') output('result', 'published-verification-pending');
     console.error(error.message);
     process.exitCode = 1;
   }

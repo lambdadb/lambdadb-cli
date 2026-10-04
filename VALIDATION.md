@@ -1,7 +1,218 @@
 # Validation record
 
-Updated: 2026-09-29. Local contract tests use loopback servers and synthetic
+Updated: 2026-10-04. Local contract tests use loopback servers and synthetic
 credentials. Authenticated development-project evidence is recorded separately.
+
+## CLI 0.1.2 stable candidate (2026-10-04)
+
+Prepared release/0.1.2 from reviewed develop merge `aef74a3`, retaining SDK 0.7.0
+and all reviewed runtime/test changes. The release branch changes only version
+metadata, the dated changelog and release/validation documentation. Stable npm
+0.1.2 was absent when checked; latest remains 0.1.1. No stable tag, GitHub Release,
+package publication or main merge was performed during preparation.
+
+- npm ci, lint, typecheck, version checks and the explicit
+  RELEASE_TAG=v0.1.2 / RELEASE_PRERELEASE=false preflight passed on Node 24.15.0
+  with npm 11.12.1. All 71 source tests and 46 separately installed CLI tests passed.
+  The executable and lockfile agree on 0.1.2, and the installed SDK is 0.7.0.
+- A candidate tarball was installed into an isolated consumer with its own npm
+  cache. Its executable was selected via LAMBDADB_TEST_CLI for the authorized
+  development smoke using the existing .env.local target and in-memory mapping.
+  The successful run took 54.4 seconds: accepted writes at about 3 seconds,
+  committed query/fetch contents at about 52 seconds, exact facets and managed
+  reranking default/null/custom by about 54 seconds. All 49 preset metadata
+  checks passed. Cleanup returned HTTP 404 for
+  `cli-smoke-14b21fee-59e1-4898-9ef2-8a57db823de0`.
+- The first candidate live attempt failed after 53.2 seconds during query
+  observation with exit 3 and no HTTP status. The log does not distinguish a
+  transport timeout from another request failure; this is not a passing sample
+  or proof of a candidate defect. No runtime code was changed for the retry.
+  Cleanup was not confirmed by that run. An independent SDK get found its
+  test-owned collection still present; delete was accepted and a subsequent
+  get returned HTTP 404 for `cli-smoke-c42a987e-592a-4611-a8d7-04cf5b90ad15`.
+- Every live launcher checked .env.local's SHA-256 before/after execution. It
+  remained byte-for-byte unchanged. Temporary consumers, caches and initial
+  candidate tarballs were removed.
+- Only documentation was updated after the successful live run. The final
+  review tarball is rebuilt and checked again through the installed-package
+  suite; generated dist remains ignored. Candidate publication will be verified
+  independently after approval, rather than assuming dev provenance applies.
+- The public Homebrew tap was read and matches the verified 0.1.1 formula. Its
+  0.1.2 update waits for the stable npm artifact and immutable release lockfile.
+
+The live checks are bounded development evidence. Provider failure/load behavior,
+dense vector reranking, new-preset language quality, production deployment and
+billing readiness remain outside this verification. The PR must pass Node 22/24
+CI and receive review before main promotion. Tagging and publication are separate
+approved actions; synchronize main back into develop with 0.1.3-dev.1 afterward.
+
+## Published SDK 0.7.0 development consumer (2026-10-04)
+
+The [develop merge workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/37188862636)
+completed successfully and published
+[`0.1.2-dev.12`](https://www.npmjs.com/package/@functional-systems/lambdadb-cli/v/0.1.2-dev.12)
+from `aef74a3deeacb1e5d3f50856301562b58739fcdd` on attempt 1. Required Node
+22/24 validation and the exact publication artifact tests passed. Registry
+visibility was checked with reads while the automatic job completed; no second
+publication was attempted. At verification, dev=0.1.2-dev.12 and latest=0.1.1.
+
+- Downloaded tarball SHA-512 matched registry integrity and the clean consumer
+  lockfile. SDK dependency and the installed SDK both resolve exactly to 0.7.0.
+  Integrity: `sha512-AyGfP2ibeu/unYj5RvkkBO2WICkCMk6dp+4TauH0Da2xBsN6g3Nub7MmM/ZeiRE93wwV9r05IhXV2DyS28WY1A==`.
+- Registry/installed gitHead and decoded
+  [provenance](https://registry.npmjs.org/-/npm/v1/attestations/@functional-systems%2flambdadb-cli@0.1.2-dev.12)
+  agree on the merge commit, repository, develop ref, publish.yaml workflow and
+  run 37188862636; the provenance subject digest matches the downloaded artifact.
+- A fresh tarball consumer passed version/help and all 46 CLI contracts. Tests
+  came from an archived merge-source snapshot, with its expected package version
+  set to the generated published version. A separate registry-version consumer
+  with an isolated cache verified matching lockfile integrity and SDK version;
+  npm audit signatures verified four registry signatures and three attestations,
+  including the published CLI. The preliminary local-tarball audit verified only
+  the three registry dependencies, so the registry consumer verified the CLI too.
+- The published CLI's executable was selected through LAMBDADB_TEST_CLI for the
+  expanded authorized development smoke. All 49 preset metadata, ordinary/bulk
+  writes, full committed query/fetch contents, exact facets and managed reranking
+  default/null/custom checks passed in 81.9 seconds. Query contents appeared at
+  about 78 seconds; acceptance at about 2 seconds did not imply search readiness.
+- Cleanup was accepted and HTTP 404 confirmed for
+  `cli-smoke-5028c4c7-535c-4b29-8978-b3b805054d7d`. Temporary consumers, caches,
+  source snapshots and tarballs were removed. .env.local remained byte-for-byte
+  unchanged. The designated target and in-memory environment mapping are recorded
+  in the authenticated follow-up below.
+
+This establishes the published development artifact and a bounded sample on one
+development target. It does not establish stable publication, production feature
+deployment, language-specific search quality, load/failure coverage or billing
+readiness.
+
+## SDK 0.7.0 local compatibility (2026-10-04)
+
+The checkout began clean on develop at `3903531`. npm now pins the released
+SDK 0.7.0 in both package.json and package-lock.json. Existing 0.1.1 publication
+and live evidence below remain historical; no new CLI package was published.
+
+- `npm ci`, lint, typecheck and version/lockfile checks passed with Node 24.15.0
+  and npm 11.12.1. npm reported zero dependency vulnerabilities.
+- Source suite: 69 tests passed on Node 24.15.0 and Node 22.23.3, with no failures
+  or skips. Installed tarballs: 44 CLI tests passed on each runtime in temporary
+  consumers; package inventory and executable version/help checks passed.
+- Expanded analyzer forwarding covers all 49 names, existing omitted/default
+  serialization and lowercase rejection. Rerank cases check custom criteria,
+  null/omission, separate size/candidate cap/vector k, local validation, final and
+  retrieval scores (including zero/precision), tie order, metadata and facets.
+  Applied/empty/fallback/unused results are checked inline and through docsUrl;
+  API failures remain errors with returnOriginal. These are synthetic transport
+  contracts, not induced provider failures or language-quality measurements.
+- Repeated TypeScript builds produced identical hashes for all 21 generated
+  files. No separate schema/model generator exists; generated dist stays ignored.
+- No local Qdrant mapping exists. The upstream stricter schema-option behavior
+  and unchanged type-only mapping are documented in DESIGN.md.
+
+The initial update did not inspect the existing ignored `.env.local` and therefore
+ran only local tests. Steven subsequently explicitly authorized using that file;
+the development-service follow-up below supersedes the initial live-test omission.
+Supporting production deployment, search quality, load/failure coverage and billing
+readiness remain unverified. No merge, deployment or publication was performed.
+
+## SDK 0.7.0 review follow-up: rerank token redaction (2026-10-04)
+
+The PR review identified a valid protocol regression: a credential equal to
+`applied` rewrote `data.rerank.status` to `[REDACTED]`. The new CLI regression
+failed before the fix, while the negative test for arbitrary metadata passed.
+The output sanitizer now preserves exact known status/provider/model/criteria
+version/reason tokens only at their contract paths. Unknown server values,
+resolvedModel and document content retain credential redaction; whole metadata
+paths are not exempted because the SDK accepts open strings for several fields.
+
+On Node 24.15.0, lint, typecheck, version checks, all 71 source tests and all 46
+separately installed CLI tests passed with no failures or skips. The two new
+cases cover every fixed token and a one-character credential, JSON and human
+output, docsUrl results, nested document maps and unknown provider/model/reason
+values. Repeated builds remain identical for all 21 generated files. This is a
+local redaction fix; the prior development-service evidence remains applicable
+to SDK API behavior and was not rerun with synthetic colliding credentials.
+
+## SDK 0.7.0 authenticated development follow-up (2026-10-04)
+
+Tested the built CLI runtime from `b6b9cbc` (CLI `0.1.2-dev.1`, SDK `0.7.0`) on
+Node 24.15.0 with the expanded live harness in this PR. Target:
+`bench-recall` at `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`.
+The existing `.env.local` supplied the API key and `LAMBDADB_RUN_LIVE_TESTS=1`.
+A `node --env-file=.env.local` launcher mapped `LAMBDADB_BASE_URL`,
+`LAMBDADB_PROJECT_NAME` and `LAMBDADB_PROJECT_API_KEY` in memory to the CLI's
+`LAMBDADB_ENDPOINT`, `LAMBDADB_PROJECT` and `LAMBDADB_API_KEY`, and set
+`LAMBDADB_LIVE_CONFIRM_PROJECT` to the same authorized project. It ran
+`node --test --test-reporter=tap test/live/cli.test.mjs` without printing credentials.
+
+- Doctor and temporary collection creation passed. All 49 fixed presets were
+  accepted as individual text field configurations, and describe metadata
+  preserved each requested configuration. The keyword analyzer and keyword field
+  type remained distinct. Unpopulated preset fields test acceptance/metadata,
+  not language-specific indexing or search quality.
+- Two ordinary documents with 3 MiB payloads each and one bulk document were
+  accepted at about 4 seconds. Committed query and fetch contents for all three
+  passed at about 100 seconds, without a pending-write overlay.
+- Match-all facet-only and document-plus-facet queries returned exact expected
+  document counts and category buckets.
+- Default reranking and custom criteria returned `applied`, candidate/scored
+  counts of three, expected provider/model and criteria-version markers, finite
+  final evaluation and retrieval scores, descending final-score order and matching
+  maxScore. Null rerank retained ordinary results with no rerank metadata or
+  retrievalScore. All three expected IDs were preserved. These checks exercised
+  the CLI, its published SDK and the designated development service, with no Jev key.
+- The final run passed in 102.4 seconds. Cleanup was accepted and get returned
+  HTTP 404 for `cli-smoke-571da4e7-2402-4652-aa81-c44824964fdc`.
+- Two earlier attempts failed only in newly added test metadata assertions:
+  first the response's collection wrapper was missed, then the server-added
+  default id index was compared as an unexpected field. The harness now compares
+  every requested index configuration while allowing server-added fields.
+  Both temporary collections were deleted and HTTP 404 confirmed:
+  `cli-smoke-ec8b9c3f-c94f-4c4a-bfff-3dad2a24516b` and
+  `cli-smoke-7fed413e-cbe5-4e15-a7dc-e334a3fac537`.
+- Every attempt verified `.env.local` remained byte-for-byte unchanged using
+  SHA-256. Temporary local files were removed by the harness. Lint, typecheck
+  and diff checks passed after the harness changes.
+
+This is bounded development evidence. The live harness does not inspect wire
+responses to prove docsUrl selection, induce provider fallback or load failures,
+measure ranking quality, test dense vector reranking, or establish production
+feature deployment or billing readiness. Local transport regressions cover
+zero/precision/ties, docsUrl metadata, independent vector k and failure handling.
+
+## CLI 0.1.1 publication
+
+On 2026-09-29, [release v0.1.1](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.1)
+was published from tag/main commit `80a4c10628ad2ad4ebf8d90a01924d27dcb4a790`,
+whose tree equals candidate `0291970`. The
+[release workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/36557578359)
+passed on attempt 1, including Node 22/24 and exact publication-artifact tests.
+
+- Registry reads confirmed `latest=0.1.1`, `dev=0.1.1-dev.10`. The stable tarball
+  matches the final tested candidate byte-for-byte. SHA-512 integrity:
+  `sha512-5eYw4NSCDPQrJZVDwfAg9cPtdSuipPy6/FzTj08EDn94/rRJEFLb0Meih2hzbzOSqvNLOn+MJD8Ij0a+nXe99A==`.
+- Decoded provenance identifies the same release commit, `refs/tags/v0.1.1`,
+  `.github/workflows/publish.yaml`, run `36557578359`, attempt 1; its subject digest
+  matches the downloaded tarball. Stable metadata does not expose `gitHead`, so
+  source identity is established by provenance and the artifact comparison.
+- A clean unqualified consumer install selected CLI 0.1.1 and SDK 0.6.0 and passed
+  all 40 CLI contracts. `npm audit signatures` verified all four packages' registry
+  signatures and three packages' attestations. No publication was retried.
+- Credentialed live evidence remains the installed-candidate smoke below; no new
+  live call was needed for byte-identical published runtime/package contents.
+- The prepared Homebrew formula pins the verified 0.1.1 tarball and lockfile from
+  `80a4c10628ad2ad4ebf8d90a01924d27dcb4a790`. Local macOS checks passed formula
+  style, installation, `brew test`, managed Node selection and all 40 installed
+  CLI contracts. The harness removed its temporary installation and tap. Remote
+  tap publication and upgrade behavior await the separate tap PR.
+
+Post-release development changes preserve this release and start `0.1.2-dev.1`.
+The registry-verification change passes 13 focused tests, including the real script
+entrypoint with a synthetic npm command: successful publication plus timeout exits
+0 with an Actions warning/summary, while failed publication exits 1. Transient
+read failures remain bounded; authentication, schema and artifact mismatches fail.
+No live publication was used to test that change. The full local suite passed 65
+tests and the installed-package suite passed 40.
 
 ## CLI 0.1.1 release preparation
 

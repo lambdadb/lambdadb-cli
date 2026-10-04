@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-04
+
+### Fixed
+
+- Preserve fixed rerank status/provider/model/criteria/reason tokens when they
+  overlap with a credential. Continue redacting document content, resolved model
+  strings and unknown server metadata values in JSON and human output.
+
+- A successful development publication no longer fails CI solely because registry
+  visibility exceeds the verification budget. Report a warning and explicit
+  `published-verification-pending` result; retain failures for publish errors,
+  invalid responses, authentication and artifact mismatches. Never retry writes.
+
+### Added
+
+- SDK 0.7.0: 49 fixed text analyzer presets and optional per-query managed
+  reranking through query JSON files. Preserve final/retrieval scores and status
+  metadata in inline and downloaded results; keep vector k unchanged.
+- Reranking example, contract documentation and installed-CLI regression coverage.
+  These features require a supporting server deployment.
+
+### Maintenance
+
+- Pin the TypeScript SDK and npm lockfile to 0.7.0. This CLI uses the native SDK;
+  Qdrant payload-schema mapping is not part of its surface.
+- Synchronize the 0.1.1 release history and start the 0.1.2 development line.
+- Prepare the Homebrew formula for verified stable 0.1.1 and record npm publication evidence.
+
 ## [0.1.1] - 2026-09-29
 
 ### Added

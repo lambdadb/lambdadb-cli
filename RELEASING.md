@@ -1,24 +1,40 @@
 # Releasing LambdaDB CLI
 
-## 0.1.1 release candidate
+## Current status
 
-The `release/0.1.1` branch prepares a stable CLI release from develop
-`a65a2b198b484d2e4da4ca2ff438779806a87cce` (SDK 0.6.0 integration, PR #11).
-Version 0.1.1 retains the CLI command, JSON-envelope and exit-code contracts while
-adding optional keyword facets and the expanded SDK analyzer set.
+CLI 0.1.2 is ready for release review from reviewed develop commit `aef74a3` (PR #14).
+The candidate pins SDK 0.7.0, supports 49 fixed text analyzer presets and optional
+per-query managed reranking, and preserves fixed rerank metadata during credential
+redaction. The published 0.1.2-dev.12 artifact passed independent consumer,
+provenance/signature and authorized development-service checks. The separately
+installed 0.1.2 candidate also passed the expanded live smoke; its earlier failed
+attempt and independent cleanup are recorded in [VALIDATION.md](VALIDATION.md).
 
-This is release preparation, not publication. Promote the reviewed release branch
-to `main` with a merge commit. After approval for publication, tag the verified
-main commit `v0.1.1` and publish a non-prerelease GitHub Release. The existing
-release workflow selects npm `latest`. Verify the exact package, provenance and
-installed CLI before updating the Homebrew formula/tap, which still selects 0.1.0.
-Synchronize release-only main history back into develop with the next development
-base (`0.1.2-dev.1`) through a separate PR.
+Stable 0.1.2 is not published yet. The release PR targets main; its merge, immutable
+`v0.1.2` tag and GitHub Release remain separate approved actions. After publishing,
+verify npm latest, artifact integrity/provenance and clean consumers before updating
+Homebrew. Keep develop on its dev version while this release branch is reviewed;
+synchronize main back with the next `0.1.3-dev.1` base after release.
 
-Facets require a supporting server and newly built keyword indexes. This release
-does not migrate existing Collections, update old indexes or upgrade installed
-CLIs automatically. Release-candidate evidence belongs in [VALIDATION.md](VALIDATION.md)
-and the promotion PR; do not treat earlier SDK integration tests as publication proof.
+## CLI 0.1.1 publication
+
+CLI 0.1.1 was published on 2026-09-29 through
+[GitHub Release v0.1.1](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.1)
+and the [OIDC release workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/36557578359).
+Tag/main commit `80a4c10628ad2ad4ebf8d90a01924d27dcb4a790` has the same tree as
+reviewed candidate `0291970`. The workflow passed on attempt 1, including Node
+22/24 validation and tests of the exact publication tarball.
+
+Registry reads confirmed `latest=0.1.1`, while `dev=0.1.1-dev.10` remained unchanged.
+A clean unqualified npm installation selected CLI 0.1.1 and SDK 0.6.0, passed all
+40 CLI contracts and verified registry signatures and attestations. The published
+tarball is byte-identical to the tested final candidate; provenance identifies the
+release commit, tag and workflow. See [VALIDATION.md](VALIDATION.md#cli-011-publication).
+
+The post-release branch synchronizes main history into develop with `0.1.2-dev.1`
+and prepares the 0.1.1 Homebrew formula. The public tap was checked on 2026-10-04
+and matches that verified 0.1.1 formula; the 0.1.2 handoff follows publication. Facets still require a supporting server and newly built keyword
+indexes; publication does not migrate Collections or upgrade installed CLIs.
 
 ## Prior publication status
 
@@ -120,11 +136,13 @@ artifact conflicts remain fatal. Process termination or scheduling can delay
 reporting, but responses at or after the deadline cannot pass verification.
 
 The script reports successful publication before waiting. If propagation still
-exceeds the budget, it emits `result=published-verification-pending` and exits
-nonzero. This means the write succeeded but verification is incomplete; it does
-not authorize another publish. Retry registry reads first. Once the manifest and
-dev tag agree, rerun the failed job: an identical artifact reports
-`result=already-published` without another write. Newer dev versions and stale
+exceeds the budget, it emits `result=published-verification-pending`, a GitHub
+warning and a job summary, then exits successfully. This means publication
+succeeded but registry visibility is unverified. It does not authorize another
+publish or establish that installation/Homebrew updates can proceed. Retry reads
+before those downstream actions. Actual publish failures, authentication/schema
+errors and artifact mismatches still fail the job. Once the manifest and dev tag
+agree, an explicit rerun reports `result=already-published` without another write. Newer dev versions and stale
 commits are skipped without changing tags. A failed publish remains an uncertain
 write and is never automatically retried.
 
@@ -258,9 +276,11 @@ npm run test:live
 
 The test fails before API calls when required settings are absent. It creates a
 random temporary collection, imports two 3 MiB documents plus a bulk document,
-uses the new `chinese` analyzer, checks exact facet-only and document+facet buckets,
-and checks committed query/fetch contents with a maximum 300-second observation
-window per stage. Request timeouts and polling sleeps are capped to the remaining
+accepts and verifies metadata for all 49 fixed analyzer presets, checks exact
+facet-only and document+facet buckets, and checks committed query/fetch contents
+with a maximum 300-second observation window per stage. It also checks managed reranking with default criteria, null
+and custom criteria, including final/retrieval scores and status metadata.
+Request timeouts and polling sleeps are capped to the remaining
 budget, and responses at or after the deadline cannot pass. Process termination
 and event-loop scheduling may delay reporting. It reports elapsed time and
 matched-document counts; a timeout is a failed smoke, not proof that accepted
@@ -285,7 +305,8 @@ release, follow the [Homebrew maintainer guide](https://github.com/lambdadb/lamb
 update checksums, pass installation checks and prepare a tap PR. Tap publication
 is separate from this repository's npm workflow; no cross-repository write or
 automatic tap update is configured. The public
-[LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides stable `0.1.0`;
+[LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides stable `0.1.1`
+(verified on 2026-10-04);
 installation evidence is recorded in [VALIDATION.md](VALIDATION.md#homebrew-publication).
 
 ## Design references

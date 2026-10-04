@@ -486,8 +486,8 @@ test('invalid facets, sizes, queries and conflicting or inconsistent refs fail b
   assert.equal(f.requests.length, 0);
 });
 
-test('create forwards all 16 SDK analyzers unchanged and rejects unknown names before HTTP', async t => {
-  const analyzers = ['standard', 'english', 'korean', 'japanese', 'chinese', 'cjk', 'arabic', 'french', 'german', 'hindi', 'indonesian', 'italian', 'portuguese', 'russian', 'spanish', 'turkish'];
+test('create forwards all 49 SDK analyzers unchanged and rejects unknown names before HTTP', async t => {
+  const analyzers = ['standard', 'english', 'korean', 'japanese', 'chinese', 'cjk', 'arabic', 'french', 'german', 'hindi', 'indonesian', 'italian', 'portuguese', 'russian', 'spanish', 'turkish', 'armenian', 'basque', 'bengali', 'brazilian', 'bulgarian', 'catalan', 'czech', 'danish', 'dutch', 'estonian', 'finnish', 'galician', 'greek', 'hungarian', 'irish', 'latvian', 'lithuanian', 'norwegian', 'persian', 'romanian', 'serbian', 'sorani', 'swedish', 'thai', 'simple', 'whitespace', 'stop', 'keyword', 'pattern', 'fingerprint', 'nepali', 'tamil', 'telugu'];
   const f = await fixture(t, (_r, send) => send(201, { collection: created }));
   for (const config of [{ type: 'text', analyzers }, { type: 'text' }, { type: 'text', analyzers: [] }, { type: 'text', analyzers: ['chinese', 'chinese'] }]) {
     const indexConfigs = { text: config };
@@ -514,4 +514,159 @@ test('short credentials redact facet names and values while preserving bucket sc
       doc: { buckets: [{ value: '[REDACTED]', count: 2 }] },
     });
   }
+});
+
+test('rerank requests preserve omission, nulls, custom criteria and independent vector k', async t => {
+  const f = await fixture(t, (_r, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [] }));
+  const config = { provider: 'typesafe', model: 'jev-1.13.0', queryText: '  serverless \u{1f50e}  ', fields: ['text'] };
+  const bodies = [
+    JSON.parse(await readFile(resolve('examples/query-rerank.json'), 'utf8')),
+    { query: { queryString: { query: 'serverless' } } },
+    { query: {}, rerank: null },
+    { query: { knn: { field: 'embedding', vector: [0.1, 0.2], k: 7 } }, size: 3, rerank: config },
+    { query: { knn: { field: 'embedding', vector: [0.1, 0.2], k: 7 } }, size: 3,
+      rerank: { ...config, candidateSize: 50, onFailure: 'returnOriginal', criteria: [' Unrelated. ', 'Answers directly.'] } },
+    { query: { queryString: { query: 'serverless' } }, size: null,
+      rerank: { ...config, candidateSize: null, onFailure: null, criteria: null } },
+  ];
+  for (const [i, body] of bodies.entries()) {
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file(`rerank-${i}.json`, body), '--json']);
+    assert.equal(r.code, 0, r.stdout);
+    const expected = { consistentRead: false, includeVectors: false, ...body, ref: { kind: 'branch', name: 'main' } };
+    if (expected.size === null) delete expected.size;
+    assert.deepEqual(f.requests.at(-1).body, expected);
+  }
+});
+
+test('invalid rerank configurations fail before HTTP', async t => {
+  const f = await fixture(t, () => assert.fail('Invalid input reached HTTP'));
+  const rerank = { provider: 'typesafe', model: 'jev-1.13.0', queryText: 'serverless', fields: ['text'] };
+  const base = { query: { queryString: { query: 'serverless' } }, size: 10, rerank };
+  const invalidConfigs = [
+    { provider: 'other' }, { model: 'other' }, { queryText: undefined }, { queryText: '  ' },
+    { queryText: '\u20ac'.repeat(2731) }, { fields: undefined }, { fields: [] }, { fields: ['text', 'text'] },
+    { fields: Array.from({ length: 9 }, (_, i) => `field${i}`) },
+    { candidateSize: 9 }, { candidateSize: 101 }, { candidateSize: 50.5 }, { onFailure: 'ignore' },
+    { criteria: ['Only one'] }, { criteria: ['same', 'same'] }, { criteria: [' ', 'good'] },
+    { criteria: ['\u20ac'.repeat(683), 'good'] },
+    { criteria: Array.from({ length: 5 }, (_, i) => `${i}${'x'.repeat(1700)}`) },
+    { criteria: Array.from({ length: 11 }, (_, i) => `criterion ${i}`) },
+    { weights: [1, 2] }, { thresholds: [0.5] }, { rubricVersion: 'v1' },
+  ];
+  const bodies = [
+    ...invalidConfigs.map(settings => ({ ...base, rerank: { ...rerank, ...settings } })),
+    { ...base, query: undefined }, { ...base, query: {} },
+    { ...base, query: { bool: [{ occur: 'FILTER', queryString: { query: 'serverless' } }] } },
+    { ...base, sort: [] }, { ...base, size: 0, facets: { category: {} } },
+    { ...base, size: 101 }, { ...base, size: -1 },
+  ];
+  for (const [i, body] of bodies.entries()) {
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file(`invalid-rerank-${i}.json`, body), '--json']);
+    assert.equal(r.code, 2, `case ${i}: ${r.stdout}`);
+    assert.equal(r.json.error.code, 'INPUT_ERROR');
+  }
+  assert.equal(f.requests.length, 0);
+});
+
+test('rerank output preserves final/retrieval scores, server order and metadata inline and via docsUrl', async t => {
+  const applied = { status: 'applied', provider: 'typesafe', model: 'jev-1.13.0', resolvedModel: 'jev-1.13.0',
+    candidateCount: 3, scoredCount: 3, took: 9, criteriaVersion: 'custom' };
+  const docs = [
+    { collection: 'demo-docs', score: 0.80000002, retrievalScore: 0, doc: { id: 'z' } },
+    { collection: 'demo-docs', score: 0.80000002, retrievalScore: 9.123456789, doc: { id: 'a' } },
+    { collection: 'demo-docs', score: 0, retrievalScore: 3.25, doc: { id: 'b' } },
+  ];
+  const states = [
+    { docs, maxScore: 0.80000002, rerank: applied, facets: { category: { buckets: [{ value: 'search', count: 12 }] } } },
+    { docs: [docs[2]], maxScore: 0, rerank: { ...applied, candidateCount: 1, scoredCount: 1, criteriaVersion: 'default-relevance-v1' } },
+    { docs: [], rerank: { status: 'skipped', provider: 'typesafe', model: 'jev-1.13.0', candidateCount: 0, scoredCount: 0, took: 0, reason: 'noCandidates' } },
+    { docs: [{ collection: 'demo-docs', score: 3.25, doc: { id: 'original' } }], maxScore: 3.25,
+      rerank: { status: 'fallback', provider: 'typesafe', model: 'jev-1.13.0', candidateCount: 3, scoredCount: 0, took: 9, reason: 'timeout' } },
+    { docs: [{ collection: 'demo-docs', score: 0, doc: { id: 'unused' } }], maxScore: 0 },
+  ];
+  for (const download of [false, true]) {
+    for (const state of states) {
+      const f = await fixture(t, (r, send, _req, _res, base) => {
+        if (r.url.pathname === '/transfer') {
+          assert.equal(r.headers['x-api-key'], undefined);
+          return send(200, state.docs);
+        }
+        send(200, { took: 12, total: state.docs.length, ...state,
+          ...(download ? { isDocsInline: false, docs: [], docsUrl: `${base}/transfer` } : { isDocsInline: true }) });
+      });
+      const body = JSON.parse(await readFile(resolve(state.rerank ? 'examples/query-rerank.json' : 'examples/query.json'), 'utf8'));
+      if (state.facets) body.facets = { category: {} };
+      const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('query.json', body), '--json']);
+      assert.equal(r.code, 0, r.stdout);
+      assert.deepEqual(r.json.data.docs, state.docs);
+      assert.deepEqual(r.json.data.rerank, state.rerank);
+      assert.equal(r.json.data.maxScore, state.maxScore);
+      assert.deepEqual(r.json.data.facets, state.facets);
+      assert.equal(r.json.data.total, state.docs.length);
+      assert.equal(r.json.data.took, 12);
+      assert.equal('docsUrl' in r.json.data, false);
+    }
+  }
+});
+
+test('returnOriginal does not mask API validation, authorization, quota or admission errors', async t => {
+  for (const status of [400, 403, 429, 503]) {
+    const f = await fixture(t, (_r, send) => send(status, { message: 'Request failed' }));
+    const body = JSON.parse(await readFile(resolve('examples/query-rerank.json'), 'utf8'));
+    body.rerank.onFailure = 'returnOriginal';
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('query.json', body), '--timeout-ms', '300', '--json']);
+    assert.equal(r.code, 3);
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.data, undefined);
+  }
+});
+
+test('colliding credentials preserve fixed rerank tokens while redacting arbitrary strings in JSON and human output', async t => {
+  const cases = [
+    ['status', 'applied'], ['status', 'skipped'], ['status', 'fallback'],
+    ['provider', 'typesafe'], ['model', 'jev-1.13.0'],
+    ['criteriaVersion', 'custom'], ['criteriaVersion', 'default-relevance-v1'],
+    ...['noCandidates', 'timeout', 'rateLimit', 'unavailable', 'invalidResponse', 'credentials'].map(reason => ['reason', reason]),
+    ['provider', 'a'],
+  ];
+  for (const [field, key] of cases) {
+    const status = field === 'status' ? key : field === 'reason' ? (key === 'noCandidates' ? 'skipped' : 'fallback') : 'applied';
+    const rerank = { status, provider: 'typesafe', model: 'jev-1.13.0', resolvedModel: `server-${key}`,
+      candidateCount: status === 'skipped' ? 0 : 1, scoredCount: status === 'applied' ? 1 : 0, took: 0,
+      ...(status === 'applied' ? { criteriaVersion: field === 'criteriaVersion' ? key : 'custom' } : {}),
+      ...(field === 'reason' ? { reason: key } : status === 'skipped' ? { reason: 'noCandidates' } : status === 'fallback' ? { reason: 'timeout' } : {}),
+    };
+    const docs = status === 'skipped' ? [] : [{ collection: 'demo-docs', score: 0, ...(status === 'applied' ? { retrievalScore: 0 } : {}),
+      doc: { text: key, rerank: { status: key, provider: key, reason: key } } }];
+    const f = await fixture(t, (r, send, _req, _res, base) => r.url.pathname === '/transfer'
+      ? send(200, docs)
+      : send(200, { took: 0, total: docs.length, isDocsInline: false, docs: [], docsUrl: `${base}/transfer`, rerank }));
+    for (const json of [true, false]) {
+      const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-rerank.json'), ...(json ? ['--json'] : [])], { LAMBDADB_API_KEY: key });
+      assert.equal(r.code, 0);
+      const data = json ? r.json.data : JSON.parse(r.stdout.split('\n').slice(2).join('\n'));
+      assert.deepEqual(data.rerank, { ...rerank, resolvedModel: 'server-[REDACTED]' });
+      if (docs.length) {
+        const doc = data.docs[0].doc;
+        assert.ok(Object.values(doc).includes('[REDACTED]'));
+        const nested = Object.values(doc).find(value => value && typeof value === 'object');
+        assert.deepEqual(Object.values(nested), ['[REDACTED]', '[REDACTED]', '[REDACTED]']);
+        assert.equal(data.docs[0].score, 0);
+      }
+    }
+  }
+});
+
+test('unknown rerank provider, model and reason remain subject to credential redaction', async t => {
+  const key = 'private-token';
+  const rerank = { status: 'fallback', provider: `provider-${key}`, model: `model-${key}`, reason: `reason-${key}`,
+    resolvedModel: key, candidateCount: 1, scoredCount: 0, took: 0 };
+  const f = await fixture(t, (_r, send) => send(200, { took: 0, total: 1, isDocsInline: true,
+    docs: [{ collection: 'demo-docs', score: 2, doc: { text: key } }], rerank }));
+  const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-rerank.json'), '--json'], { LAMBDADB_API_KEY: key });
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.data.rerank, { ...rerank, provider: 'provider-[REDACTED]', model: 'model-[REDACTED]',
+    reason: 'reason-[REDACTED]', resolvedModel: '[REDACTED]' });
+  assert.equal(r.json.data.docs[0].doc.text, '[REDACTED]');
+  assert.ok(!r.stdout.includes(key) && !r.stderr.includes(key));
 });
