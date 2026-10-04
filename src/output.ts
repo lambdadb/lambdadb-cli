@@ -11,6 +11,15 @@ const protocolValues = new Set([
   'data.state', 'data.searchable', 'data.batches.*.state', 'data.batches.*.error.code',
   'data.checks.*.name', 'data.checks.*.status',
 ]);
+// Rerank provider/model/reason schemas also accept arbitrary server strings.
+// Exempt only exact contract tokens at these paths, never whole string fields.
+const rerankProtocolValues = new Map<string, Set<string>>([
+  ['data.rerank.status', new Set(['applied', 'skipped', 'fallback'])],
+  ['data.rerank.provider', new Set(['typesafe'])],
+  ['data.rerank.model', new Set(['jev-1.13.0'])],
+  ['data.rerank.criteriaVersion', new Set(['default-relevance-v1', 'custom'])],
+  ['data.rerank.reason', new Set(['noCandidates', 'timeout', 'rateLimit', 'unavailable', 'invalidResponse', 'credentials'])],
+]);
 // These response maps carry user-defined field names.
 const freeFormMaps = new Set(['doc', 'indexConfigs', 'tags']);
 
@@ -34,7 +43,10 @@ export class Output {
     // Preserve the protocol while redacting variable values and arbitrary map keys.
     // Normalize dates first, and redact before serialization to preserve valid JSON.
     const sanitize = (value: unknown, path = '', freeForm = false): unknown => {
-      if (typeof value === 'string') return !freeForm && protocolValues.has(path) ? value : this.redact(value);
+      if (typeof value === 'string') {
+        const protocol = !freeForm && (protocolValues.has(path) || rerankProtocolValues.get(path)?.has(value));
+        return protocol ? value : this.redact(value);
+      }
       if (Array.isArray(value)) return value.map(item => sanitize(item, `${path}.*`, freeForm));
       if (value && typeof value === 'object') {
         // Facet names are arbitrary, but their bucket/result keys are SDK schema.
