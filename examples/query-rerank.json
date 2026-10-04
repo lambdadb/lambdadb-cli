@@ -1,0 +1,12 @@
+{
+  "size": 10,
+  "query": { "queryString": { "query": "serverless", "defaultField": "text" } },
+  "rerank": {
+    "provider": "typesafe",
+    "model": "jev-1.13.0",
+    "queryText": "How does serverless search work?",
+    "fields": ["text"],
+    "candidateSize": 50,
+    "onFailure": "error"
+  }
+}

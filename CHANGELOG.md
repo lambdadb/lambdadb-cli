@@ -9,8 +9,18 @@
   `published-verification-pending` result; retain failures for publish errors,
   invalid responses, authentication and artifact mismatches. Never retry writes.
 
+### Added
+
+- SDK 0.7.0: 49 fixed text analyzer presets and optional per-query managed
+  reranking through query JSON files. Preserve final/retrieval scores and status
+  metadata in inline and downloaded results; keep vector k unchanged.
+- Reranking example, contract documentation and installed-CLI regression coverage.
+  These features require a supporting server deployment.
+
 ### Maintenance
 
+- Pin the TypeScript SDK and npm lockfile to 0.7.0. This CLI uses the native SDK;
+  Qdrant payload-schema mapping is not part of its surface.
 - Synchronize the 0.1.1 release history and start the 0.1.2 development line.
 - Prepare the Homebrew formula for verified stable 0.1.1 and record npm publication evidence.
 

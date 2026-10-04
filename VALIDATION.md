@@ -1,7 +1,36 @@
 # Validation record
 
-Updated: 2026-09-29. Local contract tests use loopback servers and synthetic
+Updated: 2026-10-04. Local contract tests use loopback servers and synthetic
 credentials. Authenticated development-project evidence is recorded separately.
+
+## SDK 0.7.0 local compatibility (2026-10-04)
+
+The checkout began clean on develop at `3903531`. npm now pins the released
+SDK 0.7.0 in both package.json and package-lock.json. Existing 0.1.1 publication
+and live evidence below remain historical; no new CLI package was published.
+
+- `npm ci`, lint, typecheck and version/lockfile checks passed with Node 24.15.0
+  and npm 11.12.1. npm reported zero dependency vulnerabilities.
+- Source suite: 69 tests passed on Node 24.15.0 and Node 22.23.3, with no failures
+  or skips. Installed tarballs: 44 CLI tests passed on each runtime in temporary
+  consumers; package inventory and executable version/help checks passed.
+- Expanded analyzer forwarding covers all 49 names, existing omitted/default
+  serialization and lowercase rejection. Rerank cases check custom criteria,
+  null/omission, separate size/candidate cap/vector k, local validation, final and
+  retrieval scores (including zero/precision), tie order, metadata and facets.
+  Applied/empty/fallback/unused results are checked inline and through docsUrl;
+  API failures remain errors with returnOriginal. These are synthetic transport
+  contracts, not induced provider failures or language-quality measurements.
+- Repeated TypeScript builds produced identical hashes for all 21 generated
+  files. No separate schema/model generator exists; generated dist stays ignored.
+- No local Qdrant mapping exists. The upstream stricter schema-option behavior
+  and unchanged type-only mapping are documented in DESIGN.md.
+
+No authorized live target was supplied for this update, so no authenticated
+service tests or temporary Collections were used. Package test consumers were
+removed by the harness. Supporting server deployment, production availability,
+search quality, load/failure coverage and billing readiness remain unverified.
+PR/CI validation does not merge, deploy or publish this update.
 
 ## CLI 0.1.1 publication
 
