@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-04
+
 ### Fixed
 
 - Preserve fixed rerank status/provider/model/criteria/reason tokens when they

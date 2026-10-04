@@ -2,6 +2,22 @@
 
 ## Current status
 
+CLI 0.1.2 is ready for release review from reviewed develop commit `aef74a3` (PR #14).
+The candidate pins SDK 0.7.0, supports 49 fixed text analyzer presets and optional
+per-query managed reranking, and preserves fixed rerank metadata during credential
+redaction. The published 0.1.2-dev.12 artifact passed independent consumer,
+provenance/signature and authorized development-service checks. The separately
+installed 0.1.2 candidate also passed the expanded live smoke; its earlier failed
+attempt and independent cleanup are recorded in [VALIDATION.md](VALIDATION.md).
+
+Stable 0.1.2 is not published yet. The release PR targets main; its merge, immutable
+`v0.1.2` tag and GitHub Release remain separate approved actions. After publishing,
+verify npm latest, artifact integrity/provenance and clean consumers before updating
+Homebrew. Keep develop on its dev version while this release branch is reviewed;
+synchronize main back with the next `0.1.3-dev.1` base after release.
+
+## CLI 0.1.1 publication
+
 CLI 0.1.1 was published on 2026-09-29 through
 [GitHub Release v0.1.1](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.1)
 and the [OIDC release workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/36557578359).
@@ -16,8 +32,8 @@ tarball is byte-identical to the tested final candidate; provenance identifies t
 release commit, tag and workflow. See [VALIDATION.md](VALIDATION.md#cli-011-publication).
 
 The post-release branch synchronizes main history into develop with `0.1.2-dev.1`
-and prepares the 0.1.1 Homebrew formula. The public tap update requires its separate
-review and merge. Facets still require a supporting server and newly built keyword
+and prepares the 0.1.1 Homebrew formula. The public tap was checked on 2026-10-04
+and matches that verified 0.1.1 formula; the 0.1.2 handoff follows publication. Facets still require a supporting server and newly built keyword
 indexes; publication does not migrate Collections or upgrade installed CLIs.
 
 ## Prior publication status
@@ -260,9 +276,11 @@ npm run test:live
 
 The test fails before API calls when required settings are absent. It creates a
 random temporary collection, imports two 3 MiB documents plus a bulk document,
-uses the new `chinese` analyzer, checks exact facet-only and document+facet buckets,
-and checks committed query/fetch contents with a maximum 300-second observation
-window per stage. Request timeouts and polling sleeps are capped to the remaining
+accepts and verifies metadata for all 49 fixed analyzer presets, checks exact
+facet-only and document+facet buckets, and checks committed query/fetch contents
+with a maximum 300-second observation window per stage. It also checks managed reranking with default criteria, null
+and custom criteria, including final/retrieval scores and status metadata.
+Request timeouts and polling sleeps are capped to the remaining
 budget, and responses at or after the deadline cannot pass. Process termination
 and event-loop scheduling may delay reporting. It reports elapsed time and
 matched-document counts; a timeout is a failed smoke, not proof that accepted
@@ -287,7 +305,8 @@ release, follow the [Homebrew maintainer guide](https://github.com/lambdadb/lamb
 update checksums, pass installation checks and prepare a tap PR. Tap publication
 is separate from this repository's npm workflow; no cross-repository write or
 automatic tap update is configured. The public
-[LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides stable `0.1.0`;
+[LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides stable `0.1.1`
+(verified on 2026-10-04);
 installation evidence is recorded in [VALIDATION.md](VALIDATION.md#homebrew-publication).
 
 ## Design references
