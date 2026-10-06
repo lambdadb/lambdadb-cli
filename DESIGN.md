@@ -98,6 +98,36 @@ output and the installed tarball, without checking generated files into Git.
 Server deployment and live readiness are separate dependencies, not consequences
 of upgrading this CLI.
 
+## SDK 0.8.0 contract update (2026-10-06)
+
+The runtime and lockfile pin stable `@functional-systems/lambdadb@0.8.0`.
+The [release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.8.0),
+[Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/bayesian-search.md)
+and [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md)
+are pinned to backend `9072a1bc8925954369a887f558f1eaf387b7ea0e`.
+
+Query files can now carry top-level Bayesian `candidateSize`. No query flags,
+DSL parsing, fusion weights, defaults or result projections were introduced.
+SDK serializers still own request shape validation; Bayesian semantics remain
+server-owned, preserving HTTP status classification and exit codes. The CLI
+retains null-size normalization, its existing size bound and explicit ref checks
+in the same order. JSON and human output retain full document envelopes,
+`retrievalScore` and rerank metadata, including SDK-downloaded results.
+
+Create accepts embedding-only vector settings through the SDK union. The new
+`collections update --collection NAME --index-config FILE` uses the same map
+input convention and the SDK update serializer/facade. It has the same preflight,
+no-retry mutation policy and unknown-write classification as create. It exposes
+index configuration only; other Collection management is outside this change.
+The server owns permissible index transitions. Neither command infers the legacy
+flag, embedding provider/model, dimensions or similarity. Explicit legacy true
+remains available for older servers.
+
+Adjacent describe/list commands already pass through SDK Collection metadata;
+fetch/query already delegate docsUrl to the SDK and preserve full results. Import
+retains its existing bounded preflight and ordinary/bulk behavior; native
+embeddings use ordinary upsert. No changes to those flows were needed.
+
 ## Architecture
 
 ```text

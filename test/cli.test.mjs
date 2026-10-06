@@ -670,3 +670,177 @@ test('unknown rerank provider, model and reason remain subject to credential red
   assert.equal(r.json.data.docs[0].doc.text, '[REDACTED]');
   assert.ok(!r.stdout.includes(key) && !r.stderr.includes(key));
 });
+
+const bayesianSignals = [
+  { queryString: { query: 'text:serverless' } },
+  { knn: { field: 'vector', queryVector: [1, 0], k: 30 } },
+];
+const bayesianRerank = { provider: 'typesafe', model: 'jev-1.13.0', queryText: 'serverless search', fields: ['text'] };
+
+test('Bayesian JSON mapping preserves budgets, nulls, defaults, Boolean signals and refs', async t => {
+  const f = await fixture(t, (_req, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [] }));
+  const query = { bayesian: bayesianSignals };
+  const bodies = [
+    JSON.parse(await readFile('examples/query-bayesian.json', 'utf8')),
+    JSON.parse(await readFile('examples/query-bayesian-rerank.json', 'utf8')),
+    { query, size: 1, candidateSize: 1 }, { query, size: 100, candidateSize: 100 },
+    { query, candidateSize: 30 }, { query, size: null, candidateSize: 30, rerank: null },
+    { query, size: 3, rerank: bayesianRerank },
+    { query, size: 3, rerank: { ...bayesianRerank, candidateSize: 30 } },
+    { query, size: null, rerank: { ...bayesianRerank, candidateSize: null } },
+    { query: { bayesian: [{ bool: [{ occur: 'MUST', ...bayesianSignals[0] }] }, bayesianSignals[1]] }, size: 2, candidateSize: 30 },
+  ];
+  for (const [i, body] of bodies.entries()) {
+    const ref = { kind: ['branch', 'tag', 'alias'][i % 3], name: 'selected' };
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', `${ref.kind}:${ref.name}`,
+      '--file', await f.file('bayesian.json', { ...body, ref }), '--json']);
+    assert.equal(r.code, 0, r.stderr);
+    const expected = { ...body, ref, consistentRead: false, includeVectors: false };
+    if (expected.size === null) delete expected.size;
+    assert.deepEqual(f.requests.at(-1).body, expected);
+  }
+  const help = await f.run(['query', '--help']);
+  assert.match(help.stdout, /exactly two unboosted subqueries/);
+  assert.match(help.stdout, /query-bayesian-rerank.json/);
+});
+
+test('Bayesian semantic rejections stay server API errors; free-form DSL is never rewritten', async t => {
+  const f = await fixture(t, (_req, send) => send(400, { message: 'Invalid query' }));
+  const query = { bayesian: bayesianSignals };
+  const bodies = [
+    { query }, { query, size: 2, candidateSize: 1 }, { query, candidateSize: 0 }, { query, candidateSize: 101 },
+    { query, size: 0, facets: { category: {} }, candidateSize: 30 },
+    { query, candidateSize: 30, rerank: bayesianRerank },
+    ...[[], [bayesianSignals[0]], [...bayesianSignals, bayesianSignals[0]]].map(bayesian => ({ query: { bayesian }, candidateSize: 30 })),
+    { query: { bayesian: [{ ...bayesianSignals[0], boost: 1 }, bayesianSignals[1]] }, candidateSize: 30 },
+    { query: { bayesian: [{ bool: [{ occur: 'MUST', bool: [{ occur: 'SHOULD', ...bayesianSignals[0], boost: 1 }] }] }, bayesianSignals[1]] }, candidateSize: 30 },
+    ...['bayesian', 'rrf', 'mm', 'l2'].map(method => ({ query: { bayesian: [{ [method]: bayesianSignals }, bayesianSignals[1]] }, candidateSize: 30 })),
+    { query: bayesianSignals[0], candidateSize: 30 },
+    { query: { futureQuery: { arbitrary: ['preserve', 1] } } },
+  ];
+  for (const body of bodies) {
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('rejected.json', body), '--json']);
+    assert.equal(r.code, 3);
+    assert.equal(r.json.error.code, 'API_ERROR');
+    assert.equal(r.json.error.httpStatus, 400);
+    assert.deepEqual(f.requests.at(-1).body, { ...body, ref: { kind: 'branch', name: 'main' }, consistentRead: false, includeVectors: false });
+  }
+  assert.equal(f.requests.length, bodies.length);
+});
+
+test('Bayesian local type, ref and file errors retain input precedence and make no requests', async t => {
+  const f = await fixture(t, (_req, send) => send(500, {}));
+  const query = { bayesian: bayesianSignals };
+  for (const body of [
+    { query, candidateSize: '30' }, { query, candidateSize: 1.5 }, { query, candidateSize: null },
+    { query, size: 101, candidateSize: 100 }, { query, size: 2, rerank: { ...bayesianRerank, candidateSize: 1 } },
+    { query, size: 0, candidateSize: 30 }, { query, consistentRead: true, candidateSize: 30 },
+    { query, ref: { kind: 'branch', name: 'main' }, candidateSize: 30 },
+    { query, ref: { kind: 'tag', name: 'release', extra: true }, candidateSize: 30 },
+    '{invalid', [],
+  ]) {
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'tag:release', '--file', await f.file('bad.json', body), '--json'],
+      { LAMBDADB_ENDPOINT: 'invalid-origin' });
+    assert.equal(r.code, 2);
+    assert.equal(r.json.error.code, 'INPUT_ERROR');
+    assert.doesNotMatch(r.json.error.message, /endpoint/i);
+  }
+  assert.equal(f.requests.length, 0);
+});
+
+test('ordinary text, KNN, RRF, Min-Max and L2 preserve boosts and omit Bayesian budgets', async t => {
+  const f = await fixture(t, (_req, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [] }));
+  const signals = bayesianSignals.map(signal => ({ ...signal, boost: 0.5 }));
+  for (const query of [...signals, ...['rrf', 'mm', 'l2'].map(method => ({ [method]: signals }))]) {
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('ordinary.json', { query }), '--json']);
+    assert.equal(r.code, 0);
+    assert.deepEqual(f.requests.at(-1).body, { query, ref: { kind: 'branch', name: 'main' }, consistentRead: false, includeVectors: false });
+  }
+});
+
+test('native and legacy embedding create/update mapping preserves explicit values without inferred defaults', async t => {
+  const embedding = { provider: 'openai', model: 'text-embedding-3-small', sourceField: 'text' };
+  const f = await fixture(t, (req, send) => send(req.method === 'POST' ? 201 : 200,
+    { collection: req.method === 'POST' ? created : { ...metadata, indexConfigs: req.body.indexConfigs } }));
+  const configs = [
+    JSON.parse(await readFile('examples/index-config-native.json', 'utf8')),
+    ...[undefined, true].flatMap(flag => [embedding, { ...embedding, dimensions: 256, similarity: 'cosine' }].map(value => ({
+      text: { type: 'text' }, vector: { type: 'vector', embedding: value, ...(flag ? { managedEmbedding: flag } : {}) },
+    }))),
+    { vector: { type: 'vector', dimensions: 2, similarity: 'cosine', managedEmbedding: false } },
+  ];
+  for (const command of ['create', 'update']) {
+    for (const config of configs) {
+      const r = await f.run(['collections', command, '--collection', 'demo-docs', '--index-config', await f.file('native.json', config), '--json']);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.json.data.state, command === 'create' ? 'created' : 'updated');
+      assert.equal(r.json.data.searchable, 'not_verified');
+      assert.equal(f.requests.at(-1).method, command === 'create' ? 'POST' : 'PATCH');
+      assert.deepEqual(f.requests.at(-1).body.indexConfigs, config);
+      if (command === 'update') {
+        assert.deepEqual(f.requests.at(-1).body, { indexConfigs: config });
+        assert.equal(f.requests.at(-1).url.pathname, '/projects/dev-project/collections/demo-docs');
+        assert.deepEqual(r.json.data.collection.indexConfigs, config);
+      }
+    }
+    const help = await f.run(['collections', command, '--help']);
+    assert.match(help.stdout, /index-config-native.json/);
+  }
+});
+
+test('contradictory or incomplete embedding configurations reject consistently for create/update before config resolution', async t => {
+  const f = await fixture(t, (_req, send) => send(500, {}));
+  const embedding = { provider: 'openai', model: 'text-embedding-3-small', sourceField: 'text' };
+  const vectors = [
+    { type: 'vector', embedding, managedEmbedding: false },
+    { type: 'vector', embedding, dimensions: 1536 }, { type: 'vector', embedding, similarity: 'cosine' },
+    { type: 'vector', embedding, managedEmbedding: true, dimensions: 1536 },
+    { type: 'vector', managedEmbedding: true }, { type: 'vector' },
+    ...Object.keys(embedding).map(key => ({ type: 'vector', embedding: Object.fromEntries(Object.entries(embedding).filter(([k]) => k !== key)) })),
+  ];
+  for (const command of ['create', 'update']) {
+    for (const config of [{}, ...vectors.map(vector => ({ vector }))]) {
+      const r = await f.run(['collections', command, '--collection', 'demo-docs', '--index-config', await f.file('bad-native.json', config), '--json'],
+        { LAMBDADB_ENDPOINT: 'invalid-origin' });
+      assert.equal(r.code, 2);
+      assert.equal(r.json.error.code, 'INPUT_ERROR');
+      assert.match(r.json.error.message, /Invalid index configuration/);
+    }
+  }
+  assert.equal(f.requests.length, 0);
+});
+
+test('collection update preserves definite rejection versus uncertain write outcomes without retries', async t => {
+  for (const [status, body, code, error] of [
+    [400, {}, 3, 'API_ERROR'], [403, {}, 3, 'AUTH_ERROR'], [404, {}, 3, 'API_ERROR'],
+    [408, {}, 5, 'API_ERROR'], [503, {}, 5, 'API_ERROR'], [200, {}, 5, 'INVALID_RESPONSE'],
+  ]) {
+    const f = await fixture(t, (_req, send) => send(status, body));
+    const r = await f.run(['collections', 'update', '--collection', 'demo-docs', '--index-config', resolve('examples/index-config-native.json'), '--json']);
+    assert.equal(r.code, code);
+    assert.equal(r.json.error.code, error);
+    assert.equal(r.json.data?.state, code === 5 ? 'unknown' : undefined);
+    assert.equal(f.requests.length, 1);
+  }
+});
+
+test('Bayesian rerank retains complete documents and metadata in inline/downloaded JSON and human output', async t => {
+  const docs = [{ collection: 'demo-docs', score: 0.9, retrievalScore: 0.72,
+    doc: { id: 'one', text: 'serverless', vector: [1, 0], nested: { arbitrary: ['kept'] } } }];
+  const rerank = { status: 'applied', provider: 'typesafe', model: 'jev-1.13.0', candidateCount: 2, scoredCount: 2, took: 3 };
+  for (const offload of [false, true]) {
+    const f = await fixture(t, (req, send, _request, _response, base) => req.url.pathname === '/transfer'
+      ? send(200, docs) : send(200, { took: 5, total: 1, maxScore: 0.9, rerank, isDocsInline: !offload,
+        docs: offload ? [] : docs, ...(offload ? { docsUrl: `${base}/transfer?signature=private` } : {}) }));
+    for (const json of [false, true]) {
+      const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-bayesian-rerank.json'), ...(json ? ['--json'] : [])]);
+      assert.equal(r.code, 0);
+      const data = json ? r.json.data : JSON.parse(r.stdout.split('\n').slice(2).join('\n'));
+      assert.deepEqual(data.docs, docs);
+      assert.deepEqual(data.rerank, rerank);
+      assert.equal(data.docsUrl, undefined);
+      assert.ok(!r.stdout.includes('signature=private'));
+    }
+    for (const request of f.requests.filter(req => req.url.pathname === '/transfer')) assert.equal(request.headers['x-api-key'], undefined);
+  }
+});
