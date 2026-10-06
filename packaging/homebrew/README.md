@@ -10,6 +10,11 @@ Public installation passed on macOS arm64 and Linux x86_64. A disposable-tap
 macOS arm64 upgrade from 0.1.1 to 0.1.2 passed; existing-user public-tap upgrades
 and Linux upgrades were not tested.
 
+This directory now prepares the verified npm 0.1.3 artifact and its immutable
+release lockfile for the next tap PR. The public tap remains at 0.1.2 until that
+separate update is reviewed and merged. See
+[0.1.3 publication evidence](../../VALIDATION.md#cli-013-publication-2026-10-06).
+
 This directory supports CLI-side review and full installed-contract checks;
 the tap maintains its consumer copy and its own installation CI. See
 [publication evidence](../../VALIDATION.md#cli-012-publication-2026-10-04) and
