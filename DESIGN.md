@@ -56,8 +56,9 @@ preserves `facets` while removing the consumed signed URL. Facet field names joi
 other user-defined maps in credential redaction, including collision preservation;
 fixed facet result/bucket keys retain their SDK schema even for short credentials.
 Loopback subprocess tests cover serialization and output through the published SDK,
-and the installed-tarball suite repeats these contracts. Live evidence is separate
-in [VALIDATION.md](VALIDATION.md).
+and the installed-tarball suite repeats these contracts. Live validation is
+separate; follow the [contributor procedure](CONTRIBUTING.md#live-validation)
+and record results in the relevant PR.
 
 ## SDK 0.7.0 contract update (2026-10-04)
 

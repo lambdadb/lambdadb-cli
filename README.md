@@ -22,8 +22,8 @@ For reproducible CI runs, pin an exact published version such as
 `@functional-systems/lambdadb-cli@0.1.3`. To try development builds, explicitly use
 `@functional-systems/lambdadb-cli@dev`; this moving channel contains prereleases.
 Installed CLIs do not update themselves. See
-[RELEASING.md](RELEASING.md#current-status) for release status and
-[VALIDATION.md](VALIDATION.md) for verification results and remaining limitations.
+[GitHub Releases](https://github.com/lambdadb/lambdadb-cli/releases) and
+[CHANGELOG.md](CHANGELOG.md) for published changes and compatibility notes.
 
 ### Homebrew
 
@@ -447,7 +447,8 @@ Tests execute the real CLI and installed SDK against loopback HTTP servers. They
 cover the complete first-use flow, ref forwarding, signed transfers, pagination,
 partial and unknown writes, validation, output, credentials and exit codes.
 They do not contact a LambdaDB service. See [DESIGN.md](DESIGN.md) for contract
-evidence and [VALIDATION.md](VALIDATION.md) for measured verification scope.
+decisions and [CONTRIBUTING.md](CONTRIBUTING.md#validation-scope) for validation
+methods and their limits.
 
 This MVP intentionally omits Branch/Tag/Alias management: default `main` supports
 first use, while reads can select existing refs. It also omits Console management,
@@ -457,9 +458,10 @@ plugins and publication. There are no changes to the SDK or reference repositori
 Live verification requires an explicitly designated development project, endpoint
 and project key. Do not discover or borrow credentials from another repository.
 Use `npm run test:live` with the explicit opt-in settings in
-[RELEASING.md](RELEASING.md#explicit-live-smoke). It exercises ordinary/bulk import
-and committed query/fetch contents in a random temporary collection, then uses
-the SDK to clean up that collection. The normal test suite and CI never run it.
+[CONTRIBUTING.md](CONTRIBUTING.md#live-validation). It exercises ordinary/bulk
+import, query/fetch, native embeddings and Bayesian reranking in temporary
+Collections, then uses the SDK to delete them and verify their absence. The normal
+test suite and CI never run it.
 
 ## License
 
