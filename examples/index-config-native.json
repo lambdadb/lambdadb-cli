@@ -1,0 +1,16 @@
+{
+  "text": {
+    "type": "text",
+    "analyzers": [
+      "english"
+    ]
+  },
+  "vector": {
+    "type": "vector",
+    "embedding": {
+      "provider": "openai",
+      "model": "text-embedding-3-small",
+      "sourceField": "text"
+    }
+  }
+}

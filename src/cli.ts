@@ -2,7 +2,7 @@
 import { Command, CommanderError, Option } from 'commander';
 import { readFileSync } from 'node:fs';
 import { integer, name, resolveConfig, saveSettings, type Options } from './config.js';
-import { createInput, parseRef, queryInput, readJson, readJsonl } from './input.js';
+import { createInput, parseRef, queryInput, readJson, readJsonl, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
 import { definitelyRejected, describeError, InputError, isInputError } from './errors.js';
 import { Output, type Envelope } from './output.js';
@@ -74,7 +74,7 @@ program.command('doctor')
     ], writesVerified: false, queryReadinessVerified: false }, 'Connection verified using the project collection-list API.');
   }));
 
-const collections = program.command('collections').description('List, describe and create collections');
+const collections = program.command('collections').description('List, describe, create and update collections');
 collections.command('list')
   .description('Fetch one page by default, or use the SDK iterator for all pages')
   .option('--size <count>', 'Page size, 1–100', '20')
@@ -106,7 +106,8 @@ collections.command('describe')
 collections.command('create')
   .description('Create a collection from a JSON field-to-index map')
   .requiredOption('--collection <name>', 'New collection name')
-  .requiredOption('--index-config <path>', 'JSON indexConfigs map (see examples/index-config.json)')
+  .requiredOption('--index-config <path>', 'JSON field-to-index map; native embedding or legacy managedEmbedding:true supported')
+  .addHelpText('after', '\nExamples:\n  lambdadb collections create --collection demo-docs --index-config examples/index-config.json\n  lambdadb collections create --collection native-docs --index-config examples/index-config-native.json')
   .action(async (opts, cmd: Command) => {
     const input = createInput(name(opts.collection, 'Collection name'), await readJson(opts.indexConfig));
     await connected(cmd, async ({ client, options }) => {
@@ -114,6 +115,22 @@ collections.command('create')
       mutationStarted = true;
       const created = await client.createCollection(input, { ...options, retries: { strategy: 'none' } });
       result({ ...created, state: 'created', searchable: 'not_verified' }, 'Collection created; query-serving readiness has not been verified.');
+    });
+  });
+
+collections.command('update')
+  .description('Update collection index configuration from a JSON field-to-index map')
+  .requiredOption('--collection <name>', 'Existing collection name')
+  .requiredOption('--index-config <path>', 'JSON field-to-index map; native dimensions/similarity go inside embedding')
+  .addHelpText('after', '\nExample:\n  lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json\n\nThe server validates permitted index changes. Older servers require managedEmbedding:true.')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const input = updateInput(await readJson(opts.indexConfig));
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      mutationStarted = true;
+      const updated = await client.collection(collection).update(input, { ...options, retries: { strategy: 'none' } });
+      result({ ...updated, state: 'updated', searchable: 'not_verified' }, 'Collection updated; query-serving readiness has not been verified.');
     });
   });
 
@@ -176,6 +193,7 @@ program.command('query')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--ref <kind:name>', 'branch:NAME, tag:NAME or alias:NAME; must match any ref in the file')
   .requiredOption('--file <path>', 'JSON request body; omit query for match-all, use size:0 with facets for counts only; optional rerank is per query')
+  .addHelpText('after', '\nBayesian: exactly two unboosted subqueries, including Boolean descendants; no nested fusion.\nWithout rerank, set candidateSize with 1 <= size <= candidateSize <= 100.\nWith rerank, omit top-level candidateSize and use rerank.candidateSize (server default preserved).\n  lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian.json --json\n  lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian-rerank.json --json')
   .addHelpText('after', '\nExamples:\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-facets-only.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-with-facets.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-rerank.json --json')
   .action(async (opts, cmd: Command) => {
     const ref = parseRef(opts.ref);

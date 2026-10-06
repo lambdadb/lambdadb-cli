@@ -1,5 +1,108 @@
 # Validation record
 
+## SDK 0.8.0 CLI compatibility (2026-10-06)
+
+Candidate: `feat/sdk-0.8.0`, based on develop `8e76422`; CLI development version
+`0.1.3-dev.1`, exact SDK `0.8.0`, Node `24.15.0`. This change does not publish
+or promote a package. Repository instructions contain no local AGENTS.md;
+CONTRIBUTING.md, RELEASING.md, CI, runtime/input/output and adjacent commands
+were inspected before implementation.
+
+### Local and installed validation
+
+The following commands passed:
+
+```sh
+npm ci
+npm run lint
+npm run check:version
+npm run typecheck
+npm test
+npm run test:package
+git diff --check
+```
+
+`npm test` executed 79 tests, with no failures/skips. `npm run test:package`
+packed and separately installed the CLI, checked inventory/version/help, and
+executed all 54 CLI contract tests with no failures/skips. This is executed
+subprocess coverage, not merely compilation. New coverage includes Bayesian
+JSON mapping and budgets, omitted/null defaults, ref/input precedence, unchanged
+ordinary fusion requests, local versus server errors, native/legacy create and
+update, contradictory embedding inputs, uncertain mutations without retries,
+and full JSON/human results with rerank metadata through inline and docsUrl
+responses. No SDK query DSL validator was added.
+
+### Current deployment provenance
+
+Read-only AWS inspection used profile `dev`, region `ap-northeast-2`:
+`aws ecs list-services`, `describe-services`, `list-tasks`, `describe-tasks`,
+and `aws ecr describe-images --image-ids imageTag=dev-v3-9072a1b` for the
+Gateway and Query Executor repositories. Both services had desired/running
+counts 1/1, task definition revision 16 and rollout `COMPLETED`.
+Running digest and the ECR `dev-v3-9072a1b` tag agreed:
+
+- Gateway: `sha256:300f65269579fcff327366490505327a549e38249c371e93df07f2ae0669bfef`.
+- Query Executor: `sha256:bf87b32fdcbaf1b17f5cacb3ec8e9f1af1eb7ef51566d06cfb74273e3f857a54`.
+
+`gh run view 37422611173 --repo lambdadb/lambdadb --json headSha,conclusion,url`
+confirmed the [successful deployment](https://github.com/lambdadb/lambdadb/actions/runs/37422611173)
+for pinned backend `9072a1bc8925954369a887f558f1eaf387b7ea0e`. The deployment
+run, image tag and running digests were compared together; no deployment or
+infrastructure configuration was changed.
+
+### Actual CLI on the authorized development target
+
+Target: `bench-recall` at
+`https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`, following the
+existing repository test-environment workflow. The repository's private
+`.env.local` supplied its existing opt-in and credential; nothing was borrowed
+from another repository. The command was:
+
+```sh
+node --env-file=.env.local /tmp/lambdadb-cli-sdk080/run-live.mjs
+```
+
+This uncommitted launcher verified the exact endpoint/project and opt-in,
+mapped `LAMBDADB_BASE_URL`, `LAMBDADB_PROJECT_NAME`, and
+`LAMBDADB_PROJECT_API_KEY` in memory to the CLI variables, set
+`LAMBDADB_LIVE_CONFIRM_PROJECT`, and ran `npm run test:live` (build followed by
+`node --test test/live/*.test.mjs`). Credentials never entered command arguments,
+logs or committed files. The suite passed in 94.8 seconds: one test, zero
+failures/skips, using the actual CLI for all creation, updates, imports and reads.
+
+- Doctor, all 49 analyzer presets, ordinary/bulk imports, exact committed
+  query/fetch document contents, facets, and default/null/custom reranking passed.
+- Both native embedding-only and explicit legacy true configurations passed
+  create/update and normalized metadata checks with explicit 256 dimensions and
+  cosine similarity inside embedding. Actual OpenAI document/query embeddings
+  worked through ordinary upsert and KNN queryText.
+- Bayesian retrieval returned all expected documents. Holding candidateSize=30
+  while changing size from 3 to 1 preserved the result prefix. Ordinary
+  text/KNN/RRF/Min-Max/L2 worked without a top-level candidate budget.
+- Default and explicit rerank budgets both produced `applied`, three candidates,
+  three scored candidates and two final results. Finite final scores were in
+  [0,1], and retrievalScore exactly matched the baseline Bayesian scores. Null
+  rerank preserved the baseline documents/scores without rerank metadata.
+- For each native/legacy Collection, 15 invalid requests retained API_ERROR,
+  HTTP 400 and exit 3: missing/invalid/conflicting candidate budgets, wrong signal
+  counts, boosts including Boolean descendants, nested fusion and a Bayesian
+  budget on an ordinary query.
+- Cleanup deleted and verified HTTP 404 for all temporary Collections:
+  `cli-smoke-61877546-2601-4df9-aeeb-91d87f44c2a5`,
+  `cli-native-4e72c926-fe9e-4bbd-822e-1667be3e619f`, and
+  `cli-native-2892e6ab-af3c-4a23-aff7-bb5793f7f31e`.
+
+Sanitized logs and deployment evidence are retained outside the repository in
+`/tmp/lambdadb-cli-sdk080/`. No temporary test data remains in those Collections.
+The live run used the built source CLI; installed-artifact validation used
+loopback servers. Full downloaded documents are covered by local transport tests;
+large live results alone do not prove that the server selected docsUrl.
+Older-server deployment, production behavior, search quality, load, billing,
+and Homebrew installation were not tested. Older servers may require explicit
+`managedEmbedding: true` and may reject Bayesian search. Existing flag precedence,
+ordinary query behavior, output schema and SDK transfer handling are preserved.
+
+
 Updated: 2026-10-04. Local contract tests use loopback servers and synthetic
 credentials. Authenticated development-project evidence is recorded separately.
 

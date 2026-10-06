@@ -1,0 +1,27 @@
+{
+  "query": {
+    "bayesian": [
+      {
+        "queryString": {
+          "query": "text:serverless"
+        }
+      },
+      {
+        "knn": {
+          "field": "vector",
+          "queryText": "How does serverless search work?",
+          "k": 30
+        }
+      }
+    ]
+  },
+  "size": 10,
+  "rerank": {
+    "provider": "typesafe",
+    "model": "jev-1.13.0",
+    "queryText": "How does serverless search work?",
+    "fields": [
+      "text"
+    ]
+  }
+}

@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- SDK 0.8.0 Bayesian hybrid search through query JSON files, including separate
+  candidate budgets and optional reranking. Preserve free-form DSL and server
+  error classification; existing search defaults remain unchanged.
+- Native embedding-only index configuration and `collections update --index-config`.
+  Preserve explicit `managedEmbedding: true` for older servers. Include copyable
+  examples, help, and local/installed/live CLI coverage.
+
+### Dependencies
+
+- Pin `@functional-systems/lambdadb` and the npm lockfile to stable 0.8.0.
+
 ### Maintenance
 
 - Synchronize the 0.1.2 release history and start the 0.1.3 development line.

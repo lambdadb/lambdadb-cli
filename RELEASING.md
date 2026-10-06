@@ -296,6 +296,12 @@ accepts and verifies metadata for all 49 fixed analyzer presets, checks exact
 facet-only and document+facet buckets, and checks committed query/fetch contents
 with a maximum 300-second observation window per stage. It also checks managed reranking with default criteria, null
 and custom criteria, including final/retrieval scores and status metadata.
+The SDK 0.8.0 extension creates two additional temporary Collections for native
+embedding-only and legacy true inputs. It exercises actual CLI create/update,
+normalized metadata, document/query embedding generation, ordinary retrieval,
+Bayesian candidate budgets, default/explicit rerank budgets, null rerank and
+server-side rejection of invalid Bayesian requests. All three Collections are
+cleaned up with subsequent HTTP 404 verification.
 Request timeouts and polling sleeps are capped to the remaining
 budget, and responses at or after the deadline cannot pass. Process termination
 and event-loop scheduling may delay reporting. It reports elapsed time and
