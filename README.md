@@ -1,7 +1,7 @@
 # LambdaDB CLI
 
 A first, project-scoped CLI for developers, coding agents and CI. It uses
-`@functional-systems/lambdadb@0.7.0` for authentication, HTTP, read retries,
+`@functional-systems/lambdadb@0.8.0` for authentication, HTTP, read retries,
 pagination, bulk transfers and large response downloads.
 
 ## Install and run
@@ -19,7 +19,7 @@ lambdadb --help
 ```
 
 For reproducible CI runs, pin an exact published version such as
-`@functional-systems/lambdadb-cli@0.1.1`. To try development builds, explicitly use
+`@functional-systems/lambdadb-cli@0.1.2`. To try development builds, explicitly use
 `@functional-systems/lambdadb-cli@dev`; this moving channel contains prereleases.
 Installed CLIs do not update themselves. See
 [RELEASING.md](RELEASING.md#current-status) for release status and
@@ -171,7 +171,10 @@ One page is the default; `nextPageToken` is an opaque continuation token.
 `--all` uses the SDK page iterator and buffers its result within the total network
 budget. No partial list is printed on failure. Collection statistics describe
 the committed head of `main`, not the selected read ref or whole-index readiness.
-The create input file is the index map itself, not a full create request body.
+Both create and update take the index map itself through `--index-config`, not a
+full request body. Updates are subject to server index-change restrictions and
+return `state: "updated"`, `searchable: "not_verified"`; acceptance does not prove
+query readiness.
 SDK 0.7.0 accepts 49 fixed lowercase text analyzer presets:
 `standard`, `english`, `korean`, `japanese`, `chinese`, `cjk`, `arabic`,
 `french`, `german`, `hindi`, `indonesian`, `italian`, `portuguese`, `russian`,
@@ -187,6 +190,50 @@ are unsupported, and language detection is not automatic. The `keyword` text
 analyzer does not confer keyword field sorting/facets. Nepali/Tamil/Telugu are
 Lucene extensions, not common Elasticsearch/OpenSearch support. See the
 [SDK analyzer contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/models/analyzer.md).
+
+### Native embeddings and Bayesian search
+
+```sh
+lambdadb collections create --collection native-docs --index-config examples/index-config-native.json --json
+lambdadb docs import --collection native-docs --branch main --file examples/documents.jsonl --json
+lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian.json --json
+lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian-rerank.json --json
+lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json
+```
+
+A vector configuration with `embedding` enables native embedding without a
+`managedEmbedding` flag. Supply `provider`, `model` and `sourceField` explicitly;
+no provider or model is chosen for you. Declare the source field as text and omit
+the generated vector in imported documents. Use ordinary upsert, since bulk
+import does not support embedding fields. Query with `knn.queryText`.
+Optional native `dimensions` and `similarity` belong inside `embedding`.
+`managedEmbedding: false` with embedding, or native top-level dimensions/similarity,
+is rejected before a request. For older servers, explicitly add
+`managedEmbedding: true` to the vector configuration. Normalized server metadata
+may still contain this flag. Caller-supplied vectors retain top-level dimensions
+and use `knn.queryVector`.
+
+Bayesian hybrid search uses `query.bayesian` with exactly two subqueries. Neither
+subquery nor any Boolean descendant may have an explicit `boost`, even `1`.
+Nested rank-fusion queries are unsupported. No fusion weights are needed.
+Without reranking, set top-level `candidateSize` so that
+`1 <= size <= candidateSize <= 100`; omitted/null `size` uses the existing default
+of 10. The candidate budget is per signal, independently of final result size.
+With reranking, omit top-level `candidateSize` and use `rerank.candidateSize`,
+whose default remains `max(50, size)`. The CLI does not insert budgets, weights,
+or `knn.k`. Ordinary text/KNN/RRF/Min-Max/L2 requests retain their behavior and
+must omit top-level `candidateSize`.
+
+The free-form query DSL passes through unchanged; the server validates Bayesian
+semantics and invalid requests remain API errors (exit 3). Local JSON/type errors
+remain input errors (exit 2). Applied reranking retains the Bayesian score in
+`retrievalScore` and the final score in `score`, with full documents and rerank
+metadata in both JSON and human output.
+
+These additions require a supporting deployment; their API contract is pinned to
+backend `9072a1bc8925954369a887f558f1eaf387b7ea0e`. See the SDK 0.8.0
+[Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/bayesian-search.md)
+and [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md).
 
 ### Managed reranking
 
@@ -293,7 +340,8 @@ lambdadb docs fetch --collection cli-demo-docs --ref branch:main --ids doc-1 --c
 
 These examples require the named ref to exist. Query files use the SDK/API
 request body, with optional `query`, `facets`, `size`, `sort`, `fields`,
-`partitionFilter`, `consistentRead` and `includeVectors`. The query DSL is forwarded
+`partitionFilter`, `consistentRead`, `includeVectors`, `rerank` and Bayesian
+`candidateSize`. The query DSL is forwarded
 to the API, not reimplemented in the CLI. Unknown top-level fields are rejected.
 Omit `query` for match-all. `size` accepts 1–100, `null`, or omission; null is
 normalized to SDK omission. `size: 0` is accepted only with at least one facet.
@@ -335,7 +383,7 @@ this SDK update. If migration is needed, deliberately create a new Collection an
 reinsert the source data; the CLI performs no automatic migration. Accepted imports
 and `consistentRead` are not proof of committed facet/index readiness.
 
-This source pins SDK 0.7.0. Existing CLI installations keep their packaged SDK
+This source pins SDK 0.8.0. Existing CLI installations keep their packaged SDK
 until a new CLI version is published and installed.
 
 ## Output, deadlines and exit codes

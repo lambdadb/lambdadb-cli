@@ -3,13 +3,17 @@
 ## Availability
 
 The public [LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides the
-published stable CLI, currently `0.1.1` (verified on 2026-10-04), on macOS and
-Linux. This directory keeps the formula used for CLI-side review and full installed-contract checks. The tap
-contains the reviewed copy used by Homebrew consumers and its own installation CI.
-The checked-in formula matches the public tap's verified npm 0.1.1 artifact and
-immutable release lockfile. The 0.1.2 tap update follows stable npm publication
-and the checks below.
-See [0.1.1 validation evidence](../../VALIDATION.md#cli-011-publication).
+published stable CLI `0.1.2` (verified on 2026-10-04), on macOS and Linux.
+[Tap PR #6](https://github.com/lambdadb/homebrew-tap/pull/6) merged the formula
+matching this directory's verified npm tarball and immutable release lockfile.
+Public installation passed on macOS arm64 and Linux x86_64. A disposable-tap
+macOS arm64 upgrade from 0.1.1 to 0.1.2 passed; existing-user public-tap upgrades
+and Linux upgrades were not tested.
+
+This directory supports CLI-side review and full installed-contract checks;
+the tap maintains its consumer copy and its own installation CI. See
+[publication evidence](../../VALIDATION.md#cli-012-publication-2026-10-04) and
+[post-release verification](../../VALIDATION.md#cli-012-post-release-verification-2026-10-04).
 
 ## Packaging contract
 

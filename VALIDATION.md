@@ -1,9 +1,246 @@
 # Validation record
 
+## CLI 0.1.3 release preparation (2026-10-06)
+
+Prepared from reviewed develop `caee1bcb6ce864c33647673b54a48f7cc06dcf84`
+([PR #18](https://github.com/lambdadb/lambdadb-cli/pull/18)); its tree matches
+feature head `9589c7a`, whose Node 22/24 CI and automatic review completed with
+no findings. The release branch changes only version/changelog and release
+evidence relative to develop. Runtime source, examples, tests and workflow
+remain identical. Stable publication is not authorized or claimed here.
+
+On Node 24.15.0, these commands passed:
+
+```sh
+npm ci
+npm run lint
+npm run check:version
+RELEASE_TAG=v0.1.3 RELEASE_PRERELEASE=false node scripts/check-release.mjs --release
+npm run typecheck
+npm test
+npm pack --json --pack-destination /tmp/lambdadb-cli-release013
+npm run test:package -- /tmp/lambdadb-cli-release013/functional-systems-lambdadb-cli-0.1.3.tgz
+```
+
+The metadata check validates release settings without creating a tag. All 79
+source tests and 54 separately installed CLI tests passed, with zero failures
+or skips. The candidate inventory contains 45 files, including the new examples
+and no credentials, scratch files or test harnesses.
+
+An isolated installation of the packed 0.1.3 candidate, with SDK 0.8.0, then ran
+the actual CLI against authorized development project `bench-recall` at
+`https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`:
+
+```sh
+npm install --prefix /tmp/lambdadb-cli-release013/consumer --no-audit --no-fund /tmp/lambdadb-cli-release013/functional-systems-lambdadb-cli-0.1.3.tgz
+LAMBDADB_TEST_CLI=/tmp/lambdadb-cli-release013/consumer/node_modules/@functional-systems/lambdadb-cli/dist/cli.js node --env-file=.env.local /tmp/lambdadb-cli-sdk080/run-live.mjs
+```
+
+The launcher used the existing private environment only in memory and ran
+`npm run test:live`; the harness selected the installed binary through
+LAMBDADB_TEST_CLI. The complete suite passed in 113.4 seconds: 1 test, zero
+failures/skips. It exercised analyzer metadata, ordinary/bulk imports, committed
+query/fetch contents, facets, native/legacy create/update and actual embeddings,
+Bayesian budgets and reranking, retrieval scores and all 30 server rejection
+checks described in the SDK 0.8.0 record below.
+
+Deletion and subsequent HTTP 404 verified cleanup of all three Collections:
+
+- `cli-smoke-29074d17-7e21-460a-9823-a6e49f30d067`
+- `cli-native-3c9bcae9-1b91-424f-8504-ac755078ac13`
+- `cli-native-3b18c438-83d7-44eb-8c8d-bfc7949f35c5`
+
+The live-tested tarball has integrity
+`sha512-GzQVy1ZJgtT8O2q5wXDV+mhegYk6MBzZ6hSNMOjKq1BGUu6dW1P0F69dHDFJC3Q8o6gvUYQGv41DZMvfMXxaIQ==`.
+It and its manifest remain under `/tmp/lambdadb-cli-release013/live-tested/`;
+logs and the installed consumer remain in the parent directory. This evidence
+section changes packaged documentation after the live run. The final package is
+repacked and checked by the installed CLI suite; its runtime and examples are
+compared byte-for-byte to the live-tested installation. Its final integrity and
+remote CI/review results are recorded in the release PR.
+
+The earlier same-day deployment provenance record below identifies backend
+`9072a1bc8925954369a887f558f1eaf387b7ea0e`. This bounded test does not establish
+production availability, ranking quality, load or billing behavior. No new
+Homebrew installation or older-server tests were run. The checked-in/public tap
+still points to published 0.1.2; its 0.1.3 update follows a separately authorized
+stable publication. No server deployment, npm latest change, tag or GitHub
+Release was performed by this preparation.
+
+
+## SDK 0.8.0 CLI compatibility (2026-10-06)
+
+Candidate: `feat/sdk-0.8.0`, based on develop `8e76422`; CLI development version
+`0.1.3-dev.1`, exact SDK `0.8.0`, Node `24.15.0`. This change does not publish
+or promote a package. Repository instructions contain no local AGENTS.md;
+CONTRIBUTING.md, RELEASING.md, CI, runtime/input/output and adjacent commands
+were inspected before implementation.
+
+### Local and installed validation
+
+The following commands passed:
+
+```sh
+npm ci
+npm run lint
+npm run check:version
+npm run typecheck
+npm test
+npm run test:package
+git diff --check
+```
+
+`npm test` executed 79 tests, with no failures/skips. `npm run test:package`
+packed and separately installed the CLI, checked inventory/version/help, and
+executed all 54 CLI contract tests with no failures/skips. This is executed
+subprocess coverage, not merely compilation. New coverage includes Bayesian
+JSON mapping and budgets, omitted/null defaults, ref/input precedence, unchanged
+ordinary fusion requests, local versus server errors, native/legacy create and
+update, contradictory embedding inputs, uncertain mutations without retries,
+and full JSON/human results with rerank metadata through inline and docsUrl
+responses. No SDK query DSL validator was added.
+
+### Current deployment provenance
+
+Read-only AWS inspection used profile `dev`, region `ap-northeast-2`:
+`aws ecs list-services`, `describe-services`, `list-tasks`, `describe-tasks`,
+and `aws ecr describe-images --image-ids imageTag=dev-v3-9072a1b` for the
+Gateway and Query Executor repositories. Both services had desired/running
+counts 1/1, task definition revision 16 and rollout `COMPLETED`.
+Running digest and the ECR `dev-v3-9072a1b` tag agreed:
+
+- Gateway: `sha256:300f65269579fcff327366490505327a549e38249c371e93df07f2ae0669bfef`.
+- Query Executor: `sha256:bf87b32fdcbaf1b17f5cacb3ec8e9f1af1eb7ef51566d06cfb74273e3f857a54`.
+
+`gh run view 37422611173 --repo lambdadb/lambdadb --json headSha,conclusion,url`
+confirmed the [successful deployment](https://github.com/lambdadb/lambdadb/actions/runs/37422611173)
+for pinned backend `9072a1bc8925954369a887f558f1eaf387b7ea0e`. The deployment
+run, image tag and running digests were compared together; no deployment or
+infrastructure configuration was changed.
+
+### Actual CLI on the authorized development target
+
+Target: `bench-recall` at
+`https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai`, following the
+existing repository test-environment workflow. The repository's private
+`.env.local` supplied its existing opt-in and credential; nothing was borrowed
+from another repository. The command was:
+
+```sh
+node --env-file=.env.local /tmp/lambdadb-cli-sdk080/run-live.mjs
+```
+
+This uncommitted launcher verified the exact endpoint/project and opt-in,
+mapped `LAMBDADB_BASE_URL`, `LAMBDADB_PROJECT_NAME`, and
+`LAMBDADB_PROJECT_API_KEY` in memory to the CLI variables, set
+`LAMBDADB_LIVE_CONFIRM_PROJECT`, and ran `npm run test:live` (build followed by
+`node --test test/live/*.test.mjs`). Credentials never entered command arguments,
+logs or committed files. The suite passed in 94.8 seconds: one test, zero
+failures/skips, using the actual CLI for all creation, updates, imports and reads.
+
+- Doctor, all 49 analyzer presets, ordinary/bulk imports, exact committed
+  query/fetch document contents, facets, and default/null/custom reranking passed.
+- Both native embedding-only and explicit legacy true configurations passed
+  create/update and normalized metadata checks with explicit 256 dimensions and
+  cosine similarity inside embedding. Actual OpenAI document/query embeddings
+  worked through ordinary upsert and KNN queryText.
+- Bayesian retrieval returned all expected documents. Holding candidateSize=30
+  while changing size from 3 to 1 preserved the result prefix. Ordinary
+  text/KNN/RRF/Min-Max/L2 worked without a top-level candidate budget.
+- Default and explicit rerank budgets both produced `applied`, three candidates,
+  three scored candidates and two final results. Finite final scores were in
+  [0,1], and retrievalScore exactly matched the baseline Bayesian scores. Null
+  rerank preserved the baseline documents/scores without rerank metadata.
+- For each native/legacy Collection, 15 invalid requests retained API_ERROR,
+  HTTP 400 and exit 3: missing/invalid/conflicting candidate budgets, wrong signal
+  counts, boosts including Boolean descendants, nested fusion and a Bayesian
+  budget on an ordinary query.
+- Cleanup deleted and verified HTTP 404 for all temporary Collections:
+  `cli-smoke-61877546-2601-4df9-aeeb-91d87f44c2a5`,
+  `cli-native-4e72c926-fe9e-4bbd-822e-1667be3e619f`, and
+  `cli-native-2892e6ab-af3c-4a23-aff7-bb5793f7f31e`.
+
+Sanitized logs and deployment evidence are retained outside the repository in
+`/tmp/lambdadb-cli-sdk080/`. No temporary test data remains in those Collections.
+The live run used the built source CLI; installed-artifact validation used
+loopback servers. Full downloaded documents are covered by local transport tests;
+large live results alone do not prove that the server selected docsUrl.
+Older-server deployment, production behavior, search quality, load, billing,
+and Homebrew installation were not tested. Older servers may require explicit
+`managedEmbedding: true` and may reject Bayesian search. Existing flag precedence,
+ordinary query behavior, output schema and SDK transfer handling are preserved.
+
+
 Updated: 2026-10-04. Local contract tests use loopback servers and synthetic
 credentials. Authenticated development-project evidence is recorded separately.
 
+## CLI 0.1.2 publication (2026-10-04)
+
+[PR #15](https://github.com/lambdadb/lambdadb-cli/pull/15) merged as
+`6628fe0ed1f405c88fbd91d591e5223d3250dd73`. The annotated v0.1.2 tag points to
+that commit. [GitHub Release v0.1.2](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.2)
+triggered [OIDC publication](https://github.com/lambdadb/lambdadb-cli/actions/runs/37191188846),
+which passed Node 22/24 validation and exact-artifact tests on attempt 1.
+
+- Registry latest=0.1.2; dev=0.1.2-dev.12 remained unchanged.
+- Downloaded npm tarball is byte-identical to the reviewed final candidate and
+  merged-main pack. SHA-256:
+  `e63c2c0fd624e1d81c45c5ba24d641a11ee0ecdc60f063aba4268e06547761ea`.
+  Registry SHA-512 integrity:
+  `sha512-9l1WPN2vrX+JXRjuOh7Uz5DCVcaiV/YLpYKgZb7ORU1jphaAIx38VSWeiQitz0V2Nw/b1vTxfcXzvra6EAkaFg==`.
+- An isolated registry consumer passed all 46 installed CLI contracts and
+  version/help. Its lockfile integrity matched npm and SDK resolves to 0.7.0.
+  npm audit signatures verified four registry signatures and three attestations.
+- Decoded [provenance](https://registry.npmjs.org/-/npm/v1/attestations/@functional-systems%2flambdadb-cli@0.1.2)
+  matched the artifact digest, repository, release commit, refs/tags/v0.1.2,
+  publish.yaml and workflow run 37191188846. Verification retried registry reads
+  during propagation without another publication. Temporary consumer, archive
+  and cache were removed.
+- The candidate live evidence below applies to the identical published artifact;
+  no additional live run was performed. The earlier failed sample remains recorded.
+- Formula handoff pins this npm tarball and release lockfile SHA-256
+  `e2d12af262d13c3a23073d1313b183766bb40b5360abeb0d773b5100819dac65`.
+  The completed tap handoff and bounded upgrade evidence are recorded below.
+
+These checks establish artifact publication and the recorded development sample;
+production deployment, search quality, load/failure coverage and billing readiness
+remain separate dependencies.
+
+## CLI 0.1.2 post-release verification (2026-10-04)
+
+[PR #16](https://github.com/lambdadb/lambdadb-cli/pull/16) merged as
+`aefbaeed9c799e76dd7a9501ecda6ab80dc6e958`, preserving release commit `6628fe0`
+as an ancestor of develop and starting the 0.1.3-dev.1 development base.
+
+- [Automatic publication](https://github.com/lambdadb/lambdadb-cli/actions/runs/37192027479)
+  passed Node 22/24 validation and published 0.1.3-dev.13. An independent isolated
+  registry consumer passed all 46 CLI contracts, version/help, SDK 0.7.0 and
+  integrity checks. npm audit signatures verified four signatures and three
+  attestations. Decoded provenance matched the artifact digest, merge commit,
+  repository, develop ref and workflow run. At verification, dev=0.1.3-dev.13
+  and latest=0.1.2. Temporary consumer, source archive and cache were removed.
+- [Homebrew PR #6](https://github.com/lambdadb/homebrew-tap/pull/6) merged as
+  `ae9a7456acd10015d51b9ea8d58aee76afe3da28`. The public formula matches the
+  CLI-side formula and pins the verified npm 0.1.2 artifact and release lockfile.
+- [Public-tap CI](https://github.com/lambdadb/homebrew-tap/actions/runs/37192619208)
+  passed on macOS arm64 and Linux x86_64. It installed from the remote public tap
+  and checked formula equality, style, version, JSON configuration, file
+  permissions and Node runtime selection. Existing migration checks also passed;
+  no migration formula was changed. Hosted test installations and taps were removed.
+- A separate local macOS arm64 test installed 0.1.1 into a disposable tap, replaced
+  its formula with the exact merged public 0.1.2 formula, ran brew upgrade and
+  verified version 0.1.2 and brew test. Both test-owned versions and the temporary
+  tap were removed; the original user taps were preserved. This establishes the
+  formula version transition, not an existing user's public-tap upgrade or Linux
+  upgrade coverage. No LambdaDB service resources or credentials were used.
+- Merged feature branches were removed and both primary checkouts were clean.
+  The candidate and development-service evidence below remain historical samples;
+  this post-release verification did not run another live service smoke.
+
 ## CLI 0.1.2 stable candidate (2026-10-04)
+
+This section records the pre-publication candidate milestone. Publication and
+post-release results are recorded above.
 
 Prepared release/0.1.2 from reviewed develop merge `aef74a3`, retaining SDK 0.7.0
 and all reviewed runtime/test changes. The release branch changes only version

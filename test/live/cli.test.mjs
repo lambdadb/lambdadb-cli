@@ -160,5 +160,91 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     }
     progress(`Managed reranking ${variant}: document envelopes and status metadata verified.`);
   }
+  for (const legacy of [false, true]) {
+    const nativeCollection = `cli-native-${randomUUID()}`;
+    const embedding = { provider: 'openai', model: 'text-embedding-3-small', sourceField: 'text', dimensions: 256, similarity: 'cosine' };
+    const nativeConfigs = { text: { type: 'text' }, vector: { type: 'vector', embedding, ...(legacy ? { managedEmbedding: true } : {}) } };
+    const configFile = join(temp, `native-${legacy}.json`);
+    await writeFile(configFile, JSON.stringify(nativeConfigs));
+    const nativeCreated = await run(['collections', 'create', '--collection', nativeCollection, '--index-config', configFile]);
+    if (nativeCreated.code === 0 || nativeCreated.code === 5) {
+      t.after(async () => {
+        const client = new LambdaDBClient({ baseUrl: endpoint.origin, projectName: process.env.LAMBDADB_PROJECT, projectApiKey: process.env.LAMBDADB_API_KEY });
+        try {
+          await client.collection(nativeCollection).delete({ timeoutMs: 15000, retries: { strategy: 'none' } });
+          await assert.rejects(client.collection(nativeCollection).get({ timeoutMs: 15000, retries: { strategy: 'none' } }), error => error.statusCode === 404);
+          t.diagnostic(`Cleanup verified by HTTP 404 for temporary collection ${nativeCollection}.`);
+        } catch { throw new Error(`Cleanup failed or is unconfirmed; inspect temporary collection ${nativeCollection}.`); }
+      });
+    }
+    success(nativeCreated, 'native create');
+    const updated = success(await run(['collections', 'update', '--collection', nativeCollection, '--index-config', configFile]), 'native update');
+    assert.equal(updated.state, 'updated');
+    const nativeMetadata = success(await run(['collections', 'describe', '--collection', nativeCollection]), 'native describe').collection.indexConfigs.vector;
+    assert.equal(nativeMetadata.managedEmbedding, true);
+    assert.deepEqual(nativeMetadata.embedding, embedding);
+    const nativeRows = [
+      { id: 'one', text: 'Serverless search retrieves documents.' },
+      { id: 'two', text: 'Serverless databases manage search infrastructure.' },
+      { id: 'three', text: 'A recipe for vegetable soup.' },
+    ];
+    const nativeDocs = join(temp, `native-docs-${legacy}.jsonl`);
+    await writeFile(nativeDocs, nativeRows.map(row => JSON.stringify(row)).join('\n') + '\n');
+    assert.equal(success(await run(['docs', 'import', '--collection', nativeCollection, '--branch', 'main', '--file', nativeDocs]), 'native import').accepted, 3);
+    const queryFile = join(temp, `native-query-${legacy}.json`);
+    async function nativeQuery(body, remainingMs) {
+      await writeFile(queryFile, JSON.stringify(body));
+      return run(['query', '--collection', nativeCollection, '--ref', 'branch:main', '--file', queryFile], remainingMs);
+    }
+    const signals = [
+      { queryString: { query: 'text:serverless' } },
+      { knn: { field: 'vector', queryText: 'How does serverless search work?', k: 30 } },
+    ];
+    const body = { query: { bayesian: signals }, size: 3, candidateSize: 30, consistentRead: true };
+    assert.ok(await observeWithin({ timeoutMs: 120000, intervalMs: 2000, poll: async remainingMs => {
+      const response = await nativeQuery(body, remainingMs);
+      if (response.code === 3 && [404, 409, 503].includes(response.result.error?.httpStatus)) return false;
+      return success(response, 'native Bayesian visibility').docs.length === 3;
+    } }), 'Native documents did not become visible within 120 seconds.');
+    const baseline = success(await nativeQuery(body), 'native Bayesian');
+    assert.ok(nativeRows.every(row => baseline.docs.some(hit => isDeepStrictEqual(hit.doc, row))));
+    const prefix = success(await nativeQuery({ ...body, size: 1 }), 'fixed candidate budget');
+    assert.deepEqual(prefix.docs, baseline.docs.slice(0, 1));
+    for (const query of [signals[0], signals[1], ...['rrf', 'mm', 'l2'].map(method => ({ [method]: signals }))]) {
+      assert.ok(success(await nativeQuery({ query, size: 3, consistentRead: true }), 'ordinary retrieval').docs.length > 0);
+    }
+    for (const explicitBudget of [false, true]) {
+      const reranked = success(await nativeQuery({ query: body.query, size: 2, consistentRead: true, rerank: {
+        provider: 'typesafe', model: 'jev-1.13.0', queryText: 'How does serverless search work?', fields: ['text'],
+        ...(explicitBudget ? { candidateSize: 30 } : {}),
+      } }), 'Bayesian rerank');
+      assert.equal(reranked.rerank?.status, 'applied');
+      assert.equal(reranked.rerank.candidateCount, 3);
+      assert.equal(reranked.rerank.scoredCount, 3);
+      assert.equal(reranked.docs.length, 2);
+      assert.ok(reranked.docs.every(hit => Number.isFinite(hit.score) && hit.score >= 0 && hit.score <= 1
+        && hit.retrievalScore === baseline.docs.find(original => original.doc.id === hit.doc.id)?.score));
+    }
+    const nullRerank = success(await nativeQuery({ ...body, rerank: null }), 'null rerank');
+    assert.deepEqual(nullRerank.docs, baseline.docs);
+    assert.equal(nullRerank.rerank, undefined);
+    const invalid = [
+      { ...body, candidateSize: undefined }, { ...body, candidateSize: 0 },
+      { ...body, candidateSize: 2 }, { ...body, candidateSize: 101 },
+      { ...body, rerank: { provider: 'typesafe', model: 'jev-1.13.0', queryText: 'serverless', fields: ['text'] } },
+      ...[[], [signals[0]], [...signals, signals[0]]].map(bayesian => ({ ...body, query: { bayesian } })),
+      { ...body, query: { bayesian: [{ ...signals[0], boost: 1 }, signals[1]] } },
+      { ...body, query: { bayesian: [{ bool: [{ occur: 'MUST', ...signals[0], boost: 1 }] }, signals[1]] } },
+      ...['bayesian', 'rrf', 'mm', 'l2'].map(method => ({ ...body, query: { bayesian: [{ [method]: signals }, signals[1]] } })),
+      { ...body, query: signals[0] },
+    ];
+    for (const request of invalid) {
+      const rejected = await nativeQuery(request);
+      assert.equal(rejected.code, 3);
+      assert.equal(rejected.result.error?.code, 'API_ERROR');
+      assert.equal(rejected.result.error?.httpStatus, 400);
+    }
+    progress(`Native/legacy=${legacy}: create/update, actual embeddings, ordinary retrieval, Bayesian budgets, default/explicit rerank and ${invalid.length} HTTP 400 rejections passed.`);
+  }
   t.diagnostic('Doctor, all 49 analyzer preset metadata, ordinary/bulk acceptance, committed query/fetch, facets and managed reranking default/null/custom passed. This is a bounded development sample, not a production readiness or search-quality guarantee.');
 });

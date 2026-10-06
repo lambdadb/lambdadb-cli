@@ -1,0 +1,20 @@
+{
+  "query": {
+    "bayesian": [
+      {
+        "queryString": {
+          "query": "text:serverless"
+        }
+      },
+      {
+        "knn": {
+          "field": "vector",
+          "queryText": "How does serverless search work?",
+          "k": 30
+        }
+      }
+    ]
+  },
+  "size": 10,
+  "candidateSize": 30
+}

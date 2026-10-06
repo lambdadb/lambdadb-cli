@@ -1,7 +1,7 @@
 import { open } from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
-import type { CreateCollectionInput, QueryCollectionInput, ReadRef } from '@functional-systems/lambdadb';
-import { createCollectionRequestToJSON, queryCollectionRequestBodyToJSON } from '@functional-systems/lambdadb/models/operations';
+import type { CreateCollectionInput, QueryCollectionInput, ReadRef, UpdateCollectionInput } from '@functional-systems/lambdadb';
+import { createCollectionRequestToJSON, queryCollectionRequestBodyToJSON, updateCollectionRequestBodyToJSON } from '@functional-systems/lambdadb/models/operations';
 import { InputError } from './errors.js';
 import { name } from './config.js';
 
@@ -57,7 +57,7 @@ export function queryInput(body: Record<string, unknown>, ref: ReadRef): QueryCo
     }
   }
   const input: Record<string, unknown> = { ...body, ref };
-  // Public API accepts null size, while SDK 0.7.0 only accepts undefined/number.
+  // Public API accepts null size, while the SDK only accepts undefined/number.
   if (input.size === null) delete input.size;
   // The SDK requires integer sizes and facets for zero; bound non-reranked queries here.
   if (typeof input.size === 'number' && (input.size < 0 || input.size > 100)) {
@@ -71,6 +71,13 @@ export function queryInput(body: Record<string, unknown>, ref: ReadRef): QueryCo
 export function createInput(collectionName: string, indexConfigs: Record<string, unknown>): CreateCollectionInput {
   const input = { collectionName, indexConfigs } as CreateCollectionInput;
   try { createCollectionRequestToJSON(input); }
+  catch { throw new InputError('Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract.'); }
+  return input;
+}
+
+export function updateInput(indexConfigs: Record<string, unknown>): UpdateCollectionInput {
+  const input = { indexConfigs } as UpdateCollectionInput;
+  try { updateCollectionRequestBodyToJSON(input); }
   catch { throw new InputError('Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract.'); }
   return input;
 }
