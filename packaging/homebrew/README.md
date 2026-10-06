@@ -2,23 +2,15 @@
 
 ## Availability
 
-The public [LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides the
-published stable CLI `0.1.2` (verified on 2026-10-04), on macOS and Linux.
-[Tap PR #6](https://github.com/lambdadb/homebrew-tap/pull/6) merged the formula
-matching this directory's verified npm tarball and immutable release lockfile.
-Public installation passed on macOS arm64 and Linux x86_64. A disposable-tap
-macOS arm64 upgrade from 0.1.1 to 0.1.2 passed; existing-user public-tap upgrades
-and Linux upgrades were not tested.
+The public [LambdaDB tap](https://github.com/lambdadb/homebrew-tap) distributes
+stable CLI releases on macOS and Linux. Its
+[published formula](https://github.com/lambdadb/homebrew-tap/blob/main/Formula/lambdadb-cli.rb)
+identifies the available version. npm publication and tap updates are separate;
+development and release-candidate builds do not update Homebrew.
 
-This directory now prepares the verified npm 0.1.3 artifact and its immutable
-release lockfile for the next tap PR. The public tap remains at 0.1.2 until that
-separate update is reviewed and merged. See
-[0.1.3 publication evidence](../../VALIDATION.md#cli-013-publication-2026-10-06).
-
-This directory supports CLI-side review and full installed-contract checks;
-the tap maintains its consumer copy and its own installation CI. See
-[publication evidence](../../VALIDATION.md#cli-012-publication-2026-10-04) and
-[post-release verification](../../VALIDATION.md#cli-012-post-release-verification-2026-10-04).
+This directory maintains the formula for CLI-side review and full installed
+contract checks. The tap maintains its consumer copy and installation CI.
+Record each handoff's verification results in the tap PR.
 
 ## Packaging contract
 
@@ -70,17 +62,16 @@ remote tap writes. Full CLI runtime CI remains separate.
 
 ## Public installation and tap maintenance
 
-The tap was published on 2026-09-19 with the reviewed formula, Apache-2.0 license,
-consumer instructions and macOS/Linux installation CI. Normal changes target its
-`main` branch through PRs requiring one approving review, resolved conversations
-and both installation checks. Organization rules apply in addition to repository
-protection. The tap does not need a separate `develop` branch or npm credentials.
+Normal changes target the tap's `main` branch through PRs requiring one approving
+review, resolved conversations and both installation checks. Organization rules
+apply in addition to repository protection. The tap does not need a separate `develop` branch or npm credentials.
 
 Consumer commands:
 
 ```sh
 brew install lambdadb/tap/lambdadb-cli
 lambdadb --version
+brew update
 brew upgrade lambdadb/tap/lambdadb-cli
 brew uninstall lambdadb/tap/lambdadb-cli
 ```
@@ -110,9 +101,9 @@ tap, retaining dependencies and caches. See the
    this is a manual maintainer handoff; no cross-repository token or automatic tap
    write is configured.
 5. Merge the reviewed tap update, then verify `brew update` / `brew upgrade` from
-   the remote tap and record the installed version. Never rewrite an npm version
-   or stable Git tag to repair a packaging issue; use a reviewed formula revision
-   when only packaging changes.
+   the remote tap and record the old/new versions, platform and results in the tap
+   PR. Never rewrite an npm version or stable Git tag to repair a packaging issue;
+   use a reviewed formula revision when only packaging changes.
 
 ## References
 

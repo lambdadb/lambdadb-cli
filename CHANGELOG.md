@@ -148,6 +148,5 @@ Published publicly on npm's `dev` channel on 2026-09-18 as the manual bootstrap.
 The initial OIDC build `0.1.0-dev.4` followed from the same reviewed develop
 commit; generated dev versions do not create separate source changelog entries.
 Automatic dev publication is enabled. The observed `latest` tag remains at the
-bootstrap until a reviewed stable release replaces it. Publication, provenance,
-installation and development-project smoke evidence are recorded in VALIDATION.md.
+bootstrap until a reviewed stable release replaces it.
 Main promotion is required only for rc/stable.

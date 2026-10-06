@@ -1,111 +1,9 @@
 # Releasing LambdaDB CLI
 
-## Current status
-
-CLI 0.1.3 was published on 2026-10-06 from merged main commit
-`90628ed3648aea0ae381c061a95aebbbf48e9259` through
-[GitHub Release v0.1.3](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.3)
-and the [successful OIDC workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/37466450036).
-It pins SDK 0.8.0 and adds Bayesian queries, native embedding configuration and
-Collection index updates, preserving existing query defaults and error/output contracts.
-
-An independent unqualified npm installation selected 0.1.3 and SDK 0.8.0, passed
-all 54 CLI contracts and verified integrity, four registry signatures and three
-attestations. Decoded provenance identifies the release commit, tag and workflow.
-The published tarball is byte-identical to the reviewed candidate, whose installed
-runtime passed development-service validation. At verification, latest=0.1.3 and
-dev=0.1.3-dev.15. See [publication evidence](VALIDATION.md#cli-013-publication-2026-10-06).
-
-The post-release synchronization starts the `0.1.4-dev.1` development base and
-prepares the 0.1.3 Homebrew formula. The public tap remains at 0.1.2 until its
-separate PR is reviewed and merged; CLI publication does not update that tap.
-
-## CLI 0.1.2 publication
-
-CLI 0.1.2 was published on 2026-10-04 from merged main commit
-`6628fe0ed1f405c88fbd91d591e5223d3250dd73` through
-[GitHub Release v0.1.2](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.2)
-and the [successful OIDC workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/37191188846).
-It pins SDK 0.7.0 and includes 49 fixed analyzer presets, optional per-query
-managed reranking and credential-safe fixed rerank metadata.
-
-At stable publication, independent registry verification confirmed latest=0.1.2
-and dev=0.1.2-dev.12.
-The published tarball is byte-identical to the reviewed, live-tested candidate.
-A clean registry consumer passed all 46 CLI contracts, version/help, SDK version,
-integrity, four registry signatures and three attestations. Decoded provenance
-identifies the release commit, tag and workflow. See
-[publication evidence](VALIDATION.md#cli-012-publication-2026-10-04).
-
-[PR #16](https://github.com/lambdadb/lambdadb-cli/pull/16) synchronized main into
-develop with the 0.1.3-dev.1 base. Its successful automatic publication produced
-0.1.3-dev.13; an independent registry consumer passed all 46 CLI contracts,
-integrity, signature and provenance checks. At verification, dev=0.1.3-dev.13
-and latest=0.1.2.
-
-[Homebrew PR #6](https://github.com/lambdadb/homebrew-tap/pull/6) merged the matching
-0.1.2 formula. Public-tap installation passed on macOS arm64 and Linux x86_64.
-A separate disposable-tap macOS arm64 upgrade from 0.1.1 to 0.1.2 also passed;
-existing-user public-tap upgrades and Linux upgrades were not tested. See
-[post-release evidence](VALIDATION.md#cli-012-post-release-verification-2026-10-04).
-Publication and bounded development smoke do not establish production deployment,
-search quality, load/failure coverage or billing readiness.
-
-## CLI 0.1.1 publication
-
-CLI 0.1.1 was published on 2026-09-29 through
-[GitHub Release v0.1.1](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.1)
-and the [OIDC release workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/36557578359).
-Tag/main commit `80a4c10628ad2ad4ebf8d90a01924d27dcb4a790` has the same tree as
-reviewed candidate `0291970`. The workflow passed on attempt 1, including Node
-22/24 validation and tests of the exact publication tarball.
-
-Registry reads confirmed `latest=0.1.1`, while `dev=0.1.1-dev.10` remained unchanged.
-A clean unqualified npm installation selected CLI 0.1.1 and SDK 0.6.0, passed all
-40 CLI contracts and verified registry signatures and attestations. The published
-tarball is byte-identical to the tested final candidate; provenance identifies the
-release commit, tag and workflow. See [VALIDATION.md](VALIDATION.md#cli-011-publication).
-
-The 0.1.1 post-release synchronization started the `0.1.2-dev.1` development base
-and prepared the 0.1.1 Homebrew formula. The public tap matched that formula at
-the pre-release check on 2026-10-04; the completed 0.1.2 handoff is recorded above.
-Facets still require a supporting server and newly built keyword indexes;
-publication does not migrate Collections or upgrade installed CLIs.
-
-## Prior publication status
-
-The first stable version, `0.1.0`, was published on 2026-09-19 through
-[GitHub Release v0.1.0](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.0)
-and the [OIDC release workflow](https://github.com/lambdadb/lambdadb-cli/actions/runs/35421226854).
-Tag and main release commit `c8d389f` have the same tree as the reviewed and
-live-tested candidate `658ea7c`. The workflow passed on attempt 1, including Node
-22/24 validation and tests of the exact publication tarball.
-
-Registry verification confirmed `latest=0.1.0` and `dev=0.1.0-dev.5`. A clean,
-unqualified npm install passed all 35 CLI contracts, version/help, integrity,
-provenance and signature checks. Version/tag and attestation metadata propagated
-separately; verification used read retries without republishing.
-
-The post-release synchronization merged main history back into develop with
-`0.1.1-dev.1` as its development base. After the Homebrew documentation merge,
-[develop CI](https://github.com/lambdadb/lambdadb-cli/actions/runs/35434313586)
-published and verified `0.1.1-dev.8` from `225dec3` on 2026-09-19. Registry and
-provenance metadata identify that commit; `latest` remains `0.1.0`. Development
-builds do not require a separate stable release or tag.
-
-Bootstrap `0.1.0-dev.1` and the first OIDC development builds were verified on
-2026-09-18. The ordinary develop merge published `0.1.0-dev.5` in
-[one successful attempt](https://github.com/lambdadb/lambdadb-cli/actions/runs/35344153978),
-handling approximately three minutes of registry propagation without another write.
-The bootstrap initially assigned `latest` to `0.1.0-dev.1`, and a removal attempt
-returned HTTP 400. The stable publication replaces that temporary tag state.
-Do not repeat bootstrap or change tags to work around propagation delays.
-
-These are dated validation milestones, not a continuously updated version list.
-Check npm for current dist-tags. Apache-2.0 licensing, publication, provenance,
-consumer checks and development-project smoke evidence are recorded in
-[VALIDATION.md](VALIDATION.md). Automatic dev publication is enabled;
-future stable/rc tags and GitHub Releases remain explicit release actions.
+This guide defines release policy and procedures. User-facing changes belong in
+[CHANGELOG.md](CHANGELOG.md) and [GitHub Releases](https://github.com/lambdadb/lambdadb-cli/releases).
+Record execution results in the relevant PR and release, following
+[Recording verification results](CONTRIBUTING.md#recording-verification-results).
 
 ## Branch and version policy
 
@@ -214,8 +112,8 @@ compatible. Human summaries are not a scripting interface.
 
 3. Run the live smoke below against an explicitly designated development project.
    Record commit, SDK version, endpoint/project, command, outcome and cleanup
-   without keys or signed URLs. Missing credentials are a blocked release
-   prerequisite, not a skipped success. PR CI deliberately has no service keys.
+   in the release PR without keys or signed URLs. Missing credentials are a blocked
+   release prerequisite, not a skipped success. PR CI deliberately has no service keys.
 4. For rc/stable releases, promote to main by reviewed PR with required CI
    checks. The first development bootstrap can use reviewed develop directly.
    Re-run checks/live smoke if release contents changed. Record the verified
@@ -233,7 +131,8 @@ compatible. Human summaries are not a scripting interface.
 7. Verify the workflow, npm version/dist-tag, provenance's repository/commit and
    a clean consumer install of the exact version. Test the installed binary's
    version/help and basic JSON behavior. Confirm a dev/rc release did not move
-   `latest`. Synchronize release-only main changes back to develop by PR.
+   `latest`. Add the verification summary and links to the release PR or GitHub
+   Release. Synchronize release-only main changes back to develop by PR.
 
 Useful read-only checks after publication:
 
@@ -254,8 +153,8 @@ Trusted Publishers are package-specific. The SDK's configuration does not cover
 this CLI. npm requires an existing package before configuring its trust policy.
 See the official [npm trust prerequisites](https://docs.npmjs.com/cli/v11/commands/npm-trust/).
 
-This one-time bootstrap was completed for this package on 2026-09-18. The steps
-below document setup and recovery; do not repeat the bootstrap for normal dev builds.
+This package is already bootstrapped. The steps below document initial setup;
+do not repeat the bootstrap for an existing package or normal dev builds.
 For a new package, first complete the reviewed release preparation and preflight.
 An authorized npm organization owner performs the bootstrap from the verified
 develop commit, using interactive `npm login` and the account's MFA, then
@@ -297,45 +196,9 @@ this direct-publish workflow. See [npm Trusted Publishing](https://docs.npmjs.co
 
 ## Explicit live smoke
 
-Provision a disposable development project/key outside this tool, with create,
-ordinary and bulk write, query/fetch and temporary-collection delete access.
-Supply the key through secure shell input or a secret manager, never in history.
-
-```sh
-export LAMBDADB_ENDPOINT=https://YOUR_DEV_API_ORIGIN
-export LAMBDADB_PROJECT=YOUR_DEV_PROJECT
-# Inject LAMBDADB_API_KEY securely; no .env file is loaded automatically.
-export LAMBDADB_RUN_LIVE_TESTS=1
-export LAMBDADB_LIVE_CONFIRM_PROJECT="$LAMBDADB_PROJECT"
-npm run test:live
-```
-
-The test fails before API calls when required settings are absent. It creates a
-random temporary collection, imports two 3 MiB documents plus a bulk document,
-accepts and verifies metadata for all 49 fixed analyzer presets, checks exact
-facet-only and document+facet buckets, and checks committed query/fetch contents
-with a maximum 300-second observation window per stage. It also checks managed reranking with default criteria, null
-and custom criteria, including final/retrieval scores and status metadata.
-The SDK 0.8.0 extension creates two additional temporary Collections for native
-embedding-only and legacy true inputs. It exercises actual CLI create/update,
-normalized metadata, document/query embedding generation, ordinary retrieval,
-Bayesian candidate budgets, default/explicit rerank budgets, null rerank and
-server-side rejection of invalid Bayesian requests. All three Collections are
-cleaned up with subsequent HTTP 404 verification.
-Request timeouts and polling sleeps are capped to the remaining
-budget, and responses at or after the deadline cannot pass. Process termination
-and event-loop scheduling may delay reporting. It reports elapsed time and
-matched-document counts; a timeout is a failed smoke, not proof that accepted
-writes were rejected or lost.
-Collection cleanup uses the SDK because deletion is outside the public CLI MVP.
-The harness verifies deletion with a subsequent HTTP 404.
-Only the test's own collection is eligible for cleanup. An interrupted process
-or failed cleanup may leave that named collection; inspect it manually.
-
-This sample does not prove global index readiness, ranking quality, every ref's
-live behavior, or exactly-once writes. A large result alone does not prove the
-service selected docsUrl; mock tests explicitly exercise that transport path.
-Use existing known development tag/alias refs for additional live ref evidence.
+Follow the [live validation procedure](CONTRIBUTING.md#live-validation) and record
+its result in the release PR. It is a release prerequisite; ordinary PR CI has
+no service credentials and cannot establish live readiness.
 
 ## Homebrew handoff
 
@@ -346,22 +209,7 @@ commit. Development publication does not update Homebrew. After each stable npm
 release, follow the [Homebrew maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme) to
 update checksums, pass installation checks and prepare a tap PR. Tap publication
 is separate from this repository's npm workflow; no cross-repository write or
-automatic tap update is configured. The public
-[LambdaDB tap](https://github.com/lambdadb/homebrew-tap) provides stable `0.1.2`
-(verified on 2026-10-04). Public installation and disposable-tap upgrade evidence
-is recorded in [VALIDATION.md](VALIDATION.md#cli-012-post-release-verification-2026-10-04).
-
-## Design references
-
-- LambdaDB TypeScript client `RELEASING.md` and `publish.yaml`: canonical channels,
-  separate live evidence, same tested artifact and OIDC. This CLI intentionally
-  publishes dev from develop, while rc/stable releases require main history.
-- LambdaDB migration `.goreleaser.yml`/release workflow and `install.sh`: verify
-  installed artifacts and explicit versions. Go binaries, GoReleaser and Docker
-  distribution are unnecessary for this npm CLI's first release.
-- [Command Line Interface Guidelines](https://clig.dev/): preserve machine output,
-  separate diagnostics, avoid interactive CI requirements, protect secrets and
-  test cancellation. The CLI contract suite exercises these boundaries.
-
-External documentation checked on 2026-09-18. Consult current npm documentation
-when configuring the package; registry requirements can change independently.
+automatic tap update is configured. Record installation and actual upgrade results
+in the tap PR, including tested platforms and any unperformed checks. Query the
+[public tap](https://github.com/lambdadb/homebrew-tap) for its current formula;
+do not maintain a second release-status history here.
