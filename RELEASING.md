@@ -2,6 +2,18 @@
 
 ## Current status
 
+CLI 0.1.3 is prepared on `release/0.1.3` from reviewed develop commit
+`caee1bcb6ce864c33647673b54a48f7cc06dcf84` ([PR #18](https://github.com/lambdadb/lambdadb-cli/pull/18)).
+It pins SDK 0.8.0 and adds Bayesian JSON queries, native embedding configuration
+and Collection index updates. Existing search defaults and error/output contracts
+are preserved. See [candidate validation](VALIDATION.md#cli-013-release-preparation-2026-10-06).
+This is release preparation; stable npm and the public Homebrew tap remain at
+0.1.2. Merge the release PR with a merge commit to preserve develop ancestry.
+Tag creation, GitHub Release publication and npm latest promotion require the
+explicit authorization described below.
+
+### Latest published stable release
+
 CLI 0.1.2 was published on 2026-10-04 from merged main commit
 `6628fe0ed1f405c88fbd91d591e5223d3250dd73` through
 [GitHub Release v0.1.2](https://github.com/lambdadb/lambdadb-cli/releases/tag/v0.1.2)

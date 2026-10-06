@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-06
+
 ### Added
 
 - SDK 0.8.0 Bayesian hybrid search through query JSON files, including separate
