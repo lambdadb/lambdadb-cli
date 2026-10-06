@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Maintenance
+
+- Synchronize the 0.1.3 release history and start the 0.1.4 development line.
+- Prepare the Homebrew formula for verified stable 0.1.3 and record publication evidence.
+
+## [0.1.3] - 2026-10-06
+
 ### Added
 
 - SDK 0.8.0 Bayesian hybrid search through query JSON files, including separate
