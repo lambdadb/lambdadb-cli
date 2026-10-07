@@ -129,6 +129,13 @@ fetch/query already delegate docsUrl to the SDK and preserve full results. Impor
 retains its existing bounded preflight and ordinary/bulk behavior; native
 embeddings use ordinary upsert. No changes to those flows were needed.
 
+## SDK 0.8.1 terminology update
+
+The runtime and lockfile now pin `@functional-systems/lambdadb@0.8.1`.
+Feature descriptions use native embedding and native reranking. The legacy
+`managedEmbedding` wire field and existing CLI behavior remain unchanged.
+The versioned contracts above retain their original source paths.
+
 ## Architecture
 
 ```text
@@ -171,7 +178,7 @@ helpers own presigned response downloads and authentication isolation.
 | No readiness wait or version-management commands | First use works through main; reads can target existing refs, without assuming lifecycle or indexing guarantees. |
 
 The public API documents ordinary upsert at 6 MB and bulk at 200 MB; CLI limits
-are deliberately smaller. Bulk is unsupported for managed embedding vector
+are deliberately smaller. Bulk is unsupported for native embedding vector
 fields. `consistentRead` only supports direct branches and excludes pending bulk
 imports. Collection statistics describe committed main, not selected ref readiness.
 
