@@ -1,7 +1,7 @@
 # LambdaDB CLI
 
 A first, project-scoped CLI for developers, coding agents and CI. It uses
-`@functional-systems/lambdadb@0.8.0` for authentication, HTTP, read retries,
+`@functional-systems/lambdadb@0.8.1` for authentication, HTTP, read retries,
 pagination, bulk transfers and large response downloads.
 
 ## Install and run
@@ -19,11 +19,11 @@ lambdadb --help
 ```
 
 For reproducible CI runs, pin an exact published version such as
-`@functional-systems/lambdadb-cli@0.1.2`. To try development builds, explicitly use
+`@functional-systems/lambdadb-cli@0.1.3`. To try development builds, explicitly use
 `@functional-systems/lambdadb-cli@dev`; this moving channel contains prereleases.
 Installed CLIs do not update themselves. See
-[RELEASING.md](RELEASING.md#current-status) for release status and
-[VALIDATION.md](VALIDATION.md) for verification results and remaining limitations.
+[GitHub Releases](https://github.com/lambdadb/lambdadb-cli/releases) and
+[CHANGELOG.md](CHANGELOG.md) for published changes and compatibility notes.
 
 ### Homebrew
 
@@ -235,7 +235,7 @@ backend `9072a1bc8925954369a887f558f1eaf387b7ea0e`. See the SDK 0.8.0
 [Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/bayesian-search.md)
 and [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md).
 
-### Managed reranking
+### Native reranking
 
 ```sh
 lambdadb query --collection cli-demo-docs --ref branch:main \
@@ -243,7 +243,8 @@ lambdadb query --collection cli-demo-docs --ref branch:main \
 ```
 
 Add optional `rerank` to a query file; omission/null keeps existing searches.
-This is a per-query setting, with LambdaDB-managed credentials and no Jev key.
+This is a per-query setting. The LambdaDB server supplies provider credentials;
+you do not supply a Jev key.
 Use `provider: "typesafe"`, `model: "jev-1.13.0"`, nonblank `queryText` (also for
 raw vectors, up to 8 KiB UTF-8), and 1–8 unique stored scalar text `fields`.
 Returned-field projection remains independent of these model inputs.
@@ -306,7 +307,7 @@ and 16,000,000 bytes; `--batch-bytes` allows up to 64,000,000. These are conserv
 CLI limits, not advertised server maxima. The SDK also enforces the bulk limit
 returned by the server. `--mode bulk` calls the existing SDK `bulkUpsertDocs`
 helper with the selected branch, including signed upload headers and finalization.
-Bulk is unsupported for managed embedding vector fields; use ordinary upsert.
+Bulk is unsupported for native embedding vector fields; use ordinary upsert.
 
 Import result fields are stable under `schemaVersion: 1`:
 
@@ -383,7 +384,7 @@ this SDK update. If migration is needed, deliberately create a new Collection an
 reinsert the source data; the CLI performs no automatic migration. Accepted imports
 and `consistentRead` are not proof of committed facet/index readiness.
 
-This source pins SDK 0.8.0. Existing CLI installations keep their packaged SDK
+This source pins SDK 0.8.1. Existing CLI installations keep their packaged SDK
 until a new CLI version is published and installed.
 
 ## Output, deadlines and exit codes
@@ -447,7 +448,8 @@ Tests execute the real CLI and installed SDK against loopback HTTP servers. They
 cover the complete first-use flow, ref forwarding, signed transfers, pagination,
 partial and unknown writes, validation, output, credentials and exit codes.
 They do not contact a LambdaDB service. See [DESIGN.md](DESIGN.md) for contract
-evidence and [VALIDATION.md](VALIDATION.md) for measured verification scope.
+decisions and [CONTRIBUTING.md](CONTRIBUTING.md#validation-scope) for validation
+methods and their limits.
 
 This MVP intentionally omits Branch/Tag/Alias management: default `main` supports
 first use, while reads can select existing refs. It also omits Console management,
@@ -457,9 +459,10 @@ plugins and publication. There are no changes to the SDK or reference repositori
 Live verification requires an explicitly designated development project, endpoint
 and project key. Do not discover or borrow credentials from another repository.
 Use `npm run test:live` with the explicit opt-in settings in
-[RELEASING.md](RELEASING.md#explicit-live-smoke). It exercises ordinary/bulk import
-and committed query/fetch contents in a random temporary collection, then uses
-the SDK to clean up that collection. The normal test suite and CI never run it.
+[CONTRIBUTING.md](CONTRIBUTING.md#live-validation). It exercises ordinary/bulk
+import, query/fetch, native embeddings and Bayesian reranking in temporary
+Collections, then uses the SDK to delete them and verify their absence. The normal
+test suite and CI never run it.
 
 ## License
 

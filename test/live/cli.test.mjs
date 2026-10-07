@@ -158,7 +158,7 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
       assert.ok(data.docs.every((hit, i) => i === 0 || data.docs[i - 1].score >= hit.score));
       assert.equal(data.maxScore, data.docs[0].score);
     }
-    progress(`Managed reranking ${variant}: document envelopes and status metadata verified.`);
+    progress(`Native reranking ${variant}: document envelopes and status metadata verified.`);
   }
   for (const legacy of [false, true]) {
     const nativeCollection = `cli-native-${randomUUID()}`;
@@ -246,5 +246,5 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     }
     progress(`Native/legacy=${legacy}: create/update, actual embeddings, ordinary retrieval, Bayesian budgets, default/explicit rerank and ${invalid.length} HTTP 400 rejections passed.`);
   }
-  t.diagnostic('Doctor, all 49 analyzer preset metadata, ordinary/bulk acceptance, committed query/fetch, facets and managed reranking default/null/custom passed. This is a bounded development sample, not a production readiness or search-quality guarantee.');
+  t.diagnostic('Doctor, all 49 analyzer preset metadata, ordinary/bulk acceptance, committed query/fetch, facets and native reranking default/null/custom passed. This is a bounded development sample, not a production readiness or search-quality guarantee.');
 });
