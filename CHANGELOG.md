@@ -4,8 +4,14 @@
 
 ### Maintenance
 
+- Standardize feature descriptions to native embedding and native reranking;
+  preserve legacy wire fields, CLI behavior and historical references.
 - Synchronize the 0.1.3 release history and start the 0.1.4 development line.
 - Prepare the Homebrew formula for verified stable 0.1.3 and record publication evidence.
+
+### Dependencies
+
+- Pin `@functional-systems/lambdadb` and the npm lockfile to stable 0.8.1.
 
 ## [0.1.3] - 2026-10-06
 

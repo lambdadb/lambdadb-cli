@@ -1,7 +1,7 @@
 # LambdaDB CLI
 
 A first, project-scoped CLI for developers, coding agents and CI. It uses
-`@functional-systems/lambdadb@0.8.0` for authentication, HTTP, read retries,
+`@functional-systems/lambdadb@0.8.1` for authentication, HTTP, read retries,
 pagination, bulk transfers and large response downloads.
 
 ## Install and run
@@ -235,7 +235,7 @@ backend `9072a1bc8925954369a887f558f1eaf387b7ea0e`. See the SDK 0.8.0
 [Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/bayesian-search.md)
 and [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md).
 
-### Managed reranking
+### Native reranking
 
 ```sh
 lambdadb query --collection cli-demo-docs --ref branch:main \
@@ -243,7 +243,8 @@ lambdadb query --collection cli-demo-docs --ref branch:main \
 ```
 
 Add optional `rerank` to a query file; omission/null keeps existing searches.
-This is a per-query setting, with LambdaDB-managed credentials and no Jev key.
+This is a per-query setting. The LambdaDB server supplies provider credentials;
+you do not supply a Jev key.
 Use `provider: "typesafe"`, `model: "jev-1.13.0"`, nonblank `queryText` (also for
 raw vectors, up to 8 KiB UTF-8), and 1–8 unique stored scalar text `fields`.
 Returned-field projection remains independent of these model inputs.
@@ -306,7 +307,7 @@ and 16,000,000 bytes; `--batch-bytes` allows up to 64,000,000. These are conserv
 CLI limits, not advertised server maxima. The SDK also enforces the bulk limit
 returned by the server. `--mode bulk` calls the existing SDK `bulkUpsertDocs`
 helper with the selected branch, including signed upload headers and finalization.
-Bulk is unsupported for managed embedding vector fields; use ordinary upsert.
+Bulk is unsupported for native embedding vector fields; use ordinary upsert.
 
 Import result fields are stable under `schemaVersion: 1`:
 
@@ -383,7 +384,7 @@ this SDK update. If migration is needed, deliberately create a new Collection an
 reinsert the source data; the CLI performs no automatic migration. Accepted imports
 and `consistentRead` are not proof of committed facet/index readiness.
 
-This source pins SDK 0.8.0. Existing CLI installations keep their packaged SDK
+This source pins SDK 0.8.1. Existing CLI installations keep their packaged SDK
 until a new CLI version is published and installed.
 
 ## Output, deadlines and exit codes

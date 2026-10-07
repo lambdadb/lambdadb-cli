@@ -32,7 +32,7 @@
     "test:live": "npm run build && node --test test/live/*.test.mjs"
   },
   "dependencies": {
-    "@functional-systems/lambdadb": "0.8.0",
+    "@functional-systems/lambdadb": "0.8.1",
     "commander": "14.0.3"
   },
   "devDependencies": {

@@ -147,7 +147,7 @@ The test fails before API calls when required settings are absent. It creates a
 random temporary collection, imports two 3 MiB documents plus a bulk document,
 accepts and verifies metadata for all 49 fixed analyzer presets, checks exact
 facet-only and document+facet buckets, and checks committed query/fetch contents
-with a maximum 300-second observation window per stage. It also checks managed
+with a maximum 300-second observation window per stage. It also checks native
 reranking with default criteria, null and custom criteria, including
 final/retrieval scores and status metadata.
 It creates two additional temporary Collections for native embedding-only and
