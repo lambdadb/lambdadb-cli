@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-07
+
 ### Maintenance
 
 - Standardize feature descriptions to native embedding and native reranking;
