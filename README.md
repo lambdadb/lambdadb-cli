@@ -384,7 +384,7 @@ this SDK update. If migration is needed, deliberately create a new Collection an
 reinsert the source data; the CLI performs no automatic migration. Accepted imports
 and `consistentRead` are not proof of committed facet/index readiness.
 
-This source pins SDK 0.8.0. Existing CLI installations keep their packaged SDK
+This source pins SDK 0.8.1. Existing CLI installations keep their packaged SDK
 until a new CLI version is published and installed.
 
 ## Output, deadlines and exit codes
