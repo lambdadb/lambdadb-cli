@@ -4,6 +4,13 @@
 
 ### Maintenance
 
+- Synchronize the 0.1.4 release history and start the 0.1.5 development line.
+- Update the Homebrew formula to verified stable 0.1.4.
+
+## [0.1.4] - 2026-10-07
+
+### Maintenance
+
 - Standardize feature descriptions to native embedding and native reranking;
   preserve legacy wire fields, CLI behavior and historical references.
 - Synchronize the 0.1.3 release history and start the 0.1.4 development line.
