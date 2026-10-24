@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- First-use `init` for existing projects, with interactive guidance and an explicit
+  non-interactive path. Verify collection-list access and optionally configure
+  Codex, Claude Code, Cursor, VS Code, Gemini CLI, OpenCode, GitHub Copilot CLI,
+  Kiro IDE/CLI or the Cline VS Code extension (user scope) and a bundled LambdaDB
+  usage skill. Agent adapters preserve existing configuration and keep
+  environment forwarding specific to each tool.
+- Deduplicate identical shared MCP/skill file updates across selected agents;
+  reject conflicting plans and unsupported agent scopes before connection or writes.
+- Runtime-only credential forwarding to the existing read-only-by-default stdio
+  MCP package through `lambdadb mcp`; no key values are persisted. Existing CLI
+  commands remain non-interactive. Search readiness is not inferred from setup.
+
 ### Maintenance
 
 - Synchronize the 0.1.4 release history and start the 0.1.5 development line.

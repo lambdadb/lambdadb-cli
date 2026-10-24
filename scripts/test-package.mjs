@@ -20,6 +20,7 @@ try {
   assert.equal(inventory.name, pkg.name);
   assert.equal(inventory.version, pkg.version);
   assert.ok(inventory.files.some(file => file.path === 'dist/cli.js'));
+  assert.ok(inventory.files.some(file => file.path === 'skills/lambdadb/SKILL.md'));
   for (const file of inventory.files) {
     assert.ok(!/(^|\/)(\.env(?:\..*)?|\.github|test|node_modules|scripts)(\/|$)/.test(file.path), `Unexpected package file: ${file.path}`);
   }
@@ -36,7 +37,7 @@ try {
   }
   assert.equal(execFileSync(process.execPath, [bin, '--version'], { encoding: 'utf8' }).trim(), pkg.version);
   assert.match(execFileSync(process.execPath, [bin, '--help'], { encoding: 'utf8' }), /Usage: lambdadb/);
-  execFileSync(process.execPath, ['--test', 'test/cli.test.mjs'], {
+  execFileSync(process.execPath, ['--test', 'test/cli.test.mjs', 'test/init.test.mjs'], {
     stdio: 'inherit', env: { ...process.env, LAMBDADB_TEST_CLI: bin },
   });
 } finally {
