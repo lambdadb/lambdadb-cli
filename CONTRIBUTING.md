@@ -90,6 +90,26 @@ live-service readiness. See [README.md](README.md) for public behavior and the
 
 ## Compatibility and maintenance
 
+Agent integrations live in the `agentAdapters` registry in `src/agents.ts`.
+Each adapter owns detection directories and executable names, supported scopes, project/user
+paths, MCP configuration generation (including environment forwarding), optional
+skill path, and restart instructions. Add an adapter there to extend init's
+selection, detection and help; keep authentication, file planning and atomic
+writes in `src/init.ts`. `src/agent-config.ts` provides shared CLI launch
+arguments and JSONC/TOML editors that preserve unrelated settings. MCP
+configuration generation receives the key's variable name, never its value.
+An MCP-only adapter can omit the skill path.
+An adapter that cannot configure project MCP settings declares `scopes: ['user']`;
+init rejects unsupported flags and offers only shared supported scopes interactively.
+Identical changes to the same canonical path are combined; conflicting contents
+or CLI-settings overlaps fail before connection or writes. Copilot/Cline adapters
+use the strict JSON editor rather than silently removing comments.
+
+Before adding an agent, verify its documented formats and environment forwarding,
+then cover both scopes, unrelated configuration preservation, conflicts, reruns
+and secret handling through the CLI tests. Test real agent startup separately;
+configuration generation alone is not a successful connection.
+
 Treat documented flags, JSON schema, exit codes, explicit target selection and
 failure semantics as public contracts. Add regression coverage for changes to
 these behaviors; do not script against human summaries. Update the changelog
@@ -114,6 +134,13 @@ repository's runtime matrix or release tooling without checking this CLI's needs
   that artifact. To check an existing candidate, use
   `npm run test:package -- /path/to/package.tgz`. Building test sources alone is
   not evidence that tests executed.
+- Init contracts run in temporary home/project directories against loopback
+  collection-list responses. They cover configuration/comment preservation,
+  reruns, conflicts, scope, secret handling and non-interactive failures. An npx
+  stub verifies stdio launch, credential mapping and write opt-in without fetching
+  or running an agent. The packaged suite repeats these contracts and verifies
+  the bundled skill. These checks do not establish actual agent MCP connection,
+  live authentication or document search readiness.
 - [Homebrew validation](packaging/homebrew/README.md#local-and-ci-verification)
   checks the stable formula's installation and released CLI contracts on macOS
   and Linux. A new installation does not establish an existing-user upgrade;

@@ -6,7 +6,10 @@ import { createInput, parseRef, queryInput, readJson, readJsonl, updateInput } f
 import { importDocuments, planBatches } from './import-workflow.js';
 import { definitelyRejected, describeError, InputError, isInputError } from './errors.js';
 import { Output, type Envelope } from './output.js';
-import { runtime } from './runtime.js';
+import { checkConnection, runtime } from './runtime.js';
+import { initialize } from './init.js';
+import { serveMcp } from './mcp.js';
+import { agentNames } from './agents.js';
 
 const output = new Output();
 output.protect(process.env.LAMBDADB_API_KEY);
@@ -17,7 +20,7 @@ let mutationStarted = false;
 
 const program = new Command()
   .name('lambdadb')
-  .description('Project-scoped LambdaDB CLI. All commands are non-interactive.')
+  .description('Project-scoped LambdaDB CLI. Only init prompts; all other commands are non-interactive.')
   .version(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version)
   .option('--json', 'Emit one versioned JSON result on stdout; diagnostics stay on stderr')
   .option('--endpoint <url>', 'API origin (overrides LAMBDADB_ENDPOINT and saved configuration)')
@@ -51,6 +54,11 @@ function scoped(command: Command): string {
   return collection;
 }
 
+program.hook('preSubcommand', (_parent, command) => {
+  // Reserve MCP stdout even when subcommand option parsing fails before preAction.
+  if (command.name() === 'mcp') commandName = 'mcp';
+});
+
 program.hook('preAction', (_parent, command) => {
   output.json = !!command.optsWithGlobals().json;
   commandName = command.name();
@@ -64,14 +72,37 @@ program.command('configure')
     result(saved, 'Configuration saved. Supply the key in the selected environment variable, then run doctor.');
   });
 
+program.command('init')
+  .description('Connect an existing project and install agent MCP configuration and a usage skill')
+  .option('--non-interactive', 'Require explicit agent/scope choices; never prompt')
+  .option('--agents <names>', `Comma-separated ${agentNames} subset, or none`)
+  .option('--scope <scope>', 'Agent configuration scope: project (current directory) or user')
+  .option('--write-tools', 'Explicitly enable MCP write tools (default: read-only)')
+  .addHelpText('after', '\nObtain endpoint, project and a project API key manually from https://console.lambdadb.ai.\nExport the key securely before running init; no key value is saved.\nAutomation example:\n  lambdadb init --non-interactive --agents codex,claude,cursor --scope project --endpoint https://api.lambdadb.ai --project my-project --json')
+  .action(async (_opts, cmd: Command) => {
+    const data = await initialize(cmd.optsWithGlobals(), output);
+    target = { endpoint: data.settings.endpoint, project: data.settings.project };
+    result(data, 'Initialization complete. Authentication and collection-list access verified; search readiness is not verified.');
+  });
+
+program.command('mcp')
+  .description('Launch the existing stdio MCP package with runtime credential forwarding (used by init)')
+  .option('--write-tools', 'Explicitly enable MCP write tools (default: read-only)')
+  .action(async (_opts, cmd: Command) => {
+    const opts = cmd.optsWithGlobals();
+    if (opts.json) throw new InputError('The mcp command uses stdout exclusively for MCP; remove --json.');
+    const config = await resolveConfig(opts, true);
+    output.protect(config.apiKey);
+    if ([`\${${config.apiKeyEnv}}`, `\${env:${config.apiKeyEnv}}`, `{env:${config.apiKeyEnv}}`].includes(config.apiKey)) {
+      throw new InputError(`The agent did not expand ${config.apiKeyEnv}. Export it securely in the agent launch environment and restart the agent.`);
+    }
+    process.exitCode = await serveMcp(config, !!opts.writeTools);
+  });
+
 program.command('doctor')
   .description('Check configuration, authentication and project collection-list access')
   .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
-    await client.listCollections({ size: 1 }, options);
-    result({ checks: [
-      { name: 'configuration', status: 'passed' },
-      { name: 'authentication_and_project_collection_list', status: 'passed' },
-    ], writesVerified: false, queryReadinessVerified: false }, 'Connection verified using the project collection-list API.');
+    result(await checkConnection({ client, options }), 'Connection verified using the project collection-list API.');
   }));
 
 const collections = program.command('collections').description('List, describe, create and update collections');
@@ -218,7 +249,10 @@ try {
       ? new InputError('Invalid or incomplete command. Run lambdadb --help or the command-specific --help.') : error;
     const unknownWrite = mutationStarted && !definitelyRejected(failure);
     const exitCode = isInputError(failure) ? 2 : unknownWrite ? 5 : 3;
-    output.emit({
+    if (commandName === 'mcp') {
+      const safe = describeError(failure);
+      output.diagnostic(`${safe.message} ${safe.hint}`);
+    } else output.emit({
       schemaVersion: 1, command: commandName, ok: false, target,
       ...(unknownWrite ? { data: { state: 'unknown', searchable: 'not_verified' } } : {}),
       error: describeError(failure),
