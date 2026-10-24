@@ -208,8 +208,11 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     } }), 'Native documents did not become visible within 120 seconds.');
     const baseline = success(await nativeQuery(body), 'native Bayesian');
     assert.ok(nativeRows.every(row => baseline.docs.some(hit => isDeepStrictEqual(hit.doc, row))));
+    assert.ok(baseline.docs.every(hit => Number.isFinite(hit.score)));
     const prefix = success(await nativeQuery({ ...body, size: 1 }), 'fixed candidate budget');
-    assert.deepEqual(prefix.docs, baseline.docs.slice(0, 1));
+    // Separate provider embedding calls need not return bit-identical retrieval scores.
+    assert.deepEqual(prefix.docs.map(hit => hit.doc), baseline.docs.slice(0, 1).map(hit => hit.doc));
+    assert.ok(prefix.docs.every(hit => Number.isFinite(hit.score)));
     for (const query of [signals[0], signals[1], ...['rrf', 'mm', 'l2'].map(method => ({ [method]: signals }))]) {
       assert.ok(success(await nativeQuery({ query, size: 3, consistentRead: true }), 'ordinary retrieval').docs.length > 0);
     }
@@ -223,14 +226,16 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
       assert.equal(reranked.rerank.scoredCount, 3);
       assert.equal(reranked.docs.length, 2);
       assert.ok(reranked.docs.every(hit => Number.isFinite(hit.score) && hit.score >= 0 && hit.score <= 1
-        && hit.retrievalScore === baseline.docs.find(original => original.doc.id === hit.doc.id)?.score));
+        && Number.isFinite(hit.retrievalScore) && baseline.docs.some(original => isDeepStrictEqual(original.doc, hit.doc))));
     }
     const nullRerank = success(await nativeQuery({ ...body, rerank: null }), 'null rerank');
-    assert.deepEqual(nullRerank.docs, baseline.docs);
+    assert.deepEqual(nullRerank.docs.map(hit => hit.doc), baseline.docs.map(hit => hit.doc));
+    assert.ok(nullRerank.docs.every(hit => Number.isFinite(hit.score) && hit.retrievalScore === undefined));
     assert.equal(nullRerank.rerank, undefined);
+    // Reject above both the original 100-candidate limit and the newer 1000-candidate limit.
     const invalid = [
       { ...body, candidateSize: undefined }, { ...body, candidateSize: 0 },
-      { ...body, candidateSize: 2 }, { ...body, candidateSize: 101 },
+      { ...body, candidateSize: 2 }, { ...body, candidateSize: 1001 },
       { ...body, rerank: { provider: 'typesafe', model: 'jev-1.13.0', queryText: 'serverless', fields: ['text'] } },
       ...[[], [signals[0]], [...signals, signals[0]]].map(bayesian => ({ ...body, query: { bayesian } })),
       { ...body, query: { bayesian: [{ ...signals[0], boost: 1 }, signals[1]] } },
@@ -238,9 +243,9 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
       ...['bayesian', 'rrf', 'mm', 'l2'].map(method => ({ ...body, query: { bayesian: [{ [method]: signals }, signals[1]] } })),
       { ...body, query: signals[0] },
     ];
-    for (const request of invalid) {
+    for (const [index, request] of invalid.entries()) {
       const rejected = await nativeQuery(request);
-      assert.equal(rejected.code, 3);
+      assert.equal(rejected.code, 3, `Native/legacy=${legacy} invalid Bayesian case ${index}: exit=${rejected.code}, HTTP=${rejected.result.error?.httpStatus ?? 'not available'}`);
       assert.equal(rejected.result.error?.code, 'API_ERROR');
       assert.equal(rejected.result.error?.httpStatus, 400);
     }

@@ -64,7 +64,7 @@ env PATH="$test_dir/fake-bin:/usr/bin:/bin" "$cli_prefix/bin/lambdadb" --version
 # features must not make tests of an older stable Homebrew package fail.
 "$runtime" --input-type=module - "$repo_dir" "$cli_prefix" "$test_dir" <<'NODE'
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, readFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, symlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 const [repo, prefix, temp] = process.argv.slice(2);
@@ -77,9 +77,10 @@ const installed = JSON.parse(readFileSync(join(prefix, 'libexec/package.json'), 
 assert.equal(installed.name, released.name);
 assert.equal(installed.version, released.version);
 mkdirSync(harness);
-const archive = execFileSync('git', ['archive', commit, 'test/cli.test.mjs', 'examples'], { cwd: repo });
+const archive = execFileSync('git', ['archive', commit, 'test/cli.test.mjs', 'test/init.test.mjs', 'examples'], { cwd: repo });
 execFileSync('tar', ['-x', '-C', harness], { input: archive });
 cpSync(join(prefix, 'libexec/package.json'), join(harness, 'package.json'));
+symlinkSync(join(prefix, 'libexec/node_modules'), join(harness, 'node_modules'), 'dir');
 NODE
 cd "$test_dir/harness"
-LAMBDADB_TEST_CLI="$cli_prefix/libexec/dist/cli.js" "$runtime" --test test/cli.test.mjs
+LAMBDADB_TEST_CLI="$cli_prefix/libexec/dist/cli.js" "$runtime" --test test/cli.test.mjs test/init.test.mjs

@@ -439,6 +439,10 @@ These additions require a supporting deployment; their API contract is pinned to
 backend `9072a1bc8925954369a887f558f1eaf387b7ea0e`. See the SDK 0.8.0
 [Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/bayesian-search.md)
 and [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md).
+Newer servers [raise the candidate limit to 1,000](https://github.com/lambdadb/lambdadb/commit/963d79e8866833f1deb1393ed00a9825d866c853).
+The top-level Bayesian `candidateSize` is forwarded unchanged and its upper bound
+depends on the deployment. This CLI and its bundled SDK still limit final `size`
+and `rerank.candidateSize` to 100; a higher server limit does not raise those local limits.
 
 ### Native reranking
 
