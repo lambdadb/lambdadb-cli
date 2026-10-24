@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-25
+
 ### Added
 
 - First-use `init` for existing projects, with interactive guidance and an explicit
