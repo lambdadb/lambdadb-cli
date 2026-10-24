@@ -22,6 +22,11 @@
 
 - Synchronize the 0.1.4 release history and start the 0.1.5 development line.
 - Update the Homebrew formula to verified stable 0.1.4.
+- Correct the release live smoke for servers with a 1,000-candidate Bayesian
+  limit and compare document results across independent native embedding calls
+  without requiring bit-identical scores; retain the CLI's existing limits.
+- Refresh the locked transitive Zod dependency to 4.6.7, addressing
+  [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
 
 ## [0.1.4] - 2026-10-07
 
