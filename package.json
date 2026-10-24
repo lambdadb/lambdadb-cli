@@ -1,6 +1,6 @@
 {
   "name": "@functional-systems/lambdadb-cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": false,
   "description": "Project-scoped LambdaDB command-line tools",
   "type": "module",
@@ -14,6 +14,7 @@
     "DESIGN.md",
     "CONTRIBUTING.md",
     "examples",
+    "skills",
     "RELEASING.md",
     "CHANGELOG.md"
   ],
@@ -33,7 +34,9 @@
   },
   "dependencies": {
     "@functional-systems/lambdadb": "0.8.1",
-    "commander": "14.0.3"
+    "commander": "14.0.3",
+    "jsonc-parser": "3.3.1",
+    "smol-toml": "1.9.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -72,8 +72,8 @@ export async function settings(options: Options, creating = false): Promise<Requ
   };
 }
 
-export async function resolveConfig(options: Options): Promise<Config> {
-  const selected = await settings(options);
+export async function resolveConfig(options: Options, creating = false): Promise<Config> {
+  const selected = await settings(options, creating);
   const apiKey = process.env[selected.apiKeyEnv];
   if (!apiKey || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new InputError('The selected API-key environment variable is missing or invalid. Supply it through your shell or CI secret manager.');
   return {

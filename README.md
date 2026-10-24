@@ -88,6 +88,208 @@ printf '\n'
 export LAMBDADB_API_KEY
 ```
 
+### First-use setup with `init`
+
+After securely exporting the key, run either entry point. Both use this same
+package and executable:
+
+```sh
+lambdadb init
+npx @functional-systems/lambdadb-cli@latest init
+```
+
+`init` guides you through the existing project's endpoint, name and API-key
+environment-variable name. It detects Codex, Claude Code, Cursor, VS Code,
+Gemini CLI, OpenCode, GitHub Copilot CLI, Kiro IDE/CLI and the Cline VS Code
+extension using PATH and configuration directories, then lets you choose any subset (or `none`),
+project/user scope, and whether to enable MCP write tools. Detection is a hint,
+not proof that an agent is installed or connected. Project scope means the
+current working directory; run from your repository root.
+Cursor detection recognizes both the editor's `cursor` command and the
+`cursor-agent` CLI, which reads the same MCP configuration. With Cursor CLI,
+check the generated server with `cursor-agent mcp list-tools lambdadb`.
+
+The remaining manual step is in [LambdaDB Console](https://console.lambdadb.ai):
+select an existing project and obtain its API endpoint, project name and project
+API key. Inject the key into your shell or secret manager before running init.
+There is no browser login, account/project creation, key issuance, remote MCP,
+or backend/Console change in this flow. Init never asks for the key value and
+does not load or write `.env` files.
+
+For automation, explicitly select both agents and scope:
+
+```sh
+# Inject LAMBDADB_API_KEY securely before running this command.
+lambdadb init --non-interactive --agents codex,claude,cursor --scope project \
+  --endpoint https://api.lambdadb.ai --project YOUR_PROJECT --json
+# Configure only the CLI, without changing agent files:
+lambdadb init --non-interactive --agents none --scope project \
+  --endpoint https://api.lambdadb.ai --project YOUR_PROJECT --api-key-env MY_PROJECT_KEY
+```
+
+`--agents` accepts a comma-separated subset of
+`codex,claude,cursor,vscode,gemini,opencode,copilot,kiro,cline` or `none`. For example:
+
+```sh
+lambdadb init --non-interactive --agents vscode,gemini,opencode --scope project
+lambdadb init --non-interactive --agents copilot,kiro,cline --scope user
+```
+
+This example reuses your existing CLI settings and environment-held key.
+`--scope` accepts `project` or `user`. `--write-tools` explicitly enables MCP
+write tools; omission disables them, including on reruns and when the inherited
+`LAMBDADB_MCP_ENABLE_WRITE_TOOLS` environment variable is true. The normal global
+`--config`, `--endpoint`, `--project`, `--api-key-env`, and `--timeout-ms` flags
+apply. Existing settings/environment precedence is unchanged. Non-TTY and
+`--json` runs require `--non-interactive`; missing choices, target or key fail
+with exit 2 and instructions, without prompting. This mode authorizes applying
+the displayed file plan; it does not silently select detected agents.
+Cline's extension supports only user-scope MCP settings. Selecting `cline` with
+`--scope project` fails before any file writes or connection; interactive setup
+offers user scope when Cline is selected. It never silently broadens the scope.
+
+Before writing, init displays exact paths and create/update/unchanged actions,
+then uses the same SDK check as `doctor` to verify authentication and collection-list
+access. Failed validation/authentication leaves files untouched. The CLI's
+non-secret settings always use its usual configuration path (or `--config`),
+independently of agent scope:
+
+| Agent | Project MCP / skill | User MCP / skill |
+| --- | --- | --- |
+| Codex | `.codex/config.toml` / `.agents/skills/lambdadb/SKILL.md` | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) / `~/.agents/skills/lambdadb/SKILL.md` |
+| Claude Code | `.mcp.json` / `.claude/skills/lambdadb/SKILL.md` | `~/.claude.json` / `~/.claude/skills/lambdadb/SKILL.md` |
+| Cursor | `.cursor/mcp.json` / `.cursor/skills/lambdadb/SKILL.md` | `~/.cursor/mcp.json` / `~/.cursor/skills/lambdadb/SKILL.md` |
+| VS Code | `.vscode/mcp.json` / `.github/skills/lambdadb/SKILL.md` | Default profile `mcp.json` (see below) / `~/.copilot/skills/lambdadb/SKILL.md` |
+| Gemini CLI | `.gemini/settings.json` / `.gemini/skills/lambdadb/SKILL.md` | `~/.gemini/settings.json` / `~/.gemini/skills/lambdadb/SKILL.md` |
+| OpenCode | `opencode.json` or existing `opencode.jsonc` / `.opencode/skills/lambdadb/SKILL.md` | `~/.config/opencode/opencode.json` or existing `.jsonc` / `~/.config/opencode/skills/lambdadb/SKILL.md` |
+| GitHub Copilot CLI | `.mcp.json` or existing `.github/mcp.json` / `.github/skills/lambdadb/SKILL.md` | `~/.copilot/mcp-config.json` / `~/.copilot/skills/lambdadb/SKILL.md` |
+| Kiro IDE/CLI | `.kiro/settings/mcp.json` / `.kiro/skills/lambdadb/SKILL.md` | `~/.kiro/settings/mcp.json` / `~/.kiro/skills/lambdadb/SKILL.md` |
+| Cline VS Code extension | Unsupported; choose user scope | VS Code user profile `globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` / `~/.cline/skills/lambdadb/SKILL.md` |
+
+When `CLAUDE_CONFIG_DIR` is set, Claude's user MCP file is
+`$CLAUDE_CONFIG_DIR/.claude.json` and its user skill is under
+`$CLAUDE_CONFIG_DIR/skills/lambdadb/SKILL.md`.
+
+Gemini's `GEMINI_CLI_HOME` replaces the home directory, with `.gemini` appended;
+both user settings and the skill follow it. OpenCode's user config and skill
+respect `XDG_CONFIG_HOME` (default `~/.config`). Existing OpenCode JSONC files
+are edited in place. If both `opencode.json` and `opencode.jsonc` exist in the
+chosen scope, init asks you to consolidate them before proceeding. It preserves
+existing V2 `mcp.servers` maps; new files use V1 `mcp` syntax, which V2 also
+supports. A mixed V1 LambdaDB entry and V2 server map is rejected for manual
+resolution. Custom `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR`, inline or
+higher-priority project settings may override the selected root/user file.
+
+VS Code uses the documented `servers` format for its Local harness, with
+project scope at `.vscode/mcp.json`. User scope targets the default stable
+profile: `~/Library/Application Support/Code/User/mcp.json` on macOS,
+`${XDG_CONFIG_HOME:-$HOME/.config}/Code/User/mcp.json` on Linux, and
+`%APPDATA%/Code/User/mcp.json` on Windows (fallback `%USERPROFILE%/AppData/Roaming`).
+`VSCODE_PORTABLE` and `VSCODE_APPDATA` overrides are honored. Named profiles,
+Insiders, `--user-data-dir`, remote hosts and portable Copilot configuration are
+outside this adapter's scope. Reload the window and use **MCP: List Servers**.
+In Gemini, restart or use `/mcp refresh` and `/skills reload`; in OpenCode,
+restart and use `opencode mcp list`. Preserve normal trust/approval prompts.
+
+Copilot CLI is separate from the VS Code adapter. It reads `mcpServers`, not
+VS Code's `servers` map. Project setup reuses `.mcp.json` if present, otherwise
+an existing `.github/mcp.json`, otherwise creates `.mcp.json`. Both wrapped
+`mcpServers` and existing bare server maps are preserved. `COPILOT_HOME` overrides
+the user MCP and skill directory. Restart with the selected key in the launch
+environment, trust the repository, check `/mcp`, and run `/skills reload`.
+
+Kiro IDE and CLI share one `kiro` adapter; detection recognizes both `kiro` and
+`kiro-cli` executables. Approve the selected key variable in **Mcp Approved Env
+Vars** when prompted. For a custom Kiro agent, ensure it includes the MCP JSON
+and skill resources; init does not edit agent definitions or grant tool approvals.
+
+The `cline` adapter targets the Cline extension in the default stable VS Code
+user profile, using the same platform/portable user directory rules above.
+Reload VS Code from an environment containing the selected key and inspect
+Cline's MCP Servers and Skills menus. Cline CLI, other editors and named profiles
+use different configuration locations and are outside this adapter's scope.
+
+Unrelated configuration and comments are preserved where JSONC is accepted.
+Copilot and Cline settings must be strict JSON for init; comments/trailing
+commas cause an actionable failure and leave the file untouched. Shared files
+(such as Claude/Copilot project MCP and VS Code/Copilot skills) are written only
+once when both agents request identical contents; conflicting changes stop
+before connection or writes. Symbolic links are preserved: init displays the
+resolved write target and updates it once. Links with missing targets fail before
+connection or writes; restore their targets before rerunning init.
+Reruns update only recognizable init-generated `lambdadb` MCP entries;
+existing custom entries or additions inside a generated entry cause an actionable
+conflict. Existing skills are preserved, including user edits; remove the skill
+file deliberately if you want to reinstall the bundled version. Writes use
+atomic replacement per file, not a transaction across files: a disk/permission
+failure can leave a partial installation; inspect the displayed paths and rerun.
+
+Agent settings launch `npx -y @functional-systems/lambdadb-cli@<installed-version> mcp`,
+which runs the existing `@functional-systems/lambdadb-mcp@0.1.4` stdio package.
+No npx cache path is saved. The exact CLI version must be published before an
+agent can fetch it; a source checkout/unpublished tarball alone does not provide
+that registry version. Node/npm and `npx` must be on the agent's PATH; first launch
+may download both packages and requires npm registry access.
+
+The `mcp` bridge reads the selected key from the agent environment at startup and
+maps CLI endpoint/project/key to MCP's `LAMBDADB_BASE_URL`,
+`LAMBDADB_PROJECT_NAME`, and `LAMBDADB_PROJECT_API_KEY`. The bridge sets
+`LAMBDADB_MCP_ENABLE_WRITE_TOOLS` explicitly. No key value is placed in arguments
+or configuration. Codex uses `env_vars` to forward the selected variable;
+Claude, Gemini, Copilot and Kiro use `${VAR}`; Cursor, VS Code and Cline use `${env:VAR}`; and
+OpenCode uses `{env:VAR}` environment references. Gemini's explicit `env` entry
+also forwards the key through its inherited-environment sanitization. An unresolved
+reference fails before starting MCP. Keep the variable in the agent launch
+environment: GUI apps may not inherit a terminal export. Restart/reload agents
+after setup or credential changes, check `/mcp` in Codex/Claude or Cursor's MCP
+settings, and approve/trust project settings if prompted. Higher-priority agent
+settings or organization policies may override or block these files.
+
+The no-secret-persistence contract covers files written by this CLI. Agents
+manage their own runtime storage; for example, Codex shell snapshots can capture
+the launch environment. Review your agent's environment/snapshot settings and
+protect its runtime directory when forwarding a project key.
+
+Init does not query documents or create collections/data. Connection success does
+not establish search readiness. Its result includes a read-only agent prompt:
+list collections, inspect the selected collection's index configuration, then
+read up to five documents at `branch:main` with `query` omitted before searching
+an actual indexed field. Without an agent, run `lambdadb collections list --json`,
+choose an existing collection, save `{"size":5}` in `first-query.json`, and run:
+
+```sh
+lambdadb collections describe --collection YOUR_COLLECTION --json
+lambdadb query --collection YOUR_COLLECTION --ref branch:main --file first-query.json --json
+```
+
+An empty project needs deliberately supplied data outside init. Empty results
+are not evidence of indexing failure or readiness.
+
+Agent formats were checked against official documentation on 2026-10-24:
+[Codex MCP](https://developers.openai.com/codex/mcp),
+[Codex skills](https://developers.openai.com/codex/skills),
+[Claude Code MCP](https://code.claude.com/docs/en/mcp),
+[Claude Code skills](https://code.claude.com/docs/en/skills),
+[Cursor MCP](https://cursor.com/docs/mcp),
+[Cursor CLI MCP](https://cursor.com/docs/cli/mcp),
+[Cursor skills](https://cursor.com/docs/skills),
+[VS Code MCP](https://code.visualstudio.com/docs/agents/reference/mcp-configuration),
+[VS Code skills](https://code.visualstudio.com/docs/agent-customization/agent-skills),
+[Gemini MCP](https://geminicli.com/docs/tools/mcp-server/),
+[Gemini skills](https://geminicli.com/docs/cli/skills/),
+[OpenCode MCP](https://opencode.ai/docs/mcp-servers/),
+[OpenCode skills](https://opencode.ai/docs/skills/),
+[OpenCode V2 compatibility](https://opencode.ai/v2/docs/migrate-v1/),
+[Copilot MCP](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers),
+[Copilot skills](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills),
+[Kiro MCP](https://kiro.dev/docs/mcp/configuration/),
+[Kiro skills](https://kiro.dev/docs/skills/),
+[Cline MCP](https://docs.cline.bot/mcp/mcp-overview),
+[Cline skills](https://docs.cline.bot/customization/skills), and
+[Cline environment expansion source](https://github.com/cline/cline/blob/main/apps/vscode/src/utils/envExpansion.ts).
+Generated settings still require
+verification in the actual agent; local contract tests simulate that boundary.
+
 No command accepts a raw key argument. Configuration stores only `endpoint`,
 `project` and `apiKeyEnv`. Keys are read from the selected environment variable at
 runtime and are never persisted by this CLI. Environment variables are still
@@ -112,7 +314,10 @@ Use a CI secret manager instead of adding credentials to tracked files.
 
 There is no implicit endpoint, project, collection, branch or read ref. Explicit
 empty values fail validation instead of silently falling back. An explicitly
-selected missing config file fails except when `configure` creates it.
+selected missing config file fails for existing commands except `configure`,
+which can create it. `init` can also create it; the `mcp` bridge allows a missing
+file when endpoint/project settings are supplied through flags or environment.
+
 `configure` applies the same precedence and saves the selected non-secret values;
 it does not contact the service. To reference a different secret variable:
 
@@ -396,7 +601,9 @@ collection and explicit ref/branch. Errors use stable categories and safe hints.
 API-specific response data may grow as the upstream API evolves. Help/version
 remain plain text even with `--json`. Default output adds a readable summary and
 pretty-printed data. Progress and diagnostics go only to stderr. No ANSI styling
-or interactive prompts are used.
+is used. Only `init` prompts on a terminal; `init --non-interactive` and all
+existing commands never prompt. `mcp` reserves stdout for MCP JSON-RPC and sends
+startup failures to stderr rather than emitting the CLI JSON envelope.
 
 Credential redaction preserves fixed protocol field names and command, status,
 ref-kind and error-code tokens, even when a short credential coincides with one
@@ -453,7 +660,7 @@ methods and their limits.
 
 This MVP intentionally omits Branch/Tag/Alias management: default `main` supports
 first use, while reads can select existing refs. It also omits Console management,
-MCP, Git collection, chunking, embedding workflows, code-search logic, delete,
+remote MCP, Git collection, chunking, embedding workflows, code-search logic, delete,
 plugins and publication. There are no changes to the SDK or reference repositories.
 
 Live verification requires an explicitly designated development project, endpoint
