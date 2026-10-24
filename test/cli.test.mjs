@@ -684,6 +684,7 @@ test('Bayesian JSON mapping preserves budgets, nulls, defaults, Boolean signals 
     JSON.parse(await readFile('examples/query-bayesian.json', 'utf8')),
     JSON.parse(await readFile('examples/query-bayesian-rerank.json', 'utf8')),
     { query, size: 1, candidateSize: 1 }, { query, size: 100, candidateSize: 100 },
+    { query, size: 3, candidateSize: 101 }, { query, size: 3, candidateSize: 1000 },
     { query, candidateSize: 30 }, { query, size: null, candidateSize: 30, rerank: null },
     { query, size: 3, rerank: bayesianRerank },
     { query, size: 3, rerank: { ...bayesianRerank, candidateSize: 30 } },
@@ -708,7 +709,7 @@ test('Bayesian semantic rejections stay server API errors; free-form DSL is neve
   const f = await fixture(t, (_req, send) => send(400, { message: 'Invalid query' }));
   const query = { bayesian: bayesianSignals };
   const bodies = [
-    { query }, { query, size: 2, candidateSize: 1 }, { query, candidateSize: 0 }, { query, candidateSize: 101 },
+    { query }, { query, size: 2, candidateSize: 1 }, { query, candidateSize: 0 }, { query, candidateSize: 1001 },
     { query, size: 0, facets: { category: {} }, candidateSize: 30 },
     { query, candidateSize: 30, rerank: bayesianRerank },
     ...[[], [bayesianSignals[0]], [...bayesianSignals, bayesianSignals[0]]].map(bayesian => ({ query: { bayesian }, candidateSize: 30 })),
