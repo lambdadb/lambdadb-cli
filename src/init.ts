@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -13,6 +13,7 @@ import { agentAdapters, agentNames, detectAgents, type Agent, type AgentAdapter,
 
 type InitOptions = Options & { nonInteractive?: boolean; agents?: string; scope?: string; writeTools?: boolean; json?: boolean };
 type Change = { path: string; before: string | undefined; after: string; kind: string };
+type PlannedChange = Change & { destination: string; aliases: string[] };
 const version = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version as string;
 
 function selectedAgents(value: string | undefined): Agent[] {
@@ -43,11 +44,16 @@ async function fileIdentity(path: string): Promise<string> {
   try { return await realpath(path); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new InputError(`Cannot resolve configuration path: ${path}.`);
+    const info = await lstat(path).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw new InputError(`Cannot resolve configuration path: ${path}.`);
+    });
+    if (info?.isSymbolicLink()) throw new InputError(`Configuration symbolic link has a missing target: ${path}. Restore its target before rerunning init.`);
     return join(await fileIdentity(dirname(path)), basename(path));
   }
 }
 
-async function plan(selected: Required<Settings>, chosen: Agent[], scope: AgentScope, options: InitOptions, context: AgentContext): Promise<Change[]> {
+async function plan(selected: Required<Settings>, chosen: Agent[], scope: AgentScope, options: InitOptions, context: AgentContext): Promise<PlannedChange[]> {
   const changes: Change[] = [];
   const path = configPath(options);
   changes.push({ path, before: await readOptional(path), after: JSON.stringify(selected, null, 2) + '\n', kind: 'CLI settings (no key)' });
@@ -64,11 +70,11 @@ async function plan(selected: Required<Settings>, chosen: Agent[], scope: AgentS
     // Preserve existing skills, including user edits, rather than taking ownership.
     changes.push({ path: skillPath, before: previousSkill, after: previousSkill ?? skill, kind: `${agent} skill (${scope}${previousSkill && previousSkill !== skill ? ', existing skill preserved' : ''})` });
   }
-  const unique = new Map<string, Change>();
+  const unique = new Map<string, PlannedChange>();
   for (const change of changes) {
     const identity = await fileIdentity(change.path);
     const previous = unique.get(identity);
-    if (!previous) { unique.set(identity, change); continue; }
+    if (!previous) { unique.set(identity, { ...change, destination: identity, aliases: [] }); continue; }
     if (change.path === configPath(options) || previous.path === configPath(options)) {
       throw new InputError('The CLI --config path overlaps an agent configuration or skill path. Choose a separate CLI configuration path and rerun init.');
     }
@@ -76,23 +82,29 @@ async function plan(selected: Required<Settings>, chosen: Agent[], scope: AgentS
       throw new InputError(`Agents request conflicting changes to ${change.path}. Select them separately and inspect the shared file before retrying.`);
     }
     previous.kind += `; ${change.kind}`;
+    if (change.path !== previous.path && !previous.aliases.includes(change.path)) previous.aliases.push(change.path);
   }
   return [...unique.values()];
 }
 
-async function apply(changes: Change[], options: Options) {
+async function apply(changes: PlannedChange[], options: Options) {
   // Detect concurrent edits before writing anything. Individual writes are atomic;
   // a disk/permission failure can still leave a partial install, safe to rerun.
   for (const change of changes) {
-    if (await readOptional(change.path) !== change.before) throw new InputError(`Configuration changed during init: ${change.path}. Rerun init to review the new plan.`);
+    for (const path of [change.path, ...change.aliases]) {
+      if (await fileIdentity(path) !== change.destination) throw new InputError(`Configuration changed during init: ${path}. Rerun init to review the new plan.`);
+    }
+    if (await readOptional(change.destination) !== change.before) {
+      throw new InputError(`Configuration changed during init: ${change.path}. Rerun init to review the new plan.`);
+    }
   }
   for (const change of changes.filter(change => change.before !== change.after)) {
-    if (change.path === configPath(options)) { await saveSettings(options); continue; }
-    const temp = `${change.path}.${randomUUID()}.tmp`;
+    if (change.path === configPath(options)) { await saveSettings({ ...options, config: change.destination }); continue; }
+    const temp = `${change.destination}.${randomUUID()}.tmp`;
     try {
-      await mkdir(dirname(change.path), { recursive: true });
+      await mkdir(dirname(change.destination), { recursive: true });
       await writeFile(temp, change.after, { flag: 'wx', mode: 0o600 });
-      await rename(temp, change.path);
+      await rename(temp, change.destination);
     } catch {
       throw new InputError(`Cannot update ${change.path}. Check permissions and rerun init; earlier files may already have been updated.`);
     } finally { await rm(temp, { force: true }).catch(() => {}); }
@@ -149,9 +161,9 @@ export async function initialize(options: InitOptions, output: Output) {
     if (!process.env[selected.apiKeyEnv]?.trim()) throw new InputError(`Export ${selected.apiKeyEnv} securely in this shell, then rerun init. Obtain a project API key in the LambdaDB Console; never pass its value as a flag.`);
     const config = await resolveConfig(options, true);
     const changes = await plan(selected, chosen, options.scope as AgentScope, options, context);
-    const files = changes.map(change => ({ path: change.path, kind: change.kind,
+    const files = changes.map(change => ({ path: change.path, ...(change.aliases.length ? { aliases: change.aliases } : {}), ...(change.destination !== change.path ? { destination: change.destination } : {}), kind: change.kind,
       action: change.before === change.after ? 'unchanged' : change.before === undefined ? 'create' : 'update' }));
-    for (const file of files) output.diagnostic(`${file.action}: ${file.path} — ${file.kind}`);
+    for (const file of files) output.diagnostic(`${file.action}: ${[file.path, ...(file.aliases ?? [])].join(', ')}${file.destination ? ` -> ${file.destination}` : ''} — ${file.kind}`);
     output.diagnostic(`MCP: ${mcpPackage}; write tools ${options.writeTools ? 'enabled (explicit opt-in)' : 'disabled'}. Agents must inherit ${selected.apiKeyEnv}; only its name is stored.`);
     if (interactive && (await ask('Apply these changes after verifying collection-list access? Type yes', 'no')) !== 'yes') {
       throw new InputError('Init canceled. No files were changed.');

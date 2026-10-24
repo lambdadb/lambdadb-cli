@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, readFile, realpath, writeFile, rm, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, delimiter } from 'node:path';
 import { parse as toml } from 'smol-toml';
@@ -11,14 +11,15 @@ import { parse as jsonc } from 'jsonc-parser';
 const cli = process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js');
 const secret = 'synthetic-init-key-never-persist';
 
-async function fixture(t, status = 200) {
+async function fixture(t, status = 200, onRequest) {
   const root = await mkdtemp(join(tmpdir(), 'lambdadb-init-'));
   const home = join(root, 'home');
   const cwd = join(root, 'project');
   await mkdir(home); await mkdir(cwd);
   const requests = [];
-  const server = createServer((req, res) => {
+  const server = createServer(async (req, res) => {
     requests.push({ method: req.method, url: req.url, headers: req.headers });
+    await onRequest?.();
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(status === 200 ? { collections: [] } : { message: secret }));
   });
@@ -235,6 +236,80 @@ test('Claude and Copilot share a project MCP file and VS Code and Copilot share 
   assert.equal(result.code, 0, result.stderr);
   assert.ok(result.data.data.files.every(file => file.action === 'unchanged'));
   assert.equal(await readFile(sharedMcp.path, 'utf8'), text);
+});
+
+test('shared MCP symlinks and CLI settings symlinks retain their targets across updates and reruns', { skip: process.platform === 'win32' }, async t => {
+  const f = await fixture(t);
+  const shared = join(f.root, 'shared-mcp.json');
+  const cliTarget = join(f.root, 'shared-cli.json');
+  const cwd = await realpath(f.cwd);
+  const gemini = join(cwd, '.gemini', 'settings.json');
+  const kiro = join(cwd, '.kiro', 'settings', 'mcp.json');
+  await f.file(shared, '// Preserve shared settings\n{"mcpServers":{"other":{"command":"keep"}}}\n');
+  await f.file(cliTarget, JSON.stringify({ endpoint: f.endpoint, project: 'old-project', apiKeyEnv: 'CUSTOM_PROJECT_KEY' }));
+  for (const path of [gemini, kiro]) {
+    await mkdir(dirname(path), { recursive: true });
+    await symlink(shared, path);
+  }
+  await symlink(cliTarget, f.config);
+  let result = await f.run(f.init('gemini,kiro'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.data.data.files.length, 4, 'shared MCP target must be planned only once');
+  assert.equal(result.data.data.files.find(file => file.path === gemini).destination, await realpath(shared));
+  assert.deepEqual(result.data.data.files.find(file => file.path === gemini).aliases, [kiro]);
+  assert.match(result.stderr, / -> .*shared-mcp.json/);
+  assert.match(await readFile(shared, 'utf8'), /Preserve shared settings/);
+  assert.deepEqual(jsonc(await readFile(shared, 'utf8')).mcpServers.other, { command: 'keep' });
+  assert.equal(JSON.parse(await readFile(cliTarget, 'utf8')).project, 'existing-project');
+  for (const path of [gemini, kiro, f.config]) assert.ok((await lstat(path)).isSymbolicLink());
+  assert.deepEqual(jsonc(await readFile(gemini, 'utf8')), jsonc(await readFile(kiro, 'utf8')));
+  assert.ok(jsonc(await readFile(shared, 'utf8')).mcpServers.lambdadb);
+  assert.ok(!(await readFile(shared, 'utf8')).includes(secret));
+  result = await f.run(f.init('gemini,kiro'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.ok(result.data.data.files.every(file => file.action === 'unchanged'));
+  for (const path of [gemini, kiro, f.config]) assert.ok((await lstat(path)).isSymbolicLink());
+  assert.equal(f.requests.length, 2);
+});
+
+test('retargeting a deduplicated symlink during verification aborts all file writes', { skip: process.platform === 'win32' }, async t => {
+  let kiro, other;
+  const f = await fixture(t, 200, async () => { await rm(kiro); await symlink(other, kiro); });
+  const gemini = join(f.cwd, '.gemini', 'settings.json');
+  kiro = join(f.cwd, '.kiro', 'settings', 'mcp.json');
+  const shared = join(f.root, 'shared.json');
+  other = join(f.root, 'other.json');
+  const original = '{"mcpServers":{"other":{"command":"keep"}}}\n';
+  await f.file(shared, original); await f.file(other, original);
+  for (const path of [gemini, kiro]) {
+    await mkdir(dirname(path), { recursive: true });
+    await symlink(shared, path);
+  }
+  const result = await f.run(f.init('gemini,kiro'));
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.data.error.message, /Configuration changed during init/);
+  assert.equal(await readFile(shared, 'utf8'), original);
+  assert.equal(await readFile(other, 'utf8'), original);
+  assert.equal(await realpath(kiro), await realpath(other));
+  assert.equal(f.requests.length, 1);
+  await assert.rejects(readFile(f.config), { code: 'ENOENT' });
+});
+
+test('dangling configuration symlinks fail before connection or file changes', { skip: process.platform === 'win32' }, async t => {
+  for (const cliSettings of [false, true]) {
+    const f = await fixture(t);
+    const path = cliSettings ? f.config : join(f.cwd, '.gemini', 'settings.json');
+    const missing = join(f.root, 'missing-target.json');
+    await mkdir(dirname(path), { recursive: true });
+    await symlink(missing, path);
+    const result = await f.run(f.init('gemini'));
+    assert.equal(result.code, 2, result.stderr);
+    assert.match(result.data.error.message, /symbolic link has a missing target/);
+    assert.ok((await lstat(path)).isSymbolicLink());
+    assert.equal(f.requests.length, 0);
+    await assert.rejects(readFile(missing), { code: 'ENOENT' });
+    if (!cliSettings) await assert.rejects(readFile(f.config), { code: 'ENOENT' });
+  }
 });
 
 test('conflicting edits to a shared MCP file stop before any writes or connection', async t => {

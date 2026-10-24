@@ -214,7 +214,10 @@ Copilot and Cline settings must be strict JSON for init; comments/trailing
 commas cause an actionable failure and leave the file untouched. Shared files
 (such as Claude/Copilot project MCP and VS Code/Copilot skills) are written only
 once when both agents request identical contents; conflicting changes stop
-before connection or writes. Reruns update only recognizable init-generated `lambdadb` MCP entries;
+before connection or writes. Symbolic links are preserved: init displays the
+resolved write target and updates it once. Links with missing targets fail before
+connection or writes; restore their targets before rerunning init.
+Reruns update only recognizable init-generated `lambdadb` MCP entries;
 existing custom entries or additions inside a generated entry cause an actionable
 conflict. Existing skills are preserved, including user edits; remove the skill
 file deliberately if you want to reinstall the bundled version. Writes use
