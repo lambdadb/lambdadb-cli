@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-25
+
 ### Maintenance
 
 - Pin MCP 0.1.5 for Kiro/Claude-compatible query schemas and patched MCP
