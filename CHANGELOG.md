@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Maintenance
+
+- Synchronize the 0.1.6 release history and start the 0.1.7 development line.
+- Update the Homebrew formula to verified stable 0.1.6.
+
 ## [0.1.6] - 2026-10-25
 
 ### Maintenance
