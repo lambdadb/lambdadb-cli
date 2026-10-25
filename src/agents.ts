@@ -17,18 +17,18 @@ export type AgentAdapter = {
   instructions: string;
 };
 
-const codexServer = ({ command, args, apiKeyEnv }: McpLaunch) => ({ command, args, env_vars: [apiKeyEnv] });
+const codexServer = ({ command, args, apiKeyEnv, runtimeEnv }: McpLaunch) => ({ command, args, env_vars: apiKeyEnv ? [apiKeyEnv] : runtimeEnv ?? [] });
 const claudeServer = ({ command, args, apiKeyEnv }: McpLaunch) => ({
-  type: 'stdio', command, args, env: { [apiKeyEnv]: `\${${apiKeyEnv}}` },
+  type: 'stdio', command, args, env: apiKeyEnv ? { [apiKeyEnv]: `\${${apiKeyEnv}}` } : {},
 });
 const cursorServer = ({ command, args, apiKeyEnv }: McpLaunch) => ({
-  type: 'stdio', command, args, env: { [apiKeyEnv]: `\${env:${apiKeyEnv}}` },
+  type: 'stdio', command, args, env: apiKeyEnv ? { [apiKeyEnv]: `\${env:${apiKeyEnv}}` } : {},
 });
 const geminiServer = ({ command, args, apiKeyEnv }: McpLaunch) => ({
-  command, args, env: { [apiKeyEnv]: `\${${apiKeyEnv}}` },
+  command, args, env: apiKeyEnv ? { [apiKeyEnv]: `\${${apiKeyEnv}}` } : {},
 });
 const opencodeServer = ({ command, args, apiKeyEnv }: McpLaunch) => ({
-  type: 'local', command: [command, ...args], environment: { [apiKeyEnv]: `{env:${apiKeyEnv}}` },
+  type: 'local', command: [command, ...args], environment: apiKeyEnv ? { [apiKeyEnv]: `{env:${apiKeyEnv}}` } : {},
 });
 
 function vscodeUserDirectory({ cwd, home, env, platform = process.platform }: AgentContext): string {
@@ -164,7 +164,7 @@ export const agentAdapters = [
     detectionDirectories: context => [copilotDirectory(context), join(context.cwd, '.github', 'mcp.json')],
     paths: copilotPaths,
     configure: (path, text, launch) => strictJsonConfig(path, text, launch, claudeServer, copilotMapPath),
-    instructions: 'GitHub Copilot CLI: restart from the environment holding the selected key, trust the repository, then check /mcp and run /skills reload. Project MCP settings override user settings.',
+    instructions: 'GitHub Copilot CLI: restart with the configured credential source available, trust the repository, then check /mcp and run /skills reload. Project MCP settings override user settings.',
   },
   {
     id: 'kiro', executable: ['kiro', 'kiro-cli'],
@@ -174,7 +174,7 @@ export const agentAdapters = [
       return { mcp: join(directory, 'settings', 'mcp.json'), skill: join(directory, 'skills', 'lambdadb', 'SKILL.md') };
     },
     configure: (path, text, launch) => jsonConfig(path, text, launch, geminiServer),
-    instructions: 'Kiro IDE/CLI: restart from the environment holding the selected key and check /mcp. Approve the selected variable in Mcp Approved Env Vars when prompted. Custom agents must include the MCP JSON and skill resources; init does not alter agent permissions or definitions.',
+    instructions: 'Kiro IDE/CLI: restart with the configured credential source available and check /mcp. For environment mode, approve the selected variable in Mcp Approved Env Vars when prompted. Custom agents must include the MCP JSON and skill resources; init does not alter agent permissions or definitions.',
   },
   {
     id: 'cline', executable: [], scopes: ['user'],
@@ -184,7 +184,7 @@ export const agentAdapters = [
         skill: join(context.home, '.cline', 'skills', 'lambdadb', 'SKILL.md') };
     },
     configure: (path, text, launch) => strictJsonConfig(path, text, launch, cursorServer),
-    instructions: 'Cline VS Code extension: reload VS Code from the environment holding the selected key and check MCP Servers and the Skills menu. Init targets the default stable VS Code profile, not Cline CLI or other editors/profiles. No tools are auto-approved.',
+    instructions: 'Cline VS Code extension: reload VS Code with the configured credential source available and check MCP Servers and the Skills menu. Init targets the default stable VS Code profile, not Cline CLI or other editors/profiles. No tools are auto-approved.',
   },
 ] as const satisfies readonly AgentAdapter[];
 

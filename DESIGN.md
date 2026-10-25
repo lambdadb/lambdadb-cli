@@ -147,8 +147,10 @@ CLI arguments/configuration → input validation → SDK facade → LambdaDB API
 ```
 
 - `cli.ts`: command tree, target selection, SDK calls and process exit codes.
-- `config.ts`: deterministic user-local configuration, environment auth and
+- `config.ts`: deterministic user-local configuration, OS/environment credential resolution and
   atomic non-secret settings writes.
+- `credentials.ts`: explicit native OS store selection and verified credential writes.
+- `device-auth.ts`: bounded control-plane device authorization; never persists account tokens or retries uncertain issuance.
 - `input.ts`: bounded file snapshots, strict request preflight, SDK serializer
   reuse and the small null-size compatibility adjustment.
 - `import-workflow.ts`: byte/count batching, sequential submission, honest
@@ -157,7 +159,9 @@ CLI arguments/configuration → input validation → SDK facade → LambdaDB API
 - `errors.ts` and `output.ts`: safe error classification, versioned output and
   credential redaction.
 
-There is no second HTTP implementation, separate workflow package, plugin system
+Project data requests remain SDK-only. Device authorization uses a small, bounded
+control-plane JSON client because the project SDK has no account authorization API.
+There is no separate workflow package, plugin system
 or SDK fork. `listCollectionsPages` owns pagination. `bulkUpsertDocs` owns upload
 metadata, signed PUT, server-provided byte limit and finalization. Query/fetch
 helpers own presigned response downloads and authentication isolation.

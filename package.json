@@ -12,6 +12,7 @@
     "src",
     "README.md",
     "DESIGN.md",
+    "ONBOARDING.md",
     "CONTRIBUTING.md",
     "examples",
     "skills",
@@ -54,5 +55,8 @@
   "bugs": {
     "url": "https://github.com/lambdadb/lambdadb-cli/issues"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "optionalDependencies": {
+    "@napi-rs/keyring": "2.1.2"
+  }
 }

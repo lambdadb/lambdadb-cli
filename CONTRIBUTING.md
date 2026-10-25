@@ -216,3 +216,23 @@ signed URLs. Historical repository records remain available through Git history.
 Do not append per-run logs, release-status snapshots or successful test counts to
 maintainer guides. A completed verification does not require another documentation
 PR. Update these guides when procedures, requirements or supported behavior change.
+
+### Native credential validation
+
+`npm test` uses synthetic in-memory stores and loopback authorization responses;
+it does not claim an actual OS store or account login worked. To exercise the
+current OS store with a unique synthetic key, a fresh-process doctor against a
+loopback server, and a simulated MCP child:
+
+```sh
+npm run build
+LAMBDADB_TEST_NATIVE_CREDENTIALS=1 node --test test/native-credentials.test.mjs
+# Linux may explicitly select either backend:
+LAMBDADB_TEST_NATIVE_CREDENTIALS=1 LAMBDADB_TEST_CREDENTIAL_STORE=secret-service node --test test/native-credentials.test.mjs
+```
+
+The opt-in test removes its credential in `finally`. The Windows path checks the
+store and doctor but skips the POSIX fake-npx child. Run the kernel-keyutils check
+on a host that permits keyring syscalls; default Docker isolation may not. A
+missing/locked native backend must never make the environment path unavailable.
+See [ONBOARDING.md](ONBOARDING.md) for the cross-repository contract and rollout.

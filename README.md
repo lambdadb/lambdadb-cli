@@ -90,16 +90,16 @@ export LAMBDADB_API_KEY
 
 ### First-use setup with `init`
 
-After securely exporting the key, run either entry point. Both use this same
-package and executable:
+Run either entry point. Both use this same package and executable:
 
 ```sh
 lambdadb init
 npx @functional-systems/lambdadb-cli@latest init
 ```
 
-`init` guides you through the existing project's endpoint, name and API-key
-environment-variable name. It detects Codex, Claude Code, Cursor, VS Code,
+On a first run, `init` offers Console signup/login or the existing environment-key
+setup. A saved connection is reused on reruns. `init --connect` explicitly requests
+a new browser-approved connection. It detects Codex, Claude Code, Cursor, VS Code,
 Gemini CLI, OpenCode, GitHub Copilot CLI, Kiro IDE/CLI and the Cline VS Code
 extension using PATH and configuration directories, then lets you choose any subset (or `none`),
 project/user scope, and whether to enable MCP write tools. Detection is a hint,
@@ -109,12 +109,37 @@ Cursor detection recognizes both the editor's `cursor` command and the
 `cursor-agent` CLI, which reads the same MCP configuration. With Cursor CLI,
 check the generated server with `cursor-agent mcp list-tools lambdadb`.
 
-The remaining manual step is in [LambdaDB Console](https://console.lambdadb.ai):
-select an existing project and obtain its API endpoint, project name and project
-API key. Inject the key into your shell or secret manager before running init.
-There is no browser login, account/project creation, key issuance, remote MCP,
-or backend/Console change in this flow. Init never asks for the key value and
-does not load or write `.env` files.
+Browser setup opens Console and also prints a URL and code usable from another
+device. Use `lambdadb init --connect --no-browser` over SSH. Sign up or sign in
+with the existing Google/email verification flow, choose an Org and project or
+create your first project, compare the displayed code with your terminal, and
+approve the named project key. A default Org is created only when you submit the
+first project; invitations are offered first, and the survey is optional.
+Existing memberships are reused. No collection or sample document is created.
+
+The remaining manual Console action is authentication and explicit approval of
+the selected project. Creating an account, Org or project is never silently
+approved by the CLI. A provisioning project can be resumed by selecting it on a
+later run; do not create another project to resume. Authorization expires after
+15 minutes. Remote MCP remains out of scope.
+
+Browser setup stores the project key in an OS credential store and writes only
+its reference, endpoint, project and key identity to CLI settings. Account tokens
+are never sent to the CLI or MCP. Use `--credential-store auto` (default),
+`keychain`, `windows`, `secret-service`, or `keyutils` to select an available OS
+backend. Linux auto selection tries Secret Service, then kernel keyutils for a
+new connection. Kernel storage is a cache: reboot/expiry may remove it. Existing
+references always use their recorded backend; failure never silently switches
+stores or issues another key. There is no plaintext-file fallback.
+
+If neither OS backend is available, or the server has not enabled browser
+onboarding, use the manual path: obtain an endpoint, project name and API key in
+[LambdaDB Console](https://app.lambdadb.ai), export the key through secure shell
+input or a secret manager, and select environment setup. `init` never accepts a
+key value in a prompt or flag and never loads or writes `.env` files. Keep keys
+out of chat, shell history and source files. Development deployments can select
+a control-plane origin with `--api-url https://api-dev.lambdadb.ai`; the server
+supplies its configured Console URL. HTTPS is required except for loopback tests.
 
 For automation, explicitly select both agents and scope:
 
@@ -135,22 +160,31 @@ lambdadb init --non-interactive --agents vscode,gemini,opencode --scope project
 lambdadb init --non-interactive --agents copilot,kiro,cline --scope user
 ```
 
-This example reuses your existing CLI settings and environment-held key.
+This example reuses your existing CLI settings and OS-stored or environment-held key.
 `--scope` accepts `project` or `user`. `--write-tools` explicitly enables MCP
 write tools; omission disables them, including on reruns and when the inherited
 `LAMBDADB_MCP_ENABLE_WRITE_TOOLS` environment variable is true. The normal global
 `--config`, `--endpoint`, `--project`, `--api-key-env`, and `--timeout-ms` flags
-apply. Existing settings/environment precedence is unchanged. Non-TTY and
+apply to existing-credential setup. `--connect` instead chooses its target in
+Console and cannot be combined with explicit endpoint/project/key-reference flags.
+`--connect` requires an interactive terminal; non-interactive setup never starts
+browser authorization or requests a key. Non-TTY and
 `--json` runs require `--non-interactive`; missing choices, target or key fail
 with exit 2 and instructions, without prompting. This mode authorizes applying
 the displayed file plan; it does not silently select detected agents.
 Cline's extension supports only user-scope MCP settings. Selecting `cline` with
-`--scope project` fails before any file writes or connection; interactive setup
-offers user scope when Cline is selected. It never silently broadens the scope.
+`--scope project` rejects agent installation; interactive setup offers user scope
+when Cline is selected. It never silently broadens the scope. A browser-approved
+connection may already be saved before agent choices are validated, as described
+below; rerun without `--connect` to finish setup.
 
-Before writing, init displays exact paths and create/update/unchanged actions,
-then uses the same SDK check as `doctor` to verify authentication and collection-list
-access. Failed validation/authentication leaves files untouched. The CLI's
+Before agent installation, init displays exact paths and create/update/unchanged
+actions, then uses the same SDK check as `doctor` to verify authentication and
+collection-list access. Manual setup leaves files untouched on failed validation.
+Browser setup first shows and confirms the CLI settings path and credential store;
+once approved, it saves that connection before doctor/agent installation so a
+failed check or interrupted agent setup can resume without issuing another key.
+Agent files are still untouched until the reviewed plan and check succeed. The CLI's
 non-secret settings always use its usual configuration path (or `--config`),
 independently of agent scope:
 
@@ -233,11 +267,17 @@ may download both packages and requires npm registry access.
 After upgrading the CLI, rerun init for the same agents and scope to refresh
 their exact CLI version pin, then restart/reload the agent with the key available.
 
-The `mcp` bridge reads the selected key from the agent environment at startup and
+The `mcp` bridge reads the selected OS credential reference or environment variable
+at startup and
 maps CLI endpoint/project/key to MCP's `LAMBDADB_BASE_URL`,
 `LAMBDADB_PROJECT_NAME`, and `LAMBDADB_PROJECT_API_KEY`. The bridge sets
 `LAMBDADB_MCP_ENABLE_WRITE_TOOLS` explicitly. No key value is placed in arguments
-or configuration. Codex uses `env_vars` to forward the selected variable;
+or agent configuration. OS references need the same OS user and an accessible
+credential store, with no shell key export. Linux Secret Service also needs access
+to the desktop/user D-Bus session; Codex forwards its non-secret
+`DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR` names when supplied. Launch other
+agents with that session available, and allow those variables if the agent filters
+its environment. For environment-mode connections, Codex uses `env_vars` to forward the selected variable;
 Claude, Gemini, Copilot and Kiro use `${VAR}`; Cursor, VS Code and Cline use `${env:VAR}`; and
 OpenCode uses `{env:VAR}` environment references. Gemini's explicit `env` entry
 also forwards the key through its inherited-environment sanitization. An unresolved
@@ -247,7 +287,9 @@ after setup or credential changes, check `/mcp` in Codex/Claude or Cursor's MCP
 settings, and approve/trust project settings if prompted. Higher-priority agent
 settings or organization policies may override or block these files.
 
-The no-secret-persistence contract covers files written by this CLI. Agents
+The no-plaintext-secret-persistence contract covers CLI and agent configuration
+files. Browser setup deliberately persists the project key only in the selected
+OS store. Environment mode does not persist a key. Agents
 manage their own runtime storage; for example, Codex shell snapshots can capture
 the launch environment. Review your agent's environment/snapshot settings and
 protect its runtime directory when forwarding a project key.
@@ -292,9 +334,10 @@ Agent formats were checked against official documentation on 2026-10-24:
 Generated settings still require
 verification in the actual agent; local contract tests simulate that boundary.
 
-No command accepts a raw key argument. Configuration stores only `endpoint`,
-`project` and `apiKeyEnv`. Keys are read from the selected environment variable at
-runtime and are never persisted by this CLI. Environment variables are still
+No command accepts a raw key argument. Environment-mode configuration stores `endpoint`,
+`project` and `apiKeyEnv`. Browser setup adds `credentialStore`, `credentialId`,
+`credentialKeyId` and `credentialKeyName`, all non-secret metadata. Keys are read
+from the selected environment variable or OS store at runtime. Environment variables are still
 accessible to the current process and appropriately privileged local processes;
 the CLI is not a secret vault. Avoid shell tracing around secret injection.
 
@@ -310,9 +353,18 @@ Use a CI secret manager instead of adding credentials to tracked files.
 | Endpoint | `--endpoint`, `LAMBDADB_ENDPOINT`, saved `endpoint` |
 | Project | `--project`, `LAMBDADB_PROJECT`, saved `project` |
 | Key variable name | `--api-key-env`, `LAMBDADB_API_KEY_ENV`, saved `apiKeyEnv`, `LAMBDADB_API_KEY` |
-| Key value | Value of the selected variable only; no fallback to another key |
+| Key value | Explicit `--api-key-env` / `LAMBDADB_API_KEY_ENV` selects environment mode; otherwise use a saved OS reference when present, else the selected variable. An explicit OS reference from generated agent arguments stays bound to its store. No automatic fallback on read failure. |
 | Config path | `--config`, `LAMBDADB_CONFIG`, default user path |
 | Network budget | `--timeout-ms`, `LAMBDADB_TIMEOUT_MS`, `30000` milliseconds |
+
+To remove the current connection's local OS key, run `lambdadb credentials remove`.
+It leaves metadata and agent references intact and does **not** revoke the server
+key. Revoke unused keys in Console under Project API Keys, using the saved key
+name/ID. Explicit reconnection creates a fresh credential slot; it does not revoke
+or delete older slots that other agents might still use. If key delivery or local
+storage fails after approval, inspect the named `lambdadb-cli-...` key in Console
+and revoke it if unused before reconnecting. Requests are never blindly retried
+across an uncertain key-issuance response.
 
 There is no implicit endpoint, project, collection, branch or read ref. Explicit
 empty values fail validation instead of silently falling back. An explicitly

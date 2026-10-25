@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- Browser-approved `init --connect`, including another-device URLs for SSH, shared
+  Console signup/project setup, bounded polling and explicit one-time key issuance.
+- OS credential references for macOS Keychain, Windows Credential Manager and
+  Linux Secret Service with a new-connection keyutils fallback. Plaintext files
+  and agent arguments never contain keys. Preserve the existing environment/CI path.
+- Resume agent setup with the saved connection, and remove local OS credentials
+  with `credentials remove` without revoking server keys.
+
 ### Maintenance
 
 - Synchronize the 0.1.6 release history and start the 0.1.7 development line.
