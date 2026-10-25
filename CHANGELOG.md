@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-25
+
+### Maintenance
+
+- Pin MCP 0.1.5 for Kiro/Claude-compatible query schemas and patched MCP
+  dependencies; preserve credential forwarding and explicit write-tool opt-in.
+
+- Synchronize the 0.1.5 release history and start the 0.1.6 development line.
+- Update the Homebrew formula to verified stable 0.1.5 and run the installed
+  init contracts alongside the existing CLI contracts.
+
 ## [0.1.5] - 2026-10-25
 
 ### Added

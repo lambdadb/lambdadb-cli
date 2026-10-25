@@ -225,11 +225,13 @@ atomic replacement per file, not a transaction across files: a disk/permission
 failure can leave a partial installation; inspect the displayed paths and rerun.
 
 Agent settings launch `npx -y @functional-systems/lambdadb-cli@<installed-version> mcp`,
-which runs the existing `@functional-systems/lambdadb-mcp@0.1.4` stdio package.
+which runs the existing `@functional-systems/lambdadb-mcp@0.1.5` stdio package.
 No npx cache path is saved. The exact CLI version must be published before an
 agent can fetch it; a source checkout/unpublished tarball alone does not provide
 that registry version. Node/npm and `npx` must be on the agent's PATH; first launch
 may download both packages and requires npm registry access.
+After upgrading the CLI, rerun init for the same agents and scope to refresh
+their exact CLI version pin, then restart/reload the agent with the key available.
 
 The `mcp` bridge reads the selected key from the agent environment at startup and
 maps CLI endpoint/project/key to MCP's `LAMBDADB_BASE_URL`,

@@ -580,7 +580,7 @@ test('MCP launcher maps the custom credential at runtime, overrides inherited wr
   assert.equal(result.stdout, '{"jsonrpc":"2.0","id":1,"result":{}}\n');
   assert.equal(result.stderr, '');
   assert.deepEqual(JSON.parse(await readFile(capture, 'utf8')), {
-    args: ['-y', '@functional-systems/lambdadb-mcp@0.1.4'], endpoint: f.endpoint,
+    args: ['-y', '@functional-systems/lambdadb-mcp@0.1.5'], endpoint: f.endpoint,
     project: 'existing-project', key: secret, writes: 'false',
   });
   result = await f.run(['mcp', '--write-tools'], { ...env, CHILD_EXIT: '7' });
