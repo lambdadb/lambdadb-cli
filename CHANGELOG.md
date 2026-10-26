@@ -5,7 +5,11 @@
 ### Added
 
 - Browser-approved `init --connect`, including another-device URLs for SSH, shared
-  Console signup/project setup, bounded polling and explicit one-time key issuance.
+  Console signup/login, terminal project setup, bounded polling and explicit key issuance.
+- Separate OS-stored account login with seven-day expiry, immediate logout, and
+  reusable `orgs list` / `projects list|regions|create|use` commands. Org-specific
+  billing guidance uses current backend limits. Project switching reuses saved
+  keys and keeps existing agent connections pinned.
 - OS credential references for macOS Keychain, Windows Credential Manager and
   Linux Secret Service with a new-connection keyutils fallback. Plaintext files
   and agent arguments never contain keys. Preserve the existing environment/CI path.

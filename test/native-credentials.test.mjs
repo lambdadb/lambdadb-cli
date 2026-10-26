@@ -63,3 +63,38 @@ test('native OS credential survives fresh-process doctor and MCP bridge reads', 
   } finally { await vault.remove(target); }
   await assert.rejects(vault.read(target), /Cannot read the saved/);
 });
+
+
+test('native account session is readable by management but not the project credential namespace', { skip: process.env.LAMBDADB_TEST_NATIVE_CREDENTIALS !== '1', timeout: 60000 }, async t => {
+  const cli = process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js');
+  const moduleURL = pathToFileURL(join(dirname(cli), 'credentials.js')).href;
+  const { CredentialVault } = await import(moduleURL);
+  const vault = new CredentialVault(undefined, process.platform, 'account');
+  const store = await vault.select(process.env.LAMBDADB_TEST_CREDENTIAL_STORE ?? 'auto');
+  const root = await mkdtemp(join(tmpdir(), 'lambdadb-native-account-'));
+  t.after(() => rm(root, { force: true, recursive: true }));
+  const secret = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+  let calls = 0;
+  const server = createServer((req, res) => {
+    assert.equal(req.headers.authorization, `Bearer ${secret}`);
+    assert.equal(req.url, '/auth/cli/organizations'); calls++;
+    res.setHeader('Content-Type', 'application/json'); res.end('{"organizations":[]}');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const apiUrl = `http://127.0.0.1:${server.address().port}`;
+  const target = { endpoint: apiUrl, project: 'account', credentialStore: store, credentialId: randomUUID() };
+  const config = join(root, 'config.json');
+  await writeFile(`${config}.account.json`, JSON.stringify({ credentialStore: store, credentialId: target.credentialId, apiUrl, consoleUrl: 'https://console.example.com', memberId: randomUUID(), email: 'synthetic@example.com', expiresAt: new Date(Date.now() + 60000).toISOString() }), { mode: 0o600 });
+  try {
+    await vault.save(target, secret);
+    await assert.rejects(new CredentialVault().read(target), /Cannot read/);
+    const child = spawn(process.execPath, [cli, 'orgs', 'list', '--config', config, '--json'], { env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('LAMBDADB_'))), stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '', err = ''; child.stdout.on('data', c => out += c); child.stderr.on('data', c => err += c);
+    const timer = setTimeout(() => child.kill('SIGKILL'), 25000);
+    const code = await new Promise(resolve => child.on('close', resolve)); clearTimeout(timer);
+    assert.equal(code, 0, err); assert.equal(calls, 1);
+    assert.deepEqual(JSON.parse(out).data, { organizations: [] });
+    assert.ok(!out.includes(secret) && !err.includes(secret));
+  } finally { await vault.remove(target); }
+});

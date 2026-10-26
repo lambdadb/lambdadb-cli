@@ -4,8 +4,7 @@ import { homedir } from 'node:os';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { configPath, fileIdentity, loadSettings, resolveConfig, saveSettings, settings, type Options, type SelectedSettings } from './config.js';
-import { CredentialVault } from './credentials.js';
-import { connectDevice } from './device-auth.js';
+import { terminalSetup } from './projects.js';
 import { InputError } from './errors.js';
 import type { Output } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
@@ -115,10 +114,12 @@ export async function initialize(options: InitOptions, output: Output) {
     prompt!.once('SIGINT', cancel);
     prompt!.once('close', cancel);
     try {
+      // eslint-disable-next-line no-control-regex -- Server names must not inject terminal escapes into prompts.
+      label = label.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, ' ');
       const answer = (await prompt!.question(`${label}${fallback ? ` [${fallback}]` : ''}: `, { signal: cancellation.signal })).trim();
       return answer || fallback;
     } catch (error) {
-      if (cancellation.signal.aborted) throw new InputError(connectionSaved ? 'Init canceled. The connection is saved; rerun init without --connect to finish agent setup.' : 'Init canceled. No files were changed.');
+      if (cancellation.signal.aborted) throw new InputError((connectionSaved || options.connect) ? 'Init canceled. Completed login/project setup is retained. Rerun init to reuse a saved connection, or init --connect to resume project selection.' : 'Init canceled. No files were changed.');
       throw error;
     } finally {
       prompt!.removeListener('SIGINT', cancel);
@@ -126,7 +127,7 @@ export async function initialize(options: InitOptions, output: Output) {
     }
   };
   try {
-    if (options.connect && (options.apiKeyEnv || options.credentialId || options.endpoint || options.project)) throw new InputError('--connect selects its project in Console. Remove --endpoint, --project, --api-key-env and --credential-id, or use the existing-credential setup without --connect.');
+    if (options.connect && (options.apiKeyEnv || options.credentialId || options.endpoint || options.project)) throw new InputError('--connect selects its project in the terminal after account login. Remove --endpoint, --project, --api-key-env and --credential-id, or use the existing-credential setup without --connect.');
     if (options.connect && !interactive) throw new InputError('Browser authorization requires an interactive init session. For automation, use an existing OS credential reference or export a project key and pass --non-interactive --agents ... --scope ... --api-key-env NAME.');
     if (interactive) {
       let saved = await loadSettings(configPath(options));
@@ -134,13 +135,15 @@ export async function initialize(options: InitOptions, output: Output) {
         options.connect = (await ask('Connect through Console (signup/login), or use an existing environment key? Enter browser or env', 'browser')) === 'browser';
       }
       if (options.connect) {
-        const vault = new CredentialVault();
-        const store = await vault.select(options.credentialStore ?? 'auto');
         const destination = await fileIdentity(configPath(options));
-        output.diagnostic(`Will save connection metadata to ${configPath(options)}${destination !== configPath(options) ? ` -> ${destination}` : ''} and its project key in ${store}. Existing agent entries are reviewed afterwards.`);
-        if (store === 'keyutils') output.diagnostic('Linux kernel key storage is a cache: reboot or expiry can remove it. Reruns will report a missing credential, never silently issue another key.');
-        if ((await ask('Continue to Console authorization? Type yes', 'no')) !== 'yes') throw new InputError('Init canceled. No project key was requested.');
-        const selected = await connectDevice(options, store, output, vault);
+        output.diagnostic(`Will update ${destination}, ${destination}.account.json and ${destination}.connections.json. Secrets go only to the OS credential store. Agent settings are reviewed afterwards.`);
+        if ((await ask('Continue with account login and terminal project setup? Type yes', 'no')) !== 'yes') throw new InputError('Init canceled.');
+        const cancellation = new AbortController();
+        const cancel = () => cancellation.abort();
+        prompt!.once('SIGINT', cancel); prompt!.once('close', cancel);
+        let selected: SelectedSettings;
+        try { selected = await terminalSetup({ ...options, signal: cancellation.signal }, output, ask); }
+        finally { prompt!.removeListener('SIGINT', cancel); prompt!.removeListener('close', cancel); }
         options = { ...options, ...selected };
         saved = selected;
         connectionSaved = true;
@@ -176,7 +179,7 @@ export async function initialize(options: InitOptions, output: Output) {
     for (const file of files) output.diagnostic(`${file.action}: ${[file.path, ...(file.aliases ?? [])].join(', ')}${file.destination ? ` -> ${file.destination}` : ''} — ${file.kind}`);
     output.diagnostic(`MCP: ${mcpPackage}; write tools ${options.writeTools ? 'enabled (explicit opt-in)' : 'disabled'}. ${selected.credentialStore ? `The bridge reads ${selected.credentialStore} using a non-secret reference.` : `Agents must inherit ${selected.apiKeyEnv}; only its name is stored.`}`);
     if (interactive && (await ask('Apply these changes after verifying collection-list access? Type yes', 'no')) !== 'yes') {
-      throw new InputError(connectionSaved ? 'Init canceled. The connection is saved; rerun init without --connect to finish agent setup.' : 'Init canceled. No files were changed.');
+      throw new InputError((connectionSaved || options.connect) ? 'Init canceled. Completed login/project setup is retained. Rerun init to reuse a saved connection, or init --connect to resume project selection.' : 'Init canceled. No files were changed.');
     }
     const ctx = runtime(config);
     let connection;

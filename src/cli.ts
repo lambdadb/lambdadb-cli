@@ -4,13 +4,15 @@ import { readFileSync } from 'node:fs';
 import { integer, name, resolveConfig, saveSettings, settings, type Options } from './config.js';
 import { createInput, parseRef, queryInput, readJson, readJsonl, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
-import { definitelyRejected, describeError, InputError, isInputError } from './errors.js';
+import { definitelyRejected, describeError, InputError, ManagementError, isInputError } from './errors.js';
 import { Output, type Envelope } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
 import { CredentialVault, credentialReference } from './credentials.js';
 import { initialize } from './init.js';
 import { serveMcp } from './mcp.js';
 import { agentNames } from './agents.js';
+import { login, logout, management } from './account.js';
+import { organizations, projects, createProject, useProject } from './projects.js';
 
 const output = new Output();
 output.protect(process.env.LAMBDADB_API_KEY);
@@ -24,6 +26,7 @@ const program = new Command()
   .description('Project-scoped LambdaDB CLI. Only init prompts; all other commands are non-interactive.')
   .version(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version)
   .option('--json', 'Emit one versioned JSON result on stdout; diagnostics stay on stderr')
+  .option('--api-url <url>', 'Account API origin (login reuses the saved origin, otherwise https://api.lambdadb.ai)')
   .option('--endpoint <url>', 'API origin (overrides LAMBDADB_ENDPOINT and saved configuration)')
   .option('--project <name>', 'Existing project (overrides LAMBDADB_PROJECT and saved configuration)')
   .option('--api-key-env <name>', 'Environment variable holding the key; never pass a key as an argument')
@@ -77,19 +80,40 @@ program.command('configure')
 
 program.command('init')
   .description('Connect through Console or existing credentials, then install agent MCP configuration and a usage skill')
-  .option('--connect', 'Explicitly authorize a new project key through Console and save it in the OS credential store')
+  .option('--connect', 'Select or create a project through account login; reuse saved project keys when available')
   .option('--no-browser', 'Print the verification URL without opening a local browser (for SSH)')
-  .option('--api-url <url>', 'Control-plane origin for browser authorization (default https://api.lambdadb.ai)')
   .option('--non-interactive', 'Require explicit agent/scope choices; never prompt')
   .option('--agents <names>', `Comma-separated ${agentNames} subset, or none`)
   .option('--scope <scope>', 'Agent configuration scope: project (current directory) or user')
   .option('--write-tools', 'Explicitly enable MCP write tools (default: read-only)')
-  .addHelpText('after', '\nBrowser setup: lambdadb init --connect (add --no-browser for SSH).\nThe Console handles signup/login, Organization/project selection or creation, and explicit key approval.\nBrowser setup saves the project key only in an OS credential store. No account tokens or plaintext keys are saved.\nManual/CI setup: obtain a project key in Console and export it securely; init saves only the environment-variable name.\nAutomation example:\n  lambdadb init --non-interactive --agents codex,claude,cursor --scope project --endpoint https://api.lambdadb.ai --project my-project --json')
+  .addHelpText('after', '\nBrowser setup: lambdadb init --connect (add --no-browser for SSH).\nThe browser handles signup/login and CLI approval. Select or create the project in your terminal.\nBrowser setup saves the project key only in an OS credential store. Account sessions and project keys are stored separately in the OS store; configuration files contain no secrets.\nManual/CI setup: obtain a project key in Console and export it securely; init saves only the environment-variable name.\nAutomation example:\n  lambdadb init --non-interactive --agents codex,claude,cursor --scope project --endpoint https://api.lambdadb.ai --project my-project --json')
   .action(async (_opts, cmd: Command) => {
     const data = await initialize(cmd.optsWithGlobals(), output);
     target = { endpoint: data.settings.endpoint, project: data.settings.project };
     result(data, 'Initialization complete. Authentication and collection-list access verified; search readiness is not verified.');
   });
+
+program.command('login').description('Authorize account management in a browser and save a separate OS session')
+  .option('--no-browser', 'Print a URL usable on another device without opening a browser')
+  .action(async (_opts, cmd: Command) => result(await login(cmd.optsWithGlobals(), output), 'Account login saved. Project connections and agent settings are unchanged.'));
+program.command('logout').description('Revoke the saved account session and remove it locally; keep project connections')
+  .action(async (_opts, cmd: Command) => { await logout(cmd.optsWithGlobals(), output); result({ loggedOut: true, projectKeysRevoked: false }, 'Account logged out. Project keys and agent connections are unchanged.'); });
+program.command('orgs').description('Manage account Organizations').command('list')
+  .action(async (_opts, cmd: Command) => result({ organizations: await organizations(cmd.optsWithGlobals(), output) }, 'Accessible Organizations.'));
+const projectCommands = program.command('projects').description('List, create and select projects using the saved account session');
+projectCommands.command('list').requiredOption('--org <uuid>', 'Organization ID')
+  .action(async (opts, cmd: Command) => result({ projects: await projects(cmd.optsWithGlobals(), opts.org, output) }, 'Projects in the selected Organization.'));
+projectCommands.command('regions').description('List available regions before project creation')
+  .action(async (_opts, cmd: Command) => { const api = await management(cmd.optsWithGlobals(), output); result(await api.request('regions'), 'Project regions.'); });
+projectCommands.command('create').option('--org <uuid>', 'Existing Organization ID').option('--default-org', 'Explicitly prepare the default Organization on submission')
+  .requiredOption('--name <name>', 'Project name').requiredOption('--region <region>', 'Region from projects regions')
+  .action(async (opts, cmd: Command) => {
+    const created = await createProject(cmd.optsWithGlobals(), opts, output);
+    result(created, 'Project requested. Check projects list for ACTIVE status; creation does not establish search readiness.');
+  });
+projectCommands.command('use').requiredOption('--org <uuid>', 'Organization ID').requiredOption('--project-id <uuid>', 'Project ID')
+  .option('--issue-key', 'Explicitly issue a new project key, including replacement of a saved connection')
+  .action(async (opts, cmd: Command) => result(await useProject(cmd.optsWithGlobals(), opts.org, opts.projectId, !!opts.issueKey, output), 'CLI project selected. Agent configurations are unchanged.'));
 
 program.command('mcp')
   .description('Launch the existing stdio MCP package with runtime credential forwarding (used by init)')
@@ -263,7 +287,7 @@ try {
     output.json ||= process.argv.includes('--json');
     const failure = error instanceof CommanderError
       ? new InputError('Invalid or incomplete command. Run lambdadb --help or the command-specific --help.') : error;
-    const unknownWrite = mutationStarted && !definitelyRejected(failure);
+    const unknownWrite = (mutationStarted && !definitelyRejected(failure)) || (failure instanceof ManagementError && ['write_outcome_unknown', 'issuance_unconfirmed'].includes(failure.code));
     const exitCode = isInputError(failure) ? 2 : unknownWrite ? 5 : 3;
     if (commandName === 'mcp') {
       const safe = describeError(failure);

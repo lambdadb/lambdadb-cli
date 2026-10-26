@@ -28,12 +28,12 @@ function supported(store: CredentialStore, platform: NodeJS.Platform): boolean {
 }
 
 export class CredentialVault {
-  constructor(private factory: EntryFactory = nativeEntry, private platform: NodeJS.Platform = process.platform) {}
+  constructor(private factory: EntryFactory = nativeEntry, private platform: NodeJS.Platform = process.platform, private purpose: 'project' | 'account' = 'project') {}
   private async entry(target: CredentialTarget): Promise<Entry> {
     credentialReference(target.credentialStore, target.credentialId);
     if (!supported(target.credentialStore, this.platform)) throw new InputError('This credential reference belongs to a different OS. Use environment-variable setup or connect on this OS.');
     const identity = createHash('sha256').update(JSON.stringify([target.endpoint, target.project])).digest('hex');
-    return this.factory(`ai.lambdadb.cli.v1:${identity}`, target.credentialId, target.credentialStore);
+    return this.factory(`${this.purpose === 'account' ? 'ai.lambdadb.cli.account.v1' : 'ai.lambdadb.cli.v1'}:${identity}`, target.credentialId, target.credentialStore);
   }
   async read(target: CredentialTarget): Promise<string> {
     try {

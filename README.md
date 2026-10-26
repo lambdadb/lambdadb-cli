@@ -71,7 +71,8 @@ lambdadb --help
 ## Configuration and authentication
 
 Obtain the endpoint, existing project name and project API key from the LambdaDB
-Console. This CLI does not create projects or issue keys. Endpoint is the API
+Console for environment-based setup, or use account login and terminal project
+management below. Endpoint is the API
 origin, such as `https://api.lambdadb.ai`, without `/projects/...`. HTTPS is
 required, except HTTP on localhost/127.0.0.1/::1 for local testing.
 
@@ -88,6 +89,55 @@ printf '\n'
 export LAMBDADB_API_KEY
 ```
 
+### Account and project management
+
+These commands use a saved account login, independently of project API-key
+configuration. They never prompt for missing arguments. `login` deliberately
+waits for browser approval and prints a URL usable on another device; it does not
+prompt on stdin. Use the same `--config` path throughout if overriding it.
+
+```sh
+lambdadb login --no-browser
+lambdadb orgs list --json
+lambdadb projects regions --json
+lambdadb projects list --org ORG_UUID --json
+lambdadb projects create --org ORG_UUID --name my-project --region REGION --json
+# For a new account with no Org, choose --default-org instead of --org.
+lambdadb projects list --org ORG_UUID --json  # wait until ACTIVE
+lambdadb projects use --org ORG_UUID --project-id PROJECT_UUID --issue-key
+lambdadb doctor
+# Later switches reuse a previously saved key without --issue-key:
+lambdadb projects use --org ORG_UUID --project-id PROJECT_UUID
+lambdadb logout
+```
+
+`create` requires exactly one of `--org UUID` or `--default-org`, plus `--name`
+and `--region`. Creation does not select the CLI default or install agents.
+`use` requires both IDs; first connection or deliberate key replacement requires
+`--issue-key` and owner/admin key-management permission. Saved project keys are
+reused without that flag. `projects use` changes only the CLI default: existing
+agent entries stay pinned until you rerun `init` and approve their file plan.
+Expired, missing or unreadable account credentials fail with login/unlock guidance;
+ordinary management commands never start browser login automatically.
+
+The API-key environment path remains available without account login. Management
+requests have a 30-second timeout, do not follow redirects and never retry writes.
+A project-limit error includes `organization.max_projects`, `projects_count`,
+`can_upgrade`, and `billing_url` in JSON, plus the link in terminal diagnostics.
+A transport failure or uncertain key delivery exits 5; inspect existing projects
+or the displayed named key in Console before explicitly retrying.
+
+Account metadata and the per-project connection cache live beside the resolved
+CLI config file as `.account.json` and `.connections.json` suffixes. They contain
+no secrets. The `.management.lock` suffix serializes local login/selection work;
+if a process was killed, confirm it is no longer running before removing its
+stale lock. `logout` needs the saved OS entry and server connectivity to confirm
+revocation; otherwise it retains metadata and fails with an actionable error.
+Undelivered/unavailable account sessions expire within seven days. Project keys
+have their existing lifetime; logout does not revoke them. Explicit replacement
+retains older project entries for agents still pinned to them; revoke unused keys
+in Console and remove their local reference deliberately.
+
 ### First-use setup with `init`
 
 Run either entry point. Both use this same package and executable:
@@ -99,7 +149,7 @@ npx @functional-systems/lambdadb-cli@latest init
 
 On a first run, `init` offers Console signup/login or the existing environment-key
 setup. A saved connection is reused on reruns. `init --connect` explicitly requests
-a new browser-approved connection. It detects Codex, Claude Code, Cursor, VS Code,
+terminal account/project setup and reuses cached keys. It detects Codex, Claude Code, Cursor, VS Code,
 Gemini CLI, OpenCode, GitHub Copilot CLI, Kiro IDE/CLI and the Cline VS Code
 extension using PATH and configuration directories, then lets you choose any subset (or `none`),
 project/user scope, and whether to enable MCP write tools. Detection is a hint,
@@ -111,21 +161,28 @@ check the generated server with `cursor-agent mcp list-tools lambdadb`.
 
 Browser setup opens Console and also prints a URL and code usable from another
 device. Use `lambdadb init --connect --no-browser` over SSH. Sign up or sign in
-with the existing Google/email verification flow, choose an Org and project or
-create your first project, compare the displayed code with your terminal, and
-approve the named project key. A default Org is created only when you submit the
-first project; invitations are offered first, and the survey is optional.
-Existing memberships are reused. No collection or sample document is created.
+with the existing Google/email verification flow, compare the displayed code, and
+approve **CLI Login**. Return to the terminal to choose an Org and project or
+explicitly create one with a name and region. A default Org is created only on
+first project submission; pending invitations require a Console decision first.
+The survey is optional. No collection or sample document is created.
 
-The remaining manual Console action is authentication and explicit approval of
-the selected project. Creating an account, Org or project is never silently
-approved by the CLI. A provisioning project can be resumed by selecting it on a
-later run; do not create another project to resume. Authorization expires after
-15 minutes. Remote MCP remains out of scope.
+The remaining manual Console steps are signup/login and deliberate CLI approval,
+invitation decisions when present, and any billing activation. If the Org has
+reached its project limit, init offers existing projects and an Org-specific
+billing link. Only the owner can activate billing. After billing, choose retry to
+read the server's updated limits; opening the link does not upgrade or charge.
+New Orgs normally start at one project, but CLI always uses the backend's actual
+limit, including paid/custom limits. A provisioning project can be selected on a
+later run; do not create another project to resume. Device approval expires after
+15 minutes, provisioning waits up to ten minutes, and remote MCP is deferred.
 
-Browser setup stores the project key in an OS credential store and writes only
-its reference, endpoint, project and key identity to CLI settings. Account tokens
-are never sent to the CLI or MCP. Use `--credential-store auto` (default),
+Account login and project credentials use separate OS credential-store namespaces.
+The opaque account session expires after seven days and is valid only for CLI
+management routes. It is never sent to MCP or agents, and is not a Console JWT or
+refresh token. Run `login` again to renew it; `logout` revokes it immediately and
+preserves project keys. Project settings and agent files contain only references.
+Use `--credential-store auto` (default),
 `keychain`, `windows`, `secret-service`, or `keyutils` to select an available OS
 backend. Linux auto selection tries Secret Service, then kernel keyutils for a
 new connection. Kernel storage is a cache: reboot/expiry may remove it. Existing
@@ -138,8 +195,8 @@ onboarding, use the manual path: obtain an endpoint, project name and API key in
 input or a secret manager, and select environment setup. `init` never accepts a
 key value in a prompt or flag and never loads or writes `.env` files. Keep keys
 out of chat, shell history and source files. Development deployments can select
-a control-plane origin with `--api-url https://api-dev.lambdadb.ai`; the server
-supplies its configured Console URL. HTTPS is required except for loopback tests.
+a control-plane origin with `--api-url https://api-dev.lambdadb.ai`. Later login
+renewal reuses that saved origin unless explicitly overridden; the server supplies its configured Console URL. HTTPS is required except for loopback tests.
 
 For automation, explicitly select both agents and scope:
 
@@ -166,7 +223,7 @@ write tools; omission disables them, including on reruns and when the inherited
 `LAMBDADB_MCP_ENABLE_WRITE_TOOLS` environment variable is true. The normal global
 `--config`, `--endpoint`, `--project`, `--api-key-env`, and `--timeout-ms` flags
 apply to existing-credential setup. `--connect` instead chooses its target in
-Console and cannot be combined with explicit endpoint/project/key-reference flags.
+the terminal after account login and cannot be combined with explicit endpoint/project/key-reference flags.
 `--connect` requires an interactive terminal; non-interactive setup never starts
 browser authorization or requests a key. Non-TTY and
 `--json` runs require `--non-interactive`; missing choices, target or key fail

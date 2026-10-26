@@ -222,7 +222,8 @@ PR. Update these guides when procedures, requirements or supported behavior chan
 `npm test` uses synthetic in-memory stores and loopback authorization responses;
 it does not claim an actual OS store or account login worked. To exercise the
 current OS store with a unique synthetic key, a fresh-process doctor against a
-loopback server, and a simulated MCP child:
+loopback server, a simulated MCP child, and separate account-session retrieval
+from a fresh management process:
 
 ```sh
 npm run build
@@ -231,8 +232,16 @@ LAMBDADB_TEST_NATIVE_CREDENTIALS=1 node --test test/native-credentials.test.mjs
 LAMBDADB_TEST_NATIVE_CREDENTIALS=1 LAMBDADB_TEST_CREDENTIAL_STORE=secret-service node --test test/native-credentials.test.mjs
 ```
 
-The opt-in test removes its credential in `finally`. The Windows path checks the
+The opt-in tests remove their credentials in `finally`. The Windows path checks the
 store and doctor but skips the POSIX fake-npx child. Run the kernel-keyutils check
 on a host that permits keyring syscalls; default Docker isolation may not. A
 missing/locked native backend must never make the environment path unavailable.
 See [ONBOARDING.md](ONBOARDING.md) for the cross-repository contract and rollout.
+
+Account/project tests use separate synthetic credential namespaces and loopback
+management responses. Run `node --test test/account.test.mjs` after building for
+focused coverage of secret-free metadata, explicit issuance, saved-key switching,
+concurrent edits, symlink aliases, quota guidance and non-interactive failures.
+The package check runs these tests against the installed tarball as well. Backend
+PostgreSQL tests and Console browser tests are documented in their repositories;
+no simulated session is evidence of live signup, provisioning or billing.

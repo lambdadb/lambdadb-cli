@@ -9,6 +9,38 @@ and CLI authorization. Console and CLI users share the same account and project
 onboarding; their completion steps differ. The existing CLI package, executable,
 agent adapters, skill, and stdio MCP integration remain the foundation.
 
+## Expanded scope: terminal project management
+
+This scope extends the original project-only browser handoff with a separate
+CLI account session. Browser signup/login and deliberate CLI
+approval return an account session; Org/project selection and creation happen in
+the terminal. `login`, `logout`, `orgs list`, `projects list`, `projects create`,
+`projects regions`, and `projects use` are maintained commands reused by `init`.
+
+Account sessions are stored separately in the OS credential store, never in
+project configuration or MCP arguments/environment. The initial session lifetime
+is seven days, matching the existing Console session horizon; explicit login
+renews authorization. Server-side hashed sessions are checked on each management
+request and logout revokes them immediately. These credentials authenticate only
+new CLI management routes; existing member-JWT routes and project APIs retain
+their authentication boundaries. Project keys remain independently usable after
+account logout. Account deletion/inactivation disables CLI management access.
+
+The server's actual Org project count/limit governs creation. At the limit,
+interactive init offers an existing project first, an Org-specific Console
+billing link, or cancel. Only an Org owner can activate billing. Paid/custom
+limits are not hard-coded. After billing, re-read server state before retrying;
+non-interactive commands return a structured limit error and actionable link.
+Billing remains entirely in Console. The billing entry page validates membership
+and explicitly confirms the target Org before switching browser context.
+
+Project selection reuses saved per-project credentials. New key issuance requires
+an explicit choice, uses a unique request identity, and never retries an uncertain
+write. `projects use` changes the CLI default only: existing agent entries stay
+pinned until the user reruns agent setup. Ordinary management commands do not
+prompt; only explicit login waits for browser authorization and init asks setup
+questions. No deletion, billing mutation, or member management is added to CLI.
+
 ## Agreed product direction
 
 - Apply the simplified onboarding to both direct Console signup and entry through
@@ -42,8 +74,8 @@ agent adapters, skill, and stdio MCP integration remain the foundation.
 | Entry | Retain a validated continuation through signup and login. | Start from the website or Console. | Start from the existing init command. |
 | Identity | Reuse Google or email verification and existing required consent. | Continue in Console. | Authorize using a browser, including a browser on another device. |
 | Org | Handle invitations and accessible Orgs before creating a default Org. | Show the same Org choices and defaults. | Show the same Org choices and defaults. |
-| Project | Select an accessible project or explicitly create one with a name and region. Enforce existing roles, billing, and quotas. | Finish on the selected project's Console page. | Continue to approval of the selected project connection. |
-| Connection | Use the selected project's endpoint and identity. | Keep normal Console navigation. | Return the approved connection to the initiating CLI session, then configure selected agents and the usage skill. |
+| Project | Select an accessible project or explicitly create one with a name and region. Enforce existing roles, billing, and quotas. | Finish on the selected project's Console page. | Select/create in the terminal after account login, then explicitly issue or reuse a project key. |
+| Connection | Use the selected project's endpoint and identity. | Keep normal Console navigation. | Store separate account/project credentials in the OS store, then configure agents with only project references. |
 | Completion | Offer the optional survey without blocking use. | Show project setup guidance. | Verify authentication and collection-list access, show reload instructions, and provide an actionable next step. |
 
 Only create a project after the user submits its creation. Do not create a
@@ -64,9 +96,11 @@ URL and a user code so SSH and remote development users can approve in a browser
 on another device. Opening a browser on the CLI host may be a convenience, but
 must not be required. The selected contract is documented below.
 
-The browser should show the requesting CLI session, account, Org, selected
-project, and requested access before approval. Bind the resulting grant to the
-initiating session, enforce expiry and single consumption, and support denial,
+The browser shows the code, current account, seven-day lifetime and requested
+management access before approval. The terminal subsequently shows the selected
+Org, project and key-issuance choice. Legacy project-only grants still display
+their specific project and key permissions in the browser. Bind the resulting
+grant to the initiating session, enforce expiry and single consumption, and support denial,
 cancellation, and bounded polling. Never place project keys or account tokens in
 browser URLs. Validate continuation destinations and retain them across Google
 callbacks, email verification, invitations, and project creation.
@@ -91,8 +125,8 @@ The following extension was agreed on 2026-10-26 for the browser flow:
   `LAMBDADB_BASE_URL` and `LAMBDADB_PROJECT_NAME`.
 - Keep account login credentials separate from project API keys. Do not forward
   member access tokens, refresh tokens, or backend administration keys to agents
-  or the MCP child. The first version remembers the project connection without
-  persisting long-lived account login tokens.
+  or the MCP child. Account login uses a separate opaque seven-day session in the
+  OS store; no Console JWT or refresh token is persisted by CLI.
 - Preserve the environment-variable path for existing users, CI, and headless
   environments. Define precedence before adding a second credential source.
 - For a new Linux connection, prefer Secret Service, then use the kernel keyutils
@@ -207,25 +241,44 @@ setup. Existing manual Console key setup remains supported during rollout.
   unexpired grants across replicas. Per-process IP limits complement that bound.
 - JWT-only `/auth/device/inspect` and `/auth/device/decision` support explicit
   browser approval/denial. Approval binds the member, Org and project. The
-  owner/admin check and project readiness are reused from project key management
-  and rechecked when `/auth/device/token` redeems the grant.
+  owner/admin check and project readiness for legacy project-mode grants are
+  reused from project key management and rechecked at redemption. New
+  `/auth/device/login` grants use `mode: account` and bind only the member;
+  their approval never creates an Org, project or project key.
 - The grant is marked consumed before external key issuance. Neither the backend
-  nor CLI blindly retries uncertain issuance. No account token is sent to the
-  CLI, no project key is persisted in the grant table, and no secret is sent in a
-  browser URL. The former unauthenticated developer `/auth/generate` route is
-  unregistered before enabling this flow.
+  nor CLI blindly retries uncertain issuance. Account-mode redemption returns an
+  opaque CLI session once, not a Console JWT. No raw account token or project key
+  is persisted in the database and no secret is sent in a browser URL. The former
+  unauthenticated developer `/auth/generate` route is unregistered before enabling this flow.
 - New project keys use a fresh OS entry, bound to endpoint/project and a UUID.
   Save/readback must match. Settings retain store, entry UUID, key ID and key name.
   Existing slots are never overwritten or silently migrated. `credentials remove`
   deletes the current local entry without revoking the server key.
-- `init --connect` is explicit reconnection. On a first run, interactive init
-  offers browser or environment setup. SSH uses `--no-browser`; automation uses
+- `init --connect` resumes terminal Org/project selection using a saved login
+  and reuses per-project keys. Issuing a new or replacement key is explicit.
+  On a first run, interactive init offers browser or environment setup. SSH uses `--no-browser`; automation uses
   existing credentials with `--non-interactive --agents ... --scope ...`.
 - Browser setup previews the CLI settings path/store and saves a successfully
   delivered connection before doctor/agent installation. This intentionally lets
   a failed doctor or agent install resume without issuing another key. Agent file
   plans are separately displayed and confirmed before applying them. A saved
   connection is not evidence that collection-list access or search is ready.
+- CLI management routes under `/auth/cli` accept only a hashed, revocable
+  seven-day account session. A member may hold up to 20 live sessions; explicit
+  login replaces the selected local session after the new one is durable.
+  `/connect` claims a request UUID before issuance and retains the claim for
+  seven days, bounded to 1,000 claims per member. These bounds are server abuse
+  controls, not plan/project limits. Existing project-key limits still apply.
+- `projects create` reuses project validation/provisioning and Org-row quota
+  locking. It does not issue a CLI project key, select the CLI default or touch
+  agents. `projects use --issue-key` is the explicit issuance command. Project
+  selection without that flag reads a saved reference and never mints a key.
+- Non-secret `config.json.account.json` and `config.json.connections.json`
+  sidecars follow the resolved `--config` destination. Account slots use a
+  separate OS service namespace that the MCP bridge cannot resolve. A local
+  exclusive management lock prevents overlapping login/selection writes.
+  Configuration edits are checked before replacement; completed connections
+  remain cached when later settings/doctor/agent work fails.
 - Console carries only validated local continuations across signup, verification,
   invitations and project setup. Default Org creation and invitation decisions
   serialize on the member; project creation serializes quota checks on the Org.
@@ -242,7 +295,7 @@ Set `deviceAuthorization.consoleURL` to that Console's exact origin and enable
 routes for a designated development acceptance run. Only then publish the CLI
 through its existing release process with separate authorization. Disabling the
 device routes rolls back new authorization without revoking existing project keys.
-The new grant table is additive. Existing environment setup works throughout.
+The grant, CLI-session and key-request tables are additive. Existing environment setup works throughout.
 
 Native implementations target macOS, Linux and Windows. The maintained opt-in
 credential test exercises actual OS storage and a fresh-process doctor/bridge;
@@ -353,9 +406,9 @@ whose CLI package version is 8.11.3. The credential implementation spans
   a profile's explicit keyring selection. Its MCP API-key path writes a bearer
   key into agent configuration. LambdaDB's agreed policy instead uses the OS
   store by default, environment variables when needed, and secret-free agent
-  configuration through the stdio bridge. Persist only the project connection
-  in the first version; Neon's account-token refresh machinery is outside this
-  implementation.
+  configuration through the stdio bridge. The expanded implementation also
+  persists a separate seven-day CLI account session. Neon's refresh machinery
+  is not copied; expiry requires explicit browser reauthorization.
   Sources: [login storage selection](https://github.com/neondatabase/neon-pkgs/blob/7d1a2a728329be3e11589360b5ea70e1fc8d5857/packages/cli/src/commands/auth.ts),
   [MCP configuration](https://github.com/neondatabase/neon-pkgs/blob/7d1a2a728329be3e11589360b5ea70e1fc8d5857/packages/cli/src/mcp/install.ts).
 
