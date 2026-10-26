@@ -379,6 +379,7 @@ async function cliFixture(t, handler) {
     import { CredentialVault } from ${JSON.stringify(moduleURL('credentials.js'))};
     CredentialVault.prototype.select = async () => 'keychain';
     CredentialVault.prototype.read = async () => 'synthetic-account-token';
+    CredentialVault.prototype.remove = async () => {};
     CredentialVault.prototype.save = async () => { throw Error('unexpected secret persistence'); };
   `);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')));
@@ -495,4 +496,48 @@ test('actual CLI: sequential management requests each receive a fresh timeout bu
   assert.equal(result.code, 2);
   assert.match(result.value.error.message, /--issue-key/);
   assert.equal(fixture.calls.length, 2);
+});
+
+
+for (const scenario of [
+  { status: 401, body: '', exit: 0 },
+  { status: 403, body: '<html>Forbidden</html>', exit: 3 },
+  { status: 429, body: 'Too many requests', exit: 3 },
+  { status: 408, body: '', exit: 5 },
+  { status: 200, body: 'invalid response', exit: 5 },
+]) {
+  test(`actual CLI: logout preserves HTTP ${scenario.status} semantics without JSON`, async (t) => {
+    const fixture = await cliFixture(t, (call, res) => {
+      assert.equal(call.path, '/auth/cli/logout');
+      res.statusCode = scenario.status;
+      res.end(scenario.body);
+    });
+    const result = await fixture.run(['logout']);
+    assert.equal(result.code, scenario.exit);
+    if (scenario.exit) {
+      assert.equal(result.value.error.httpStatus, scenario.status);
+      assert.equal(result.value.data?.state, scenario.exit === 5 ? 'unknown' : undefined);
+      assert.ok(await readFile(`${fixture.config}.account.json`, 'utf8'));
+    } else {
+      assert.equal(result.value.data.loggedOut, true);
+      await assert.rejects(readFile(`${fixture.config}.account.json`), { code: 'ENOENT' });
+    }
+    assert.equal(fixture.calls.length, 1);
+  });
+}
+
+test('actual CLI: a bodyless connect conflict retains uncertain issuance', async (t) => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path.endsWith('/projects')) return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
+    assert.equal(call.path, '/auth/cli/connect');
+    res.statusCode = 409;
+    res.end();
+  });
+  const result = await fixture.run(['projects', 'use', '--org', org, '--project-id', first, '--issue-key']);
+  assert.equal(result.code, 5);
+  assert.equal(result.value.data.state, 'unknown');
+  assert.equal(result.value.error.httpStatus, 409);
+  assert.ok(JSON.parse(await readFile(`${fixture.config}.connections.json`, 'utf8'))[0].pendingKeyName);
+  assert.equal(fixture.calls.filter((c) => c.path.endsWith('/connect')).length, 1);
 });

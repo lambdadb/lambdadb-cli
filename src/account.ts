@@ -121,7 +121,7 @@ export async function accountRequest(
   signal?: AbortSignal,
   requestTimeoutMs = 30_000,
 ): Promise<Record<string, unknown>> {
-  let response: Response;
+  let response: Response | undefined;
   let value: Record<string, unknown>;
   try {
     response = await fetch(`${account.apiUrl}/auth/cli/${path}`, {
@@ -154,9 +154,16 @@ export async function accountRequest(
     value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
   } catch {
+    // A rejection remains definite without a JSON body. A connect conflict may
+    // represent an already claimed issuance, whose result cannot be recovered.
+    const status = response?.status;
+    if (status !== undefined && status >= 400 && status < 500 && status !== 408 &&
+      !(path === 'connect' && status === 409)) {
+      throw new ManagementError('management_request_failed', status);
+    }
     throw new ManagementError(
       method === 'GET' ? 'management_unavailable' : 'write_outcome_unknown',
-      undefined,
+      status,
     );
   }
   if (!response.ok) {
