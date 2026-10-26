@@ -9,10 +9,9 @@ and CLI authorization. Console and CLI users share the same account and project
 onboarding; their completion steps differ. The existing CLI package, executable,
 agent adapters, skill, and stdio MCP integration remain the foundation.
 
-## Expanded scope: terminal project management
+## Terminal project management
 
-This scope extends the original project-only browser handoff with a separate
-CLI account session. Browser signup/login and deliberate CLI
+Browser authorization grants a separate CLI account session. Browser signup/login and deliberate CLI
 approval return an account session; Org/project selection and creation happen in
 the terminal. `login`, `logout`, `orgs list`, `projects list`, `projects create`,
 `projects regions`, and `projects use` are maintained commands reused by `init`.
@@ -98,8 +97,7 @@ must not be required. The selected contract is documented below.
 
 The browser shows the code, current account, seven-day lifetime and requested
 management access before approval. The terminal subsequently shows the selected
-Org, project and key-issuance choice. Legacy project-only grants still display
-their specific project and key permissions in the browser. Bind the resulting
+Org, project and key-issuance choice. Bind the resulting
 grant to the initiating session, enforce expiry and single consumption, and support denial,
 cancellation, and bounded polling. Never place project keys or account tokens in
 browser URLs. Validate continuation destinations and retain them across Google
@@ -235,21 +233,20 @@ setup. Existing manual Console key setup remains supported during rollout.
 
 ## Implemented contract and rollout
 
-- `POST /auth/device/start` returns a 256-bit device code, 50-bit displayed user
+- `POST /auth/device/login` returns a 256-bit device code, 50-bit displayed user
   code, configured Console verification URL, 15-minute expiry and five-second
   polling interval. The backend stores code hashes only, with a maximum of 1,024
   unexpired grants across replicas. Per-process IP limits complement that bound.
 - JWT-only `/auth/device/inspect` and `/auth/device/decision` support explicit
-  browser approval/denial. Approval binds the member, Org and project. The
-  owner/admin check and project readiness for legacy project-mode grants are
-  reused from project key management and rechecked at redemption. New
-  `/auth/device/login` grants use `mode: account` and bind only the member;
-  their approval never creates an Org, project or project key.
-- The grant is marked consumed before external key issuance. Neither the backend
-  nor CLI blindly retries uncertain issuance. Account-mode redemption returns an
+  browser approval/denial. Approval binds only the member and never creates an
+  Org, project or project key. Key issuance is a separate, explicit management
+  request with owner/admin and readiness checks reused from project key management.
+- The device grant is marked consumed before account-session creation.
+  Project-key requests are separately claimed before external issuance. Neither the backend
+  nor CLI blindly retries uncertain issuance. Redemption returns an
   opaque CLI session once, not a Console JWT. No raw account token or project key
   is persisted in the database and no secret is sent in a browser URL. The former
-  unauthenticated developer `/auth/generate` route is unregistered before enabling this flow.
+  unauthenticated developer `/auth/generate` route and its unused implementation are removed before enabling this flow.
 - New project keys use a fresh OS entry, bound to endpoint/project and a UUID.
   Save/readback must match. Settings retain store, entry UUID, key ID and key name.
   Existing slots are never overwritten or silently migrated. `credentials remove`

@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
-const moduleURL = name => pathToFileURL(join(dirname(process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js')), name)).href;
+const moduleURL = (name) =>
+  pathToFileURL(join(dirname(process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js')), name)).href;
 const { CredentialVault } = await import(moduleURL('credentials.js'));
 const { loadSettings, settings } = await import(moduleURL('config.js'));
 const { agentAdapters } = await import(moduleURL('agents.js'));
@@ -18,14 +19,25 @@ function memoryStore() {
     calls.push(store);
     const key = `${store}:${service}:${id}`;
     return {
-      async getSecret() { return entries.get(key) ?? null; },
-      async setSecret(value) { entries.set(key, [...value]); },
-      async deleteCredential() { return entries.delete(key); },
+      async getSecret() {
+        return entries.get(key) ?? null;
+      },
+      async setSecret(value) {
+        entries.set(key, [...value]);
+      },
+      async deleteCredential() {
+        return entries.delete(key);
+      },
     };
   };
   return { factory, entries, calls };
 }
-const target = () => ({ endpoint: 'https://project.example.com', project: 'project', credentialStore: 'secret-service', credentialId: randomUUID() });
+const target = () => ({
+  endpoint: 'https://project.example.com',
+  project: 'project',
+  credentialStore: 'secret-service',
+  credentialId: randomUUID(),
+});
 
 test('credential slots bind the key to a project, preserve existing keys, and never fall back on reads', async () => {
   const memory = memoryStore();
@@ -37,7 +49,7 @@ test('credential slots bind the key to a project, preserve existing keys, and ne
   await assert.rejects(vault.read({ ...selected, project: 'another-project' }), /No new key was issued/);
   memory.entries.clear();
   await assert.rejects(vault.read(selected), /Kernel keys can expire/);
-  assert.ok(memory.calls.every(store => store === 'secret-service'));
+  assert.ok(memory.calls.every((store) => store === 'secret-service'));
 });
 
 test('only a new Linux connection falls back to keyutils when Secret Service is unavailable', async () => {
@@ -53,14 +65,24 @@ test('only a new Linux connection falls back to keyutils when Secret Service is 
 
 test('a failed readback deletes only the new slot and never uses a plaintext fallback', async () => {
   let deleted = 0;
-  const vault = new CredentialVault(async () => ({
-    async getSecret() { return null; }, async setSecret() {}, async deleteCredential() { deleted++; return true; },
-  }), 'linux');
+  const vault = new CredentialVault(
+    async () => ({
+      async getSecret() {
+        return null;
+      },
+      async setSecret() {},
+      async deleteCredential() {
+        deleted++;
+        return true;
+      },
+    }),
+    'linux',
+  );
   await assert.rejects(vault.save(target(), 'synthetic-secret'), /Cannot verify OS credential storage/);
   assert.equal(deleted, 1);
 });
 
-test('credential settings reject secrets and allow an explicit environment override', async t => {
+test('credential settings reject secrets and allow an explicit environment override', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'lambdadb-settings-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const config = join(root, 'config.json');
@@ -71,7 +93,10 @@ test('credential settings reject secrets and allow an explicit environment overr
   assert.equal(override.credentialStore, undefined);
   await writeFile(config, JSON.stringify({ ...saved, apiKey: 'synthetic-secret' }));
   await assert.rejects(loadSettings(config), /Never store an API key/);
-  await writeFile(config, JSON.stringify({ endpoint: saved.endpoint, project: saved.project, credentialStore: 'keyutils' }));
+  await writeFile(
+    config,
+    JSON.stringify({ endpoint: saved.endpoint, project: saved.project, credentialStore: 'keyutils' }),
+  );
   await assert.rejects(loadSettings(config), /Configuration must be/);
 });
 
@@ -83,7 +108,8 @@ test('all agent adapters preserve unrelated settings and rerun credential refere
   assert.ok(!launch.args.includes('--write-tools'));
   for (const adapter of agentAdapters) {
     const path = adapter.id === 'codex' ? '/tmp/config.toml' : '/tmp/config.json';
-    const before = adapter.id === 'codex' ? '# Preserve\nmodel = "keep"\n' : '{"mcpServers":{"other":{"command":"keep"}}}';
+    const before =
+      adapter.id === 'codex' ? '# Preserve\nmodel = "keep"\n' : '{"mcpServers":{"other":{"command":"keep"}}}';
     const first = adapter.configure(path, before, launch);
     assert.ok(first.includes('keep'));
     assert.ok(!first.includes('PROJECT_KEY'));
