@@ -18,6 +18,9 @@
 
 ### Maintenance
 
+- Prevent inherited npm exec package/command selectors from changing the nested
+  MCP launch, including when the CLI is invoked through `npx --package`.
+
 - Synchronize the 0.1.6 release history and start the 0.1.7 development line.
 - Update the Homebrew formula to verified stable 0.1.6.
 

@@ -571,21 +571,22 @@ test('MCP launcher maps the custom credential at runtime, overrides inherited wr
   const f = await fixture(t);
   const bin = join(f.root, 'bin');
   const capture = join(f.root, 'child.json');
-  await f.file(join(bin, 'npx'), `#!${process.execPath}\nimport fs from 'node:fs';\nfs.writeFileSync(process.env.CAPTURE, JSON.stringify({args:process.argv.slice(2),endpoint:process.env.LAMBDADB_BASE_URL,project:process.env.LAMBDADB_PROJECT_NAME,key:process.env.LAMBDADB_PROJECT_API_KEY,writes:process.env.LAMBDADB_MCP_ENABLE_WRITE_TOOLS}));\nprocess.stdout.write('{"jsonrpc":"2.0","id":1,"result":{}}\\n');\nprocess.exit(Number(process.env.CHILD_EXIT ?? 0));\n`);
+  await f.file(join(bin, 'npx'), `#!${process.execPath}\nimport fs from 'node:fs';\nfs.writeFileSync(process.env.CAPTURE, JSON.stringify({args:process.argv.slice(2),endpoint:process.env.LAMBDADB_BASE_URL,project:process.env.LAMBDADB_PROJECT_NAME,key:process.env.LAMBDADB_PROJECT_API_KEY,writes:process.env.LAMBDADB_MCP_ENABLE_WRITE_TOOLS,npmExecKeys:Object.keys(process.env).filter(key=>/^npm_config_(package|call)$/i.test(key)),registry:process.env.npm_config_registry}));\nprocess.stdout.write('{"jsonrpc":"2.0","id":1,"result":{}}\\n');\nprocess.exit(Number(process.env.CHILD_EXIT ?? 0));\n`);
   const { chmod } = await import('node:fs/promises');
   await chmod(join(bin, 'npx'), 0o755);
-  const env = { PATH: bin + delimiter + process.env.PATH, CAPTURE: capture, LAMBDADB_MCP_ENABLE_WRITE_TOOLS: 'true', LAMBDADB_PROJECT_API_KEY: 'wrong-inherited-key' };
+  const env = { PATH: bin + delimiter + process.env.PATH, CAPTURE: capture, LAMBDADB_MCP_ENABLE_WRITE_TOOLS: 'true', LAMBDADB_PROJECT_API_KEY: 'wrong-inherited-key', npm_config_package: '@functional-systems/lambdadb-cli@0.1.7-dev.1', NPM_CONFIG_CALL: 'outer-command', npm_config_registry: 'https://registry.npmjs.org' };
   let result = await f.run(['mcp'], env);
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.stdout, '{"jsonrpc":"2.0","id":1,"result":{}}\n');
   assert.equal(result.stderr, '');
   assert.deepEqual(JSON.parse(await readFile(capture, 'utf8')), {
     args: ['-y', '@functional-systems/lambdadb-mcp@0.1.5'], endpoint: f.endpoint,
-    project: 'existing-project', key: secret, writes: 'false',
+    project: 'existing-project', key: secret, writes: 'false', npmExecKeys: [], registry: env.npm_config_registry,
   });
-  result = await f.run(['mcp', '--write-tools'], { ...env, CHILD_EXIT: '7' });
+  result = await f.run(['mcp', '--write-tools'], { ...env, CHILD_EXIT: '7', NPM_CONFIG_PACKAGE: 'another-package', npm_config_call: 'another-command' });
   assert.equal(result.code, 7);
   assert.equal(JSON.parse(await readFile(capture, 'utf8')).writes, 'true');
+  assert.deepEqual(JSON.parse(await readFile(capture, 'utf8')).npmExecKeys, []);
   for (const key of ['', '${CUSTOM_PROJECT_KEY}', '${env:CUSTOM_PROJECT_KEY}', '{env:CUSTOM_PROJECT_KEY}']) {
     result = await f.run(['mcp'], { ...env, CUSTOM_PROJECT_KEY: key });
     assert.equal(result.code, 2);
