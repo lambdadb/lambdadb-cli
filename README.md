@@ -132,13 +132,20 @@ Inject a project key securely, then explicitly select agents and scope:
 # Inject LAMBDADB_API_KEY securely before running this command.
 lambdadb init --non-interactive --agents codex,claude,cursor --scope project \
   --endpoint https://api.lambdadb.ai --project YOUR_PROJECT --json
-# Configure only the CLI, without changing agent files:
+```
+
+To configure only the CLI, use `--agents none`. This example expects the key in
+`MY_PROJECT_KEY` instead of `LAMBDADB_API_KEY`; inject that variable securely
+before running it:
+
+```sh
 lambdadb init --non-interactive --agents none --scope project \
   --endpoint https://api.lambdadb.ai --project YOUR_PROJECT --api-key-env MY_PROJECT_KEY
 ```
 
-`--agents` accepts a comma-separated subset of
-`codex,claude,cursor,vscode,gemini,opencode,copilot,kiro,cline` or `none`. For example:
+`--agents` accepts comma-separated values from the
+[supported agents](#supported-coding-agents) table, or `none`. Once connection
+settings are saved, you can reuse them:
 
 ```sh
 lambdadb init --non-interactive --agents vscode,gemini,opencode --scope project
