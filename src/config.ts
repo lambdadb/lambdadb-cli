@@ -10,6 +10,10 @@ export type SelectedSettings = Required<Pick<Settings, 'endpoint' | 'project' | 
 export type Config = SelectedSettings & { apiKey: string; timeoutMs: number };
 export type Options = Settings & { config?: string; timeoutMs?: string };
 
+export function timeoutMs(options: Options): number {
+  return integer(options.timeoutMs ?? process.env.LAMBDADB_TIMEOUT_MS ?? '30000', 'Timeout', 1, 3600000);
+}
+
 export function configPath(options: Options): string {
   return resolve(options.config ?? process.env.LAMBDADB_CONFIG
     ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'lambdadb', 'config.json'));
@@ -94,7 +98,7 @@ export async function resolveConfig(options: Options, creating = false): Promise
   if (!apiKey || !apiKey.trim() || /[\r\n]/.test(apiKey)) throw new InputError('The selected API-key environment variable is missing or invalid. Supply it through your shell or CI secret manager.');
   return {
     ...selected, apiKey,
-    timeoutMs: integer(options.timeoutMs ?? process.env.LAMBDADB_TIMEOUT_MS ?? '30000', 'Timeout', 1, 3600000),
+    timeoutMs: timeoutMs(options),
   };
 }
 

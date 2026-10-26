@@ -368,3 +368,131 @@ test('a demoted member can reuse a saved project key but cannot issue a replacem
   assert.equal(api.calls.filter((c) => c.path === 'connect').length, 1);
   assert.equal(vault.saved.size, 1);
 });
+
+// Run the real CLI and HTTP client; only OS credential access is simulated.
+async function cliFixture(t, handler) {
+  const { dir, config } = await directory(t);
+  const fixture = await server(t, handler);
+  await writeFile(`${config}.account.json`, JSON.stringify({ ...account(), apiUrl: fixture.url }));
+  const preload = join(dir, 'credential-store.mjs');
+  await writeFile(preload, `
+    import { CredentialVault } from ${JSON.stringify(moduleURL('credentials.js'))};
+    CredentialVault.prototype.select = async () => 'keychain';
+    CredentialVault.prototype.read = async () => 'synthetic-account-token';
+    CredentialVault.prototype.save = async () => { throw Error('unexpected secret persistence'); };
+  `);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')));
+  return {
+    ...fixture, config,
+    async run(args, extra = {}) {
+      const child = spawn(process.execPath, ['--import', preload, bin, ...args, '--config', config, '--json'], {
+        env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '', stderr = '';
+      child.stdout.on('data', (c) => (stdout += c));
+      child.stderr.on('data', (c) => (stderr += c));
+      const timer = setTimeout(() => child.kill(), 5000);
+      try {
+        const code = await new Promise((resolve, reject) => {
+          child.on('error', reject);
+          child.on('close', resolve);
+        });
+        assert.ok(!stdout.includes('synthetic-account-token'));
+        assert.ok(!stderr.includes('synthetic-account-token'));
+        return { code, value: JSON.parse(stdout), stderr };
+      } finally { clearTimeout(timer); }
+    },
+  };
+}
+
+for (const scenario of [
+  { name: 'missing issued key identity', status: 200, body: { endpoint: 'https://api.example.com', project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: {} } }, exit: 5 },
+  { name: 'invalid issued endpoint', status: 200, body: { endpoint: 'https://invalid.example/path', project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: { key_id: 'key-id' } } }, exit: 5 },
+  { name: 'HTTP 408', status: 408, body: { error: 'project_request_rejected' }, exit: 5 },
+  { name: 'claimed issuance', status: 409, body: { error: 'issuance_unconfirmed' }, exit: 5 },
+  { name: 'definite forbidden rejection', status: 403, body: { error: 'project_not_ready_or_forbidden' }, exit: 3 },
+  { name: 'definite rate-limit rejection', status: 429, body: { error: 'rate_limited' }, exit: 3 },
+]) {
+  test(`actual CLI: ${scenario.name} preserves pending identity without automatic reissuance`, async (t) => {
+    const fixture = await cliFixture(t, (call, res) => {
+      if (call.path.endsWith('/projects')) return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+      if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
+      assert.equal(call.path, '/auth/cli/connect');
+      res.statusCode = scenario.status;
+      res.end(JSON.stringify(scenario.body));
+    });
+    const args = ['projects', 'use', '--org', org, '--project-id', first];
+    const result = await fixture.run([...args, '--issue-key']);
+    assert.equal(result.code, scenario.exit);
+    assert.equal(result.value.data?.state, scenario.exit === 5 ? 'unknown' : undefined);
+    assert.notEqual(result.value.error.code, 'INPUT_ERROR');
+    assert.ok(!JSON.stringify(result).includes('synthetic-issued-secret'));
+    const path = `${fixture.config}.connections.json`;
+    const before = await readFile(path, 'utf8');
+    const pending = JSON.parse(before)[0].pendingKeyName;
+    assert.equal(pending, `lambdadb-cli-${fixture.calls.find((c) => c.path.endsWith('/connect')).body.request_id}`);
+    assert.equal(JSON.parse(before)[0].settings, undefined);
+    assert.ok(!before.includes('synthetic-issued-secret'));
+    const rerun = await fixture.run(args);
+    assert.equal(rerun.code, 2);
+    assert.match(rerun.value.error.message, /Inspect\/revoke lambdadb-cli-/);
+    assert.equal(await readFile(path, 'utf8'), before);
+    assert.equal(fixture.calls.filter((c) => c.path.endsWith('/connect')).length, 1);
+  });
+}
+
+for (const mode of ['flag', 'environment', 'flag overrides environment']) {
+  test(`actual CLI: management timeout from ${mode} covers response bodies`, async (t) => {
+    const fixture = await cliFixture(t, async (_call, res) => {
+      res.write('{"regions":');
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      res.end('[]}');
+    });
+    const args = ['projects', 'regions'];
+    if (mode !== 'environment') args.push('--timeout-ms', mode === 'flag' ? '200' : '2000');
+    const result = await fixture.run(args, mode === 'flag' ? {} : { LAMBDADB_TIMEOUT_MS: '200' });
+    assert.equal(result.code, mode === 'flag overrides environment' ? 0 : 3);
+    assert.equal(fixture.calls.length, 1);
+  });
+}
+
+for (const args of [['orgs', 'list'], ['login', '--no-browser'], ['logout']]) {
+  test(`actual CLI: ${args[0]} validates timeout before network or credential access`, async (t) => {
+    const fixture = await cliFixture(t, () => assert.fail('invalid input must not send a request'));
+    for (const [flags, env] of [[['--timeout-ms', '0'], {}], [[], { LAMBDADB_TIMEOUT_MS: 'invalid' }]]) {
+      const result = await fixture.run([...args, ...flags], env);
+      assert.equal(result.code, 2);
+      assert.match(result.value.error.message, /Timeout must be an integer/);
+    }
+    assert.equal(fixture.calls.length, 0);
+  });
+}
+
+for (const command of [['login', '--no-browser'], ['logout']]) {
+  test(`actual CLI: ${command[0]} honors per-request timeout without retries`, async (t) => {
+    const fixture = await cliFixture(t, async (_call, res) => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      res.end('{}');
+    });
+    const result = await fixture.run([...command, '--timeout-ms', '200']);
+    assert.equal(result.code, command[0] === 'login' ? 2 : 5);
+    assert.equal(fixture.calls.length, 1);
+    if (command[0] === 'logout') {
+      assert.equal(result.value.data.state, 'unknown');
+      assert.ok(await readFile(`${fixture.config}.account.json`, 'utf8'));
+    }
+  });
+}
+
+test('actual CLI: sequential management requests each receive a fresh timeout budget', async (t) => {
+  const fixture = await cliFixture(t, async (call, res) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (call.path.endsWith('/projects')) return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+    assert.ok(call.path.endsWith('/organizations'));
+    res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
+  });
+  const result = await fixture.run(['projects', 'use', '--org', org, '--project-id', first, '--timeout-ms', '500']);
+  assert.equal(result.code, 2);
+  assert.match(result.value.error.message, /--issue-key/);
+  assert.equal(fixture.calls.length, 2);
+});

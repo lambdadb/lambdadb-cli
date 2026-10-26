@@ -173,7 +173,7 @@ helpers own presigned response downloads and authentication isolation.
 | Decision | Reason |
 | --- | --- |
 | Mandatory endpoint/project resolution, explicit collection, read ref and write branch | Avoid SDK playground/main fallbacks silently choosing a target. |
-| Environment-held keys only | Keeps secrets out of argv and repository/user configuration files. |
+| OS-store references or environment-held project keys | Account login and browser setup use the OS credential store; manual/CI setup can select an environment variable. Configuration contains only non-secret references, never key values or tokens; no plaintext fallback. |
 | Read retry policy bounded through SDK, no mutation retries | No public exactly-once or mutation receipt contract; a missing reply cannot prove rejection. |
 | Entire JSONL preflight before writes | A malformed later line must not unexpectedly leave accepted earlier batches. |
 | 64 MiB / 100,000-document input caps, 4 MB ordinary batches, configurable bulk batches | Bound file size and retained row overhead without building streaming/checkpoint infrastructure; scan lines without a full split array. |

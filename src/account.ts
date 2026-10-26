@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, rm, open } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { configPath, endpoint, fileIdentity, type Options } from './config.js';
+import { configPath, endpoint, fileIdentity, timeoutMs, type Options } from './config.js';
 import { CredentialVault, credentialReference, type CredentialReference } from './credentials.js';
 import { authorizeAccount } from './device-auth.js';
 import { InputError, ManagementError } from './errors.js';
@@ -119,6 +119,7 @@ export async function accountRequest(
   body?: object,
   org?: string,
   signal?: AbortSignal,
+  requestTimeoutMs = 30_000,
 ): Promise<Record<string, unknown>> {
   let response: Response;
   let value: Record<string, unknown>;
@@ -132,7 +133,7 @@ export async function accountRequest(
         ...(org ? { 'X-Organization-ID': org } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)]) : AbortSignal.timeout(requestTimeoutMs),
     });
     if (response.status === 204) return {};
     const reader = response.body?.getReader();
@@ -168,7 +169,7 @@ export async function accountRequest(
       'project_request_rejected',
     ];
     const code =
-      method !== 'GET' && response.status >= 500 && value.error !== 'issuance_unconfirmed'
+      method !== 'GET' && (response.status >= 500 || response.status === 408) && value.error !== 'issuance_unconfirmed'
         ? 'write_outcome_unknown'
         : typeof value.error === 'string' && known.includes(value.error)
           ? value.error
@@ -222,6 +223,7 @@ export function parseOrganization(value: unknown, a: Account): Organization {
   };
 }
 export async function management(options: AccountOptions, output: Output) {
+  const requestTimeoutMs = timeoutMs(options);
   const account = await loadAccount(options);
   let token: string;
   try {
@@ -235,10 +237,11 @@ export async function management(options: AccountOptions, output: Output) {
   return {
     account,
     request: (path: string, method = 'GET', body?: object, org?: string) =>
-      accountRequest(account, token, path, method, body, org, options.signal),
+      accountRequest(account, token, path, method, body, org, options.signal, requestTimeoutMs),
   };
 }
 export async function login(options: AccountOptions, output: Output, vault = accountVault()) {
+  const requestTimeoutMs = timeoutMs(options);
   return withManagementLock(options, async () => {
     const path = await accountPath(options),
       before = await readOptional(path);
@@ -269,6 +272,7 @@ export async function login(options: AccountOptions, output: Output, vault = acc
         options.browser !== false,
         output,
         options.signal ? AbortSignal.any([options.signal, cancellation.signal]) : cancellation.signal,
+        requestTimeoutMs,
       );
       const account: Account = {
         apiUrl,
@@ -283,7 +287,7 @@ export async function login(options: AccountOptions, output: Output, vault = acc
         await vault.save(accountTarget(account), granted.token);
         await writeMetadata(path, account, before);
       } catch (error) {
-        await accountRequest(account, granted.token, 'logout', 'POST', {}).catch(() =>
+        await accountRequest(account, granted.token, 'logout', 'POST', {}, undefined, options.signal, requestTimeoutMs).catch(() =>
           output.diagnostic('Server-session cleanup could not be confirmed; it expires within seven days.'),
         );
         await vault.remove(accountTarget(account)).catch(() => {});
@@ -295,7 +299,7 @@ export async function login(options: AccountOptions, output: Output, vault = acc
           const old = parseAccount(before);
           const token = await vault.read(accountTarget(old));
           output.protect(token);
-          await revokeAccount(old, token);
+          await revokeAccount(old, token, options);
           await vault.remove(accountTarget(old));
         } catch {
           output.diagnostic(
@@ -311,6 +315,7 @@ export async function login(options: AccountOptions, output: Output, vault = acc
   });
 }
 export async function logout(options: AccountOptions, output: Output, vault = accountVault()) {
+  timeoutMs(options);
   return withManagementLock(options, async () => {
     const path = await accountPath(options),
       before = await readOptional(path);
@@ -321,7 +326,7 @@ export async function logout(options: AccountOptions, output: Output, vault = ac
       throw new InputError('The account belongs to another API origin.');
     const token = await vault.read(accountTarget(account));
     output.protect(token);
-    await revokeAccount(account, token);
+    await revokeAccount(account, token, options);
     await vault.remove(accountTarget(account));
     if ((await readOptional(path)) !== before)
       throw new InputError('Account metadata changed. Review it before removing it.');
@@ -329,9 +334,9 @@ export async function logout(options: AccountOptions, output: Output, vault = ac
   });
 }
 
-async function revokeAccount(account: Account, token: string): Promise<void> {
+async function revokeAccount(account: Account, token: string, options: AccountOptions): Promise<void> {
   try {
-    await accountRequest(account, token, 'logout', 'POST', {});
+    await accountRequest(account, token, 'logout', 'POST', {}, undefined, options.signal, timeoutMs(options));
   } catch (error) {
     // An expired or already revoked session is safe to remove locally.
     if (!(error instanceof ManagementError && error.status === 401)) throw error;

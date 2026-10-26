@@ -229,19 +229,18 @@ export async function useProject(
       item.pendingKeyName = keyName;
       await writeMetadata(cache.path, cache.items, cache.before);
       const pending = await readOptional(cache.path);
-      const granted = projectAuthorization(
-        await api.request('connect', 'POST', {
-          organization_id: org,
-          project_id: projectId,
-          request_id: requestId,
-        }),
-        output,
-        keyName,
-      );
-      if (granted.project !== project.name)
-        throw new InputError(
-          'Issued key target does not match the selected project. Inspect the named key in Console.',
-        );
+      const response = await api.request('connect', 'POST', {
+        organization_id: org,
+        project_id: projectId,
+        request_id: requestId,
+      });
+      let granted: ReturnType<typeof projectAuthorization>;
+      try {
+        granted = projectAuthorization(response, output, keyName);
+        if (granted.project !== project.name) throw new Error();
+      } catch {
+        throw new ManagementError('issuance_unconfirmed', undefined, { pendingKeyName: keyName });
+      }
       selected = {
         endpoint: granted.endpoint,
         project: granted.project,

@@ -9,6 +9,7 @@ async function request(
   path: string,
   body: object,
   signal: AbortSignal,
+  requestTimeoutMs = 30_000,
 ): Promise<{ ok: boolean; value: Record<string, unknown> }> {
   try {
     const response = await fetch(`${origin}/auth/device/${path}`, {
@@ -16,7 +17,7 @@ async function request(
       redirect: 'error',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)]),
     });
     const reader = response.body?.getReader();
     if (!reader) throw new Error();
@@ -63,9 +64,10 @@ async function pollDevice(
   browser: boolean,
   output: Output,
   signal: AbortSignal,
+  requestTimeoutMs = 30_000,
 ): Promise<Record<string, unknown>> {
   const origin = endpoint(apiUrl);
-  const start = await request(origin, 'login', {}, signal);
+  const start = await request(origin, 'login', {}, signal, requestTimeoutMs);
   const s = start.value;
   if (!start.ok)
     throw new InputError(
@@ -110,6 +112,7 @@ async function pollDevice(
       'token',
       { device_code: s.device_code },
       AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, deadline - Date.now()))]),
+      requestTimeoutMs,
     );
     if (token.ok) {
       return token.value;
@@ -167,8 +170,9 @@ export async function authorizeAccount(
   browser: boolean,
   output: Output,
   signal: AbortSignal,
+  requestTimeoutMs = 30_000,
 ) {
-  const result = await pollDevice(apiUrl, browser, output, signal);
+  const result = await pollDevice(apiUrl, browser, output, signal, requestTimeoutMs);
   const a = result.account as Record<string, unknown> | undefined;
   if (typeof a?.session_token === 'string') output.protect(a.session_token);
   if (

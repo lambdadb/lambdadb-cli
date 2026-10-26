@@ -268,18 +268,24 @@ Copilot CLI is separate from the VS Code adapter. It reads `mcpServers`, not
 VS Code's `servers` map. Project setup reuses `.mcp.json` if present, otherwise
 an existing `.github/mcp.json`, otherwise creates `.mcp.json`. Both wrapped
 `mcpServers` and existing bare server maps are preserved. `COPILOT_HOME` overrides
-the user MCP and skill directory. Restart with the selected key in the launch
-environment, trust the repository, check `/mcp`, and run `/skills reload`.
+the user MCP and skill directory. Restart, trust the repository, check `/mcp`,
+and run `/skills reload`. In environment mode, include the selected key variable
+in the launch environment. In OS-store mode, run as the same OS user with the
+recorded store unlocked and accessible; no key environment variable is required.
 
 Kiro IDE and CLI share one `kiro` adapter; detection recognizes both `kiro` and
-`kiro-cli` executables. Approve the selected key variable in **Mcp Approved Env
-Vars** when prompted. For a custom Kiro agent, ensure it includes the MCP JSON
-and skill resources; init does not edit agent definitions or grant tool approvals.
+`kiro-cli` executables. In environment mode, supply the selected key variable
+and approve it in **Mcp Approved Env Vars** when prompted. In OS-store mode,
+run as the same OS user with access to the unlocked recorded store; no key
+variable approval is needed. For a custom Kiro agent, ensure it includes the
+MCP JSON and skill resources; init does not edit agent definitions or grant tool approvals.
 
 The `cline` adapter targets the Cline extension in the default stable VS Code
 user profile, using the same platform/portable user directory rules above.
-Reload VS Code from an environment containing the selected key and inspect
-Cline's MCP Servers and Skills menus. Cline CLI, other editors and named profiles
+Reload VS Code and inspect Cline's MCP Servers and Skills menus. In environment
+mode, launch VS Code with the selected key variable. In OS-store mode, use the
+same OS user with access to the unlocked recorded store; no key environment
+variable is required. Cline CLI, other editors and named profiles
 use different configuration locations and are outside this adapter's scope.
 
 </details>
@@ -378,10 +384,21 @@ ordinary management commands never start browser login automatically.
 ### Limits and failures
 
 The API-key environment path remains available without account login. Management
-requests have a 30-second timeout, do not follow redirects and never retry writes.
+requests do not follow redirects and never retry writes. `--timeout-ms` overrides
+`LAMBDADB_TIMEOUT_MS` (default `30000`, range 1–3600000 milliseconds). For account
+login, logout and project/Organization management, this limits each HTTP request,
+including its response body; sequential requests each receive a fresh budget.
+It does not limit time spent at prompts, the server-issued browser authorization
+window (up to 15 minutes), or project provisioning polling (up to 10 minutes).
+For data API commands such as `doctor`, `query` and `docs import`, it remains a
+shared command budget across sequential requests, retries and transfers. During
+`init --connect`, management uses per-request limits and the subsequent doctor
+check receives its own data API budget.
 A project-limit error includes `organization.max_projects`, `projects_count`,
 `can_upgrade`, and `billing_url` in JSON, plus the link in terminal diagnostics.
-A transport failure or uncertain key delivery exits 5; inspect existing projects
+A transport failure or HTTP 408/5xx response to a management mutation, or uncertain
+key delivery (including an incomplete successful issuance response) exits 5
+with `data.state: "unknown"`; inspect existing projects
 or the displayed named key in Console before explicitly retrying.
 
 ### Session recovery
@@ -481,7 +498,7 @@ Use a CI secret manager instead of adding credentials to tracked files.
 | Key variable name | `--api-key-env`, `LAMBDADB_API_KEY_ENV`, saved `apiKeyEnv`, `LAMBDADB_API_KEY` |
 | Key value | Explicit `--api-key-env` / `LAMBDADB_API_KEY_ENV` selects environment mode; otherwise use a saved OS reference when present, else the selected variable. An explicit OS reference from generated agent arguments stays bound to its store. No automatic fallback on read failure. |
 | Config path | `--config`, `LAMBDADB_CONFIG`, default user path |
-| Network budget | `--timeout-ms`, `LAMBDADB_TIMEOUT_MS`, `30000` milliseconds |
+| Network timeout (scope above) | `--timeout-ms`, `LAMBDADB_TIMEOUT_MS`, `30000` milliseconds |
 
 There is no implicit endpoint, project, collection, branch or read ref. Explicit
 empty values fail validation instead of silently falling back. An explicitly
