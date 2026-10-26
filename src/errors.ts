@@ -1,11 +1,40 @@
 import { LambdaDBError, ResponseValidationError, SDKValidationError } from '@functional-systems/lambdadb/models/errors';
 
 export class InputError extends Error {}
+export class ManagementError extends Error {
+  constructor(
+    public code: string,
+    public status: number | undefined,
+    public details?: Record<string, unknown>,
+  ) {
+    super(code);
+  }
+}
 
-export type SafeError = { code: string; message: string; hint: string; httpStatus?: number };
+export type SafeError = { code: string; message: string; hint: string; httpStatus?: number; details?: Record<string, unknown> };
 
 // Never serialize SDK errors: they can contain credentials, response bodies and signed URLs.
 export function describeError(error: unknown): SafeError {
+  if (error instanceof ManagementError) {
+    let hint = 'Check Console before retrying a write. No automatic retry was made; inspect the named key if issuance was uncertain.';
+    if (error.code === 'project_limit_reached' && error.details?.organization) {
+      const organization = error.details.organization as { billing_url: string };
+      hint = `Use an existing project, or review ${organization.billing_url}. Only the owner can activate billing. Recheck server limits afterwards.`;
+    } else if (error.status === 401) {
+      hint = 'Run lambdadb login again. Project keys are unaffected.';
+    } else if (error.code === 'project_limit_reached') {
+      hint = 'Use an existing project, or review the indicated Organization billing link. Only the owner can activate billing. Recheck server limits afterwards.';
+    } else if (error.details?.invitation_id) {
+      hint = `Respond to the pending invitation at ${error.details.invitation_url}, then rerun setup.`;
+    }
+    return {
+      code: error.code.toUpperCase(),
+      message: `Account management request failed: ${error.code}.`,
+      httpStatus: error.status,
+      details: error.details,
+      hint,
+    };
+  }
   if (error instanceof InputError) {
     return { code: 'INPUT_ERROR', message: error.message, hint: 'Check --help and the input file or configuration.' };
   }
@@ -40,6 +69,6 @@ export function isInputError(error: unknown): boolean {
 }
 
 export function definitelyRejected(error: unknown): boolean {
-  return isInputError(error) || (error instanceof LambdaDBError
+  return isInputError(error) || (error instanceof ManagementError && error.status !== undefined && error.status >= 400 && error.status < 500 && error.status !== 408 && error.code !== 'issuance_unconfirmed') || (error instanceof LambdaDBError
     && error.statusCode >= 400 && error.statusCode < 500 && error.statusCode !== 408);
 }

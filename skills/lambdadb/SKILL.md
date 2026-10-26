@@ -23,12 +23,15 @@ file and run `lambdadb query --collection NAME --ref branch:main --file FILE --j
 The query body follows the LambdaDB API, not SQL. Consult
 https://docs.lambdadb.ai for field-specific query syntax.
 
-Credentials come only from the selected environment variable in the agent's
-launch environment. Never print keys or put them in files, arguments, or
-generated examples. If MCP cannot start, check that variable and restart the
-agent from an environment containing it; do not ask the user to paste a key
-into chat. `lambdadb doctor` verifies authentication and collection-list access
-only. Project/key creation remains a manual LambdaDB Console step.
+Credentials come from a saved OS credential reference or the selected environment
+variable in the agent's launch environment. Never print keys or put them in files,
+arguments, generated examples or chat. If MCP cannot start, check whether its
+configured OS store is unlocked and accessible to the same user, or whether the
+selected environment variable is available. Do not silently reconnect or issue a
+new key. Kernel keyutils credentials can disappear after reboot/expiry without
+revoking the server key. `lambdadb doctor` verifies authentication and
+collection-list access only. The user can explicitly run `lambdadb init --connect`
+for Console signup/login and CLI approval, followed by terminal project selection.
 
 MCP exposes read tools by default. Write tools require explicit setup opt-in;
 their availability does not authorize creating collections or changing data.

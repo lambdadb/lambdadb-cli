@@ -2,7 +2,24 @@
 
 ## [Unreleased]
 
+### Added
+
+- Browser-approved `init --connect`, including another-device URLs for SSH, shared
+  Console signup/login, terminal project setup, bounded polling and explicit key issuance.
+- Separate OS-stored account login with seven-day expiry, immediate logout, and
+  reusable `orgs list` / `projects list|regions|create|use` commands. Org-specific
+  billing guidance uses current backend limits. Project switching reuses saved
+  keys and keeps existing agent connections pinned.
+- OS credential references for macOS Keychain, Windows Credential Manager and
+  Linux Secret Service with a new-connection keyutils fallback. Plaintext files
+  and agent arguments never contain keys. Preserve the existing environment/CI path.
+- Resume agent setup with the saved connection, and remove local OS credentials
+  with `credentials remove` without revoking server keys.
+
 ### Maintenance
+
+- Prevent inherited npm exec package/command selectors from changing the nested
+  MCP launch, including when the CLI is invoked through `npx --package`.
 
 - Synchronize the 0.1.6 release history and start the 0.1.7 development line.
 - Update the Homebrew formula to verified stable 0.1.6.

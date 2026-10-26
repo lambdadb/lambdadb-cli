@@ -1,8 +1,54 @@
 # LambdaDB CLI
 
-A first, project-scoped CLI for developers, coding agents and CI. It uses
-`@functional-systems/lambdadb@0.8.1` for authentication, HTTP, read retries,
-pagination, bulk transfers and large response downloads.
+Connect a LambdaDB project, configure coding agents, and import or search data
+from your terminal or CI.
+
+- [Quick start](#quick-start)
+- [Install and run](#install-and-run)
+- [First-use setup](#first-use-setup-with-init)
+- [Supported coding agents](#supported-coding-agents)
+- [Account and project management](#account-and-project-management)
+- [Configuration and authentication](#configuration-and-authentication)
+- [Query existing data](#query-existing-data)
+- [Command examples](#command-examples)
+- [Output and exit codes](#output-deadlines-and-exit-codes)
+- [Development](#development-and-boundaries)
+
+## Quick start
+
+Requires Node.js 22.14 or newer and npm. Run from your repository root:
+
+```sh
+npx @functional-systems/lambdadb-cli@latest init
+```
+
+If the CLI is already installed, run `lambdadb init` instead. Both entry points
+use the same package and executable. The command examples below assume an
+installed `lambdadb`; with npx, replace that prefix with
+`npx @functional-systems/lambdadb-cli@latest`.
+
+1. Choose Console signup/login or connect an existing project with an API-key
+   environment variable.
+2. For browser setup, sign up or sign in, compare the terminal code, and approve
+   **CLI Login**. Return to the terminal to select an Org and project or explicitly
+   create a project with a name and region.
+3. Choose coding agents, project/user scope, and whether to enable MCP write
+   tools. Review the displayed paths before approving the file changes.
+4. After the connection check, restart or reload the selected agents and follow
+   the generated first-query guidance.
+
+Init checks authentication and collection-list access. It does not create
+collections or documents, and success does not establish search readiness.
+For an existing collection, try this prompt in your agent:
+
+> List my LambdaDB collections. Inspect the selected collection's index
+> configuration, then read up to five documents at branch:main before searching
+> an indexed field. Do not create or modify data.
+
+Browser setup requires matching Backend and Console support and an accessible
+OS credential store. If either is unavailable, use
+[environment-variable setup](#environment-variable-setup). For CI or a
+non-interactive shell, use [non-interactive init](#non-interactive-setup).
 
 ## Install and run
 
@@ -46,113 +92,136 @@ disabling trust checks. See the
 [maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme)
 for packaging and validation details.
 
-### Build from source
+## First-use setup with `init`
 
-Requires Node.js 22.14 or newer and npm. From a checkout of this repository:
+### Connect or reuse a project
 
-```sh
-npm ci
-npm run build
-node dist/cli.js --help
-```
-
-Run commands with `node dist/cli.js`, or install the built directory into a local
-prefix to use the `lambdadb` executable:
+On a first run, init offers browser setup or an existing environment-held key.
+Reruns reuse the saved connection. To select or create a project through account
+login, run `lambdadb init --connect`; previously saved project keys are reused.
+For SSH or a host without a visible browser, run:
 
 ```sh
-npm install --prefix "$HOME/.local" /absolute/path/to/lambdadb-cli
-export PATH="$HOME/.local/node_modules/.bin:$PATH"
-lambdadb --help
+lambdadb init --connect --no-browser
 ```
 
-`npm start -- ...` also works for human use. For machine-readable stdout, invoke
-`node dist/cli.js ... --json` or the executable directly; npm may print banners.
+Approve CLI Login in Console after Google/email signup or login. The printed URL
+and code also work in a browser on another device. Project selection and creation
+continue in the terminal. A default Org is created only on first project
+submission. Pending invitations require a Console decision first; the survey is
+optional.
 
-## Configuration and authentication
+### Project limits and manual Console steps
 
-Obtain the endpoint, existing project name and project API key from the LambdaDB
-Console. This CLI does not create projects or issue keys. Endpoint is the API
-origin, such as `https://api.lambdadb.ai`, without `/projects/...`. HTTPS is
-required, except HTTP on localhost/127.0.0.1/::1 for local testing.
+The remaining manual Console steps are signup/login and deliberate CLI approval,
+invitation decisions when present, and any billing activation. If the Org has
+reached its project limit, init offers existing projects and an Org-specific
+billing link. Only the owner can activate billing. After billing, choose retry to
+read the server's updated limits; opening the link does not upgrade or charge.
+New Orgs normally start at one project, but CLI always uses the backend's actual
+limit, including paid/custom limits. A provisioning project can be selected on a
+later run; do not create another project to resume. Device approval expires after
+15 minutes and provisioning waits up to ten minutes. Remote MCP is outside this
+setup; agents use the existing stdio MCP package.
 
-```sh
-lambdadb configure --endpoint https://api.lambdadb.ai --project YOUR_DEV_PROJECT
-```
+### Non-interactive setup
 
-Set `LAMBDADB_API_KEY` through your shell's secure input or your CI secret manager.
-For example, in Bash, this avoids putting the value into shell history:
-
-```bash
-read -r -s -p 'LambdaDB project API key: ' LAMBDADB_API_KEY
-printf '\n'
-export LAMBDADB_API_KEY
-```
-
-### First-use setup with `init`
-
-After securely exporting the key, run either entry point. Both use this same
-package and executable:
-
-```sh
-lambdadb init
-npx @functional-systems/lambdadb-cli@latest init
-```
-
-`init` guides you through the existing project's endpoint, name and API-key
-environment-variable name. It detects Codex, Claude Code, Cursor, VS Code,
-Gemini CLI, OpenCode, GitHub Copilot CLI, Kiro IDE/CLI and the Cline VS Code
-extension using PATH and configuration directories, then lets you choose any subset (or `none`),
-project/user scope, and whether to enable MCP write tools. Detection is a hint,
-not proof that an agent is installed or connected. Project scope means the
-current working directory; run from your repository root.
-Cursor detection recognizes both the editor's `cursor` command and the
-`cursor-agent` CLI, which reads the same MCP configuration. With Cursor CLI,
-check the generated server with `cursor-agent mcp list-tools lambdadb`.
-
-The remaining manual step is in [LambdaDB Console](https://console.lambdadb.ai):
-select an existing project and obtain its API endpoint, project name and project
-API key. Inject the key into your shell or secret manager before running init.
-There is no browser login, account/project creation, key issuance, remote MCP,
-or backend/Console change in this flow. Init never asks for the key value and
-does not load or write `.env` files.
-
-For automation, explicitly select both agents and scope:
+Inject a project key securely, then explicitly select agents and scope:
 
 ```sh
 # Inject LAMBDADB_API_KEY securely before running this command.
 lambdadb init --non-interactive --agents codex,claude,cursor --scope project \
   --endpoint https://api.lambdadb.ai --project YOUR_PROJECT --json
-# Configure only the CLI, without changing agent files:
+```
+
+To configure only the CLI, use `--agents none`. This example expects the key in
+`MY_PROJECT_KEY` instead of `LAMBDADB_API_KEY`; inject that variable securely
+before running it:
+
+```sh
 lambdadb init --non-interactive --agents none --scope project \
   --endpoint https://api.lambdadb.ai --project YOUR_PROJECT --api-key-env MY_PROJECT_KEY
 ```
 
-`--agents` accepts a comma-separated subset of
-`codex,claude,cursor,vscode,gemini,opencode,copilot,kiro,cline` or `none`. For example:
+`--agents` accepts comma-separated values from the
+[supported agents](#supported-coding-agents) table, or `none`. Once connection
+settings are saved, you can reuse them:
 
 ```sh
 lambdadb init --non-interactive --agents vscode,gemini,opencode --scope project
 lambdadb init --non-interactive --agents copilot,kiro,cline --scope user
 ```
 
-This example reuses your existing CLI settings and environment-held key.
-`--scope` accepts `project` or `user`. `--write-tools` explicitly enables MCP
-write tools; omission disables them, including on reruns and when the inherited
-`LAMBDADB_MCP_ENABLE_WRITE_TOOLS` environment variable is true. The normal global
-`--config`, `--endpoint`, `--project`, `--api-key-env`, and `--timeout-ms` flags
-apply. Existing settings/environment precedence is unchanged. Non-TTY and
-`--json` runs require `--non-interactive`; missing choices, target or key fail
-with exit 2 and instructions, without prompting. This mode authorizes applying
-the displayed file plan; it does not silently select detected agents.
-Cline's extension supports only user-scope MCP settings. Selecting `cline` with
-`--scope project` fails before any file writes or connection; interactive setup
-offers user scope when Cline is selected. It never silently broadens the scope.
+These two examples reuse existing CLI settings and an OS-stored or
+environment-held key. `--scope` accepts `project` or `user`. `--write-tools`
+explicitly enables MCP write tools; omission disables them, including on reruns and when the inherited
+`LAMBDADB_MCP_ENABLE_WRITE_TOOLS` environment variable is true.
 
-Before writing, init displays exact paths and create/update/unchanged actions,
-then uses the same SDK check as `doctor` to verify authentication and collection-list
-access. Failed validation/authentication leaves files untouched. The CLI's
+The global `--config`, `--endpoint`, `--project`, `--api-key-env`, and
+`--timeout-ms` flags apply to existing-credential setup. `--connect` instead
+chooses its target in the terminal after account login. It cannot be combined
+with explicit endpoint/project/key-reference flags and requires an interactive
+terminal. Non-interactive setup never starts browser authorization or requests
+a key. Non-TTY and `--json` runs require `--non-interactive`; missing choices,
+target or key fail with exit 2 and instructions, without prompting. This mode authorizes applying
+the displayed file plan; it does not silently select detected agents.
+
+Cline's extension supports only user-scope MCP settings. Selecting `cline` with
+`--scope project` rejects agent installation; interactive setup offers user scope
+when Cline is selected. It never silently broadens the scope. A browser-approved
+connection may already be saved before agent choices are validated, as described
+under [files and safe reruns](#files-and-safe-reruns). Rerun without `--connect`
+to finish setup.
+
+### Files and safe reruns
+
+Before agent installation, init displays exact paths and create/update/unchanged
+actions, then uses the same SDK check as `doctor` to verify authentication and
+collection-list access. Manual setup leaves files untouched on failed validation.
+Browser setup first shows and confirms the CLI settings path and credential store;
+once approved, it saves that connection before doctor/agent installation so a
+failed check or interrupted agent setup can resume without issuing another key.
+Agent files are still untouched until the reviewed plan and check succeed. The CLI's
 non-secret settings always use its usual configuration path (or `--config`),
-independently of agent scope:
+independently of agent scope.
+
+Unrelated configuration and comments are preserved where JSONC is accepted.
+Copilot and Cline settings must be strict JSON for init; comments/trailing
+commas cause an actionable failure and leave the file untouched. Shared files
+(such as Claude/Copilot project MCP and VS Code/Copilot skills) are written only
+once when both agents request identical contents; conflicting changes stop
+before connection or writes. Symbolic links are preserved: init displays the
+resolved write target and updates it once. Links with missing targets fail before
+connection or writes; restore their targets before rerunning init.
+
+Reruns update only recognizable init-generated `lambdadb` MCP entries;
+existing custom entries or additions inside a generated entry cause an actionable
+conflict. Existing skills are preserved, including user edits; remove the skill
+file deliberately if you want to reinstall the bundled version. Writes use
+atomic replacement per file, not a transaction across files: a disk/permission
+failure can leave a partial installation; inspect the displayed paths and rerun.
+
+## Supported coding agents
+
+Init detects agents using PATH and configuration directories, then lets you choose
+any subset or `none`. Detection is a hint, not proof that an agent is installed or
+connected. Project scope means the current working directory, so run from your
+repository root. Cline supports user scope only.
+
+| Agent | `--agents` value | Supported scope |
+| --- | --- | --- |
+| Codex | `codex` | Project or user |
+| Claude Code | `claude` | Project or user |
+| Cursor editor/CLI | `cursor` | Project or user |
+| VS Code | `vscode` | Project or user |
+| Gemini CLI | `gemini` | Project or user |
+| OpenCode | `opencode` | Project or user |
+| GitHub Copilot CLI | `copilot` | Project or user |
+| Kiro IDE/CLI | `kiro` | Project or user |
+| Cline VS Code extension | `cline` | User only |
+
+<details>
+<summary>MCP and skill paths, agent-specific overrides and reload instructions</summary>
 
 | Agent | Project MCP / skill | User MCP / skill |
 | --- | --- | --- |
@@ -165,6 +234,10 @@ independently of agent scope:
 | GitHub Copilot CLI | `.mcp.json` or existing `.github/mcp.json` / `.github/skills/lambdadb/SKILL.md` | `~/.copilot/mcp-config.json` / `~/.copilot/skills/lambdadb/SKILL.md` |
 | Kiro IDE/CLI | `.kiro/settings/mcp.json` / `.kiro/skills/lambdadb/SKILL.md` | `~/.kiro/settings/mcp.json` / `~/.kiro/skills/lambdadb/SKILL.md` |
 | Cline VS Code extension | Unsupported; choose user scope | VS Code user profile `globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` / `~/.cline/skills/lambdadb/SKILL.md` |
+
+Cursor detection recognizes both the editor's `cursor` command and the
+`cursor-agent` CLI, which reads the same MCP configuration. With Cursor CLI,
+check the generated server with `cursor-agent mcp list-tools lambdadb`.
 
 When `CLAUDE_CONFIG_DIR` is set, Claude's user MCP file is
 `$CLAUDE_CONFIG_DIR/.claude.json` and its user skill is under
@@ -195,34 +268,29 @@ Copilot CLI is separate from the VS Code adapter. It reads `mcpServers`, not
 VS Code's `servers` map. Project setup reuses `.mcp.json` if present, otherwise
 an existing `.github/mcp.json`, otherwise creates `.mcp.json`. Both wrapped
 `mcpServers` and existing bare server maps are preserved. `COPILOT_HOME` overrides
-the user MCP and skill directory. Restart with the selected key in the launch
-environment, trust the repository, check `/mcp`, and run `/skills reload`.
+the user MCP and skill directory. Restart, trust the repository, check `/mcp`,
+and run `/skills reload`. In environment mode, include the selected key variable
+in the launch environment. In OS-store mode, run as the same OS user with the
+recorded store unlocked and accessible; no key environment variable is required.
 
 Kiro IDE and CLI share one `kiro` adapter; detection recognizes both `kiro` and
-`kiro-cli` executables. Approve the selected key variable in **Mcp Approved Env
-Vars** when prompted. For a custom Kiro agent, ensure it includes the MCP JSON
-and skill resources; init does not edit agent definitions or grant tool approvals.
+`kiro-cli` executables. In environment mode, supply the selected key variable
+and approve it in **Mcp Approved Env Vars** when prompted. In OS-store mode,
+run as the same OS user with access to the unlocked recorded store; no key
+variable approval is needed. For a custom Kiro agent, ensure it includes the
+MCP JSON and skill resources; init does not edit agent definitions or grant tool approvals.
 
 The `cline` adapter targets the Cline extension in the default stable VS Code
 user profile, using the same platform/portable user directory rules above.
-Reload VS Code from an environment containing the selected key and inspect
-Cline's MCP Servers and Skills menus. Cline CLI, other editors and named profiles
+Reload VS Code and inspect Cline's MCP Servers and Skills menus. In environment
+mode, launch VS Code with the selected key variable. In OS-store mode, use the
+same OS user with access to the unlocked recorded store; no key environment
+variable is required. Cline CLI, other editors and named profiles
 use different configuration locations and are outside this adapter's scope.
 
-Unrelated configuration and comments are preserved where JSONC is accepted.
-Copilot and Cline settings must be strict JSON for init; comments/trailing
-commas cause an actionable failure and leave the file untouched. Shared files
-(such as Claude/Copilot project MCP and VS Code/Copilot skills) are written only
-once when both agents request identical contents; conflicting changes stop
-before connection or writes. Symbolic links are preserved: init displays the
-resolved write target and updates it once. Links with missing targets fail before
-connection or writes; restore their targets before rerunning init.
-Reruns update only recognizable init-generated `lambdadb` MCP entries;
-existing custom entries or additions inside a generated entry cause an actionable
-conflict. Existing skills are preserved, including user edits; remove the skill
-file deliberately if you want to reinstall the bundled version. Writes use
-atomic replacement per file, not a transaction across files: a disk/permission
-failure can leave a partial installation; inspect the displayed paths and rerun.
+</details>
+
+### MCP launch and credential forwarding
 
 Agent settings launch `npx -y @functional-systems/lambdadb-cli@<installed-version> mcp`,
 which runs the existing `@functional-systems/lambdadb-mcp@0.1.5` stdio package.
@@ -233,11 +301,16 @@ may download both packages and requires npm registry access.
 After upgrading the CLI, rerun init for the same agents and scope to refresh
 their exact CLI version pin, then restart/reload the agent with the key available.
 
-The `mcp` bridge reads the selected key from the agent environment at startup and
-maps CLI endpoint/project/key to MCP's `LAMBDADB_BASE_URL`,
+The `mcp` bridge reads the selected OS credential reference or environment
+variable at startup and maps CLI endpoint/project/key to MCP's `LAMBDADB_BASE_URL`,
 `LAMBDADB_PROJECT_NAME`, and `LAMBDADB_PROJECT_API_KEY`. The bridge sets
 `LAMBDADB_MCP_ENABLE_WRITE_TOOLS` explicitly. No key value is placed in arguments
-or configuration. Codex uses `env_vars` to forward the selected variable;
+or agent configuration. OS references need the same OS user and an accessible
+credential store, with no shell key export. Linux Secret Service also needs access
+to the desktop/user D-Bus session; Codex forwards its non-secret
+`DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR` names when supplied. Launch other
+agents with that session available, and allow those variables if the agent filters
+its environment. For environment-mode connections, Codex uses `env_vars` to forward the selected variable;
 Claude, Gemini, Copilot and Kiro use `${VAR}`; Cursor, VS Code and Cline use `${env:VAR}`; and
 OpenCode uses `{env:VAR}` environment references. Gemini's explicit `env` entry
 also forwards the key through its inherited-environment sanitization. An unresolved
@@ -247,25 +320,8 @@ after setup or credential changes, check `/mcp` in Codex/Claude or Cursor's MCP
 settings, and approve/trust project settings if prompted. Higher-priority agent
 settings or organization policies may override or block these files.
 
-The no-secret-persistence contract covers files written by this CLI. Agents
-manage their own runtime storage; for example, Codex shell snapshots can capture
-the launch environment. Review your agent's environment/snapshot settings and
-protect its runtime directory when forwarding a project key.
-
-Init does not query documents or create collections/data. Connection success does
-not establish search readiness. Its result includes a read-only agent prompt:
-list collections, inspect the selected collection's index configuration, then
-read up to five documents at `branch:main` with `query` omitted before searching
-an actual indexed field. Without an agent, run `lambdadb collections list --json`,
-choose an existing collection, save `{"size":5}` in `first-query.json`, and run:
-
-```sh
-lambdadb collections describe --collection YOUR_COLLECTION --json
-lambdadb query --collection YOUR_COLLECTION --ref branch:main --file first-query.json --json
-```
-
-An empty project needs deliberately supplied data outside init. Empty results
-are not evidence of indexing failure or readiness.
+<details>
+<summary>Official agent documentation used for format checks</summary>
 
 Agent formats were checked against official documentation on 2026-10-24:
 [Codex MCP](https://developers.openai.com/codex/mcp),
@@ -292,9 +348,139 @@ Agent formats were checked against official documentation on 2026-10-24:
 Generated settings still require
 verification in the actual agent; local contract tests simulate that boundary.
 
-No command accepts a raw key argument. Configuration stores only `endpoint`,
-`project` and `apiKeyEnv`. Keys are read from the selected environment variable at
-runtime and are never persisted by this CLI. Environment variables are still
+</details>
+
+## Account and project management
+
+These commands use a saved account login, independently of project API-key
+configuration. They never prompt for missing arguments. `login` deliberately
+waits for browser approval and prints a URL usable on another device; it does not
+prompt on stdin. Use the same `--config` path throughout if overriding it.
+
+```sh
+lambdadb login --no-browser
+lambdadb orgs list --json
+lambdadb projects regions --json
+lambdadb projects list --org ORG_UUID --json
+lambdadb projects create --org ORG_UUID --name my-project --region REGION --json
+# For a new account with no Org, choose --default-org instead of --org.
+lambdadb projects list --org ORG_UUID --json  # wait until ACTIVE
+lambdadb projects use --org ORG_UUID --project-id PROJECT_UUID --issue-key
+lambdadb doctor
+# Later switches reuse a previously saved key without --issue-key:
+lambdadb projects use --org ORG_UUID --project-id PROJECT_UUID
+lambdadb logout
+```
+
+`create` requires exactly one of `--org UUID` or `--default-org`, plus `--name`
+and `--region`. Creation does not select the CLI default or install agents.
+`use` requires both IDs; first connection or deliberate key replacement requires
+`--issue-key` and owner/admin key-management permission. Saved project keys are
+reused without that flag. `projects use` changes only the CLI default: existing
+agent entries stay pinned until you rerun `init` and approve their file plan.
+Expired, missing or unreadable account credentials fail with login/unlock guidance;
+ordinary management commands never start browser login automatically.
+
+### Limits and failures
+
+The API-key environment path remains available without account login. Management
+requests do not follow redirects and never retry writes. `--timeout-ms` overrides
+`LAMBDADB_TIMEOUT_MS` (default `30000`, range 1–3600000 milliseconds). For account
+login, logout and project/Organization management, this limits each HTTP request,
+including its response body; sequential requests each receive a fresh budget.
+It does not limit time spent at prompts, the server-issued browser authorization
+window (up to 15 minutes), or project provisioning polling (up to 10 minutes).
+For data API commands such as `doctor`, `query` and `docs import`, it remains a
+shared command budget across sequential requests, retries and transfers. During
+`init --connect`, management uses per-request limits and the subsequent doctor
+check receives its own data API budget.
+A project-limit error includes `organization.max_projects`, `projects_count`,
+`can_upgrade`, and `billing_url` in JSON, plus the link in terminal diagnostics.
+A transport failure or HTTP 408/5xx response to a management mutation, or uncertain
+key delivery (including an incomplete successful issuance response) exits 5
+with `data.state: "unknown"`; inspect existing projects
+or the displayed named key in Console before explicitly retrying.
+
+### Session recovery
+
+Account metadata and the per-project connection cache live beside the resolved
+CLI config file as `.account.json` and `.connections.json` suffixes. They contain
+no secrets. The `.management.lock` suffix serializes local login/selection work;
+if a process was killed, confirm it is no longer running before removing its
+stale lock. `logout` needs the saved OS entry and server connectivity to confirm
+revocation; otherwise it retains metadata and fails with an actionable error.
+Undelivered/unavailable account sessions expire within seven days. Project keys
+have their existing lifetime; logout does not revoke them. Explicit replacement
+retains older project entries for agents still pinned to them; revoke unused keys
+in Console and remove their local reference deliberately.
+
+## Configuration and authentication
+
+### Environment-variable setup
+
+For an existing project or CI, obtain its endpoint, project name and API key from
+[LambdaDB Console](https://app.lambdadb.ai). No account login is required for this
+path. The endpoint is the API origin, such as `https://api.lambdadb.ai`, without
+`/projects/...`. HTTPS is required, except HTTP on localhost/127.0.0.1/::1 for
+local testing.
+
+```sh
+lambdadb configure --endpoint https://api.lambdadb.ai --project YOUR_DEV_PROJECT
+```
+
+Set `LAMBDADB_API_KEY` through your shell's secure input or your CI secret manager.
+For example, in Bash, this avoids putting the value into shell history:
+
+```bash
+read -r -s -p 'LambdaDB project API key: ' LAMBDADB_API_KEY
+printf '\n'
+export LAMBDADB_API_KEY
+```
+
+`init` never accepts a key value in a prompt or flag and never loads or writes
+`.env` files. Keep keys out of chat, shell history and source files.
+
+For development deployments, select the account API origin with
+`--api-url https://api-dev.lambdadb.ai`. Later login renewal reuses that saved
+origin unless explicitly overridden; the server supplies its configured Console
+URL. HTTPS is required except for loopback tests.
+
+### OS credential storage
+
+Account login and project credentials use separate OS credential-store namespaces.
+The opaque account session expires after seven days and is valid only for CLI
+management routes. It is never sent to MCP or agents, and is not a Console JWT or
+refresh token. Run `login` again to renew it; `logout` revokes it immediately and
+preserves project keys. Project settings and agent files contain only references.
+Use `--credential-store auto` (default),
+`keychain`, `windows`, `secret-service`, or `keyutils` to select an available OS
+backend. Linux auto selection tries Secret Service, then kernel keyutils for a
+new connection. Kernel storage is a cache: reboot/expiry may remove it. Existing
+references always use their recorded backend; failure never silently switches
+stores or issues another key. There is no plaintext-file fallback.
+
+To remove the current connection's local OS key, run `lambdadb credentials remove`.
+It leaves metadata and agent references intact and does **not** revoke the server
+key. Revoke unused keys in Console under Project API Keys, using the saved key
+name/ID. Explicit reconnection creates a fresh credential slot; it does not revoke
+or delete older slots that other agents might still use. If key delivery or local
+storage fails after approval, inspect the named `lambdadb-cli-...` key in Console
+and revoke it if unused before reconnecting. Requests are never blindly retried
+across an uncertain key-issuance response.
+
+The no-plaintext-secret-persistence contract covers CLI and agent configuration
+files. Browser setup deliberately persists the project key only in the selected
+OS store. Environment mode does not persist a key. Agents
+manage their own runtime storage; for example, Codex shell snapshots can capture
+the launch environment. Review your agent's environment/snapshot settings and
+protect its runtime directory when forwarding a project key.
+
+### Settings and precedence
+
+No command accepts a raw key argument. Environment-mode configuration stores `endpoint`,
+`project` and `apiKeyEnv`. Browser setup adds `credentialStore`, `credentialId`,
+`credentialKeyId` and `credentialKeyName`, all non-secret metadata. Keys are read
+from the selected environment variable or OS store at runtime. Environment variables are still
 accessible to the current process and appropriately privileged local processes;
 the CLI is not a secret vault. Avoid shell tracing around secret injection.
 
@@ -310,9 +496,9 @@ Use a CI secret manager instead of adding credentials to tracked files.
 | Endpoint | `--endpoint`, `LAMBDADB_ENDPOINT`, saved `endpoint` |
 | Project | `--project`, `LAMBDADB_PROJECT`, saved `project` |
 | Key variable name | `--api-key-env`, `LAMBDADB_API_KEY_ENV`, saved `apiKeyEnv`, `LAMBDADB_API_KEY` |
-| Key value | Value of the selected variable only; no fallback to another key |
+| Key value | Explicit `--api-key-env` / `LAMBDADB_API_KEY_ENV` selects environment mode; otherwise use a saved OS reference when present, else the selected variable. An explicit OS reference from generated agent arguments stays bound to its store. No automatic fallback on read failure. |
 | Config path | `--config`, `LAMBDADB_CONFIG`, default user path |
-| Network budget | `--timeout-ms`, `LAMBDADB_TIMEOUT_MS`, `30000` milliseconds |
+| Network timeout (scope above) | `--timeout-ms`, `LAMBDADB_TIMEOUT_MS`, `30000` milliseconds |
 
 There is no implicit endpoint, project, collection, branch or read ref. Explicit
 empty values fail validation instead of silently falling back. An explicitly
@@ -328,6 +514,8 @@ lambdadb configure --api-key-env MY_PROJECT_KEY
 lambdadb doctor --json
 ```
 
+### Check the connection with doctor
+
 `doctor` validates configuration and uses `listCollections({size: 1})` to check
 authentication and project collection-list access. Success does not prove write
 permissions, collection readiness, or search visibility. Failure provides a safe
@@ -336,12 +524,40 @@ error category and a recovery hint. SDK debug logging is disabled even when
 are not printed. The active key is redacted if echoed inside returned data.
 Other document data remains visible; redirect results to appropriate storage.
 
-## First-use flow
+## Query existing data
+
+Init does not query documents or create collections/data. Connection success does
+not establish search readiness. The setup result includes a read-only agent
+prompt. To inspect data directly, list collections and choose an existing
+collection:
+
+```sh
+lambdadb collections list --json
+lambdadb collections describe --collection YOUR_COLLECTION --json
+```
+
+Save `{"size":5}` in `first-query.json`, then read up to five documents:
+
+```sh
+lambdadb query --collection YOUR_COLLECTION --ref branch:main --file first-query.json --json
+```
+
+Omitting `query` reads sample documents. Inspect the index configuration before
+searching an actual indexed field.
+
+An empty project needs deliberately supplied data outside init. Empty results
+are not evidence of indexing failure or readiness.
+
+## Command examples
+
+The JSON files below are included in the package under `examples/`.
+
+### Try sample data in a development project
 
 Only run the following against a project explicitly designated for development.
-Configuration and the API key must already be supplied as above. Replace
-`cli-demo-docs` with a new, unique collection name. Each JSON example is included
-in this repository.
+Connect to the project first, then replace `cli-demo-docs` with a new, unique
+collection name. These commands create a collection and write sample documents;
+`init` does neither.
 
 ```sh
 lambdadb doctor
@@ -382,7 +598,11 @@ Both create and update take the index map itself through `--index-config`, not a
 full request body. Updates are subject to server index-change restrictions and
 return `state: "updated"`, `searchable: "not_verified"`; acceptance does not prove
 query readiness.
-SDK 0.7.0 accepts 49 fixed lowercase text analyzer presets:
+
+<details>
+<summary>Text analyzer presets</summary>
+
+The CLI accepts 49 fixed lowercase text analyzer presets:
 `standard`, `english`, `korean`, `japanese`, `chinese`, `cjk`, `arabic`,
 `french`, `german`, `hindi`, `indonesian`, `italian`, `portuguese`, `russian`,
 `spanish`, `turkish`, `armenian`, `basque`, `bengali`, `brazilian`, `bulgarian`,
@@ -397,6 +617,8 @@ are unsupported, and language detection is not automatic. The `keyword` text
 analyzer does not confer keyword field sorting/facets. Nepali/Tamil/Telugu are
 Lucene extensions, not common Elasticsearch/OpenSearch support. See the
 [SDK analyzer contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/models/analyzer.md).
+
+</details>
 
 ### Native embeddings and Bayesian search
 
@@ -649,6 +871,33 @@ npm bootstrap, Trusted Publishing and release checks. CI validates Node.js 22
 and 24 using local contracts and the same CLI contracts against an installed
 tarball.
 
+### Build from source
+
+Requires Node.js 22.14 or newer and npm. From a checkout of this repository:
+
+```sh
+npm ci
+npm run build
+node dist/cli.js --help
+```
+
+Run commands with `node dist/cli.js`, or install the built directory into a local
+prefix to use the `lambdadb` executable:
+
+```sh
+npm install --prefix "$HOME/.local" /absolute/path/to/lambdadb-cli
+export PATH="$HOME/.local/node_modules/.bin:$PATH"
+lambdadb --help
+```
+
+`npm start -- ...` also works for human use. For machine-readable stdout, invoke
+`node dist/cli.js ... --json` or the executable directly; npm may print banners.
+
+### Run checks
+
+This CLI uses `@functional-systems/lambdadb@0.8.1` for authentication, HTTP,
+read retries, pagination, bulk transfers and large response downloads.
+
 ```sh
 npm run lint
 npm run check:version
@@ -664,10 +913,13 @@ They do not contact a LambdaDB service. See [DESIGN.md](DESIGN.md) for contract
 decisions and [CONTRIBUTING.md](CONTRIBUTING.md#validation-scope) for validation
 methods and their limits.
 
-This MVP intentionally omits Branch/Tag/Alias management: default `main` supports
-first use, while reads can select existing refs. It also omits Console management,
-remote MCP, Git collection, chunking, embedding workflows, code-search logic, delete,
-plugins and publication. There are no changes to the SDK or reference repositories.
+### Scope and live validation
+
+The CLI supports account login and Org/project setup, plus project-scoped data
+commands. Billing, membership management and account deletion stay in Console.
+Branch/Tag/Alias management, remote MCP, Git collection, chunking, code-search
+workflows, data deletion and plugins are outside this CLI's current scope. Reads
+can select existing refs. This change does not modify the SDK or MCP package.
 
 Live verification requires an explicitly designated development project, endpoint
 and project key. Do not discover or borrow credentials from another repository.
