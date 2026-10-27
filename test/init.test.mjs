@@ -29,19 +29,28 @@ async function fixture(t, status = 200, onRequest) {
   const config = join(home, 'cli.json');
   const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')
     && !['XDG_CONFIG_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'GEMINI_CLI_HOME', 'VSCODE_PORTABLE', 'VSCODE_APPDATA', 'COPILOT_HOME', 'APPDATA', 'HOME', 'USERPROFILE'].includes(key)));
-  async function run(args, env = {}) {
-    const child = spawn(process.execPath, [cli, ...args], { cwd, env: {
+  async function run(args, env = {}, answers) {
+    const preload = join(root, 'interactive.mjs');
+    if (answers) await writeFile(preload, 'process.stdin.isTTY = true; process.stderr.isTTY = true;\n');
+    const child = spawn(process.execPath, [...(answers ? ['--import', preload] : []), cli, ...args], { cwd, env: {
       ...cleanEnv, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), APPDATA: join(home, 'AppData', 'Roaming'), LAMBDADB_CONFIG: config,
       LAMBDADB_ENDPOINT: endpoint, LAMBDADB_PROJECT: 'existing-project', CUSTOM_PROJECT_KEY: secret,
       LAMBDADB_API_KEY_ENV: 'CUSTOM_PROJECT_KEY', ...env,
-    }, stdio: ['ignore', 'pipe', 'pipe'] });
+    }, stdio: [answers ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => stdout += chunk);
-    child.stderr.on('data', chunk => stderr += chunk);
+    let answered = 0;
+    child.stderr.on('data', chunk => {
+      stderr += chunk;
+      if (answers && answered < answers.length && stderr.includes(answers[answered][0])) {
+        child.stdin.write(answers[answered++][1] + '\n');
+      }
+    });
     const timer = setTimeout(() => child.kill('SIGKILL'), 8000);
     const code = await new Promise((r, reject) => { child.once('error', reject); child.once('close', r); });
     clearTimeout(timer);
     assert.notEqual(code, null, `CLI stalled: ${stdout} ${stderr}`);
+    if (answers) assert.equal(answered, answers.length, stderr);
     assert.ok(!stdout.includes(secret) && !stderr.includes(secret), 'credential leaked to CLI output');
     return { code, stdout, stderr, data: args.includes('--json') && stdout ? JSON.parse(stdout) : undefined };
   }
@@ -624,4 +633,79 @@ test('MCP launcher maps the custom credential at runtime, overrides inherited wr
   result = await f.run(['mcp', '--invalid-option'], env);
   assert.equal(result.code, 2);
   assert.equal(result.stdout, '');
+});
+
+test('interactive first-use init offers account setup by default and can cancel before remote actions', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--no-browser'], { LAMBDADB_ENDPOINT: '', LAMBDADB_PROJECT: '' }, [
+    ['Choose a number', ''], ['Continue with account login', 'no'],
+  ]);
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /1\. Sign in and select or create a project/);
+  assert.doesNotMatch(result.stderr, /Project data API endpoint:/);
+  assert.equal(f.requests.length, 0);
+  await assert.rejects(readFile(f.config), { code: 'ENOENT' });
+});
+
+test('interactive init accepts an existing environment key without account login', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--agents', 'none', '--scope', 'project'], { LAMBDADB_ENDPOINT: '', LAMBDADB_PROJECT: '' }, [
+    ['Choose a number', '2'], ['Project data API endpoint', f.endpoint], ['Existing project name', 'existing-project'],
+    ['Environment variable holding your API key', ''], ['Enable MCP write tools?', ''],
+    ['Apply these changes', 'yes'],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(f.requests.length, 1);
+  assert.doesNotMatch(result.stderr, /Continue with account login/);
+  assert.equal(JSON.parse(await readFile(f.config, 'utf8')).apiKeyEnv, 'CUSTOM_PROJECT_KEY');
+});
+
+test('interactive reruns show the current project and safely reuse or select another project', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const before = await readFile(f.config, 'utf8');
+  const reused = await f.run(['init', '--agents', 'none', '--scope', 'project'], {}, [
+    ['Choose a number', '1'], ['Enable MCP write tools?', ''], ['Apply these changes', 'yes'],
+  ]);
+  assert.equal(reused.code, 0, reused.stderr);
+  assert.match(reused.stderr, /Current project: existing-project at http:/);
+  assert.match(reused.stderr, /Select or create another project/);
+  assert.doesNotMatch(reused.stderr, /Project data API endpoint:/);
+  assert.equal(await readFile(f.config, 'utf8'), before);
+  assert.equal(f.requests.length, 2);
+  const canceled = await f.run(['init'], {}, [['Choose a number', '2'], ['Continue with account login', 'no']]);
+  assert.equal(canceled.code, 2);
+  assert.equal(await readFile(f.config, 'utf8'), before);
+  assert.equal(f.requests.length, 2);
+  const invalid = await f.run(['init'], {}, [['Choose a number', 'browser']]);
+  assert.equal(invalid.code, 2);
+  assert.match(invalid.stderr, /Choose 1 or 2/);
+  assert.equal(f.requests.length, 2);
+});
+
+test('explicit interactive connection flags bypass account selection', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', '--agents', 'none', '--scope', 'project'], {}, [
+    ['Project data API endpoint', ''], ['Existing project name', ''], ['Environment variable holding your API key', ''],
+    ['Enable MCP write tools?', ''], ['Apply these changes', 'yes'],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stderr, /Choose a number/);
+  assert.equal(f.requests.length, 1);
+});
+
+test('help presents init without a connect flag and explains browser approval and agent scope', async t => {
+  const f = await fixture(t);
+  const help = await f.run(['init', '--help']);
+  assert.equal(help.code, 0);
+  assert.doesNotMatch(help.stdout, /--connect/);
+  assert.match(help.stdout, /Get started: lambdadb init/);
+  assert.match(help.stdout, /browser approval is still required/);
+  assert.match(help.stdout, /does not change CLI config/);
+  const global = await f.run(['--help']);
+  assert.match(global.stdout, /Advanced connection options:/);
+  assert.match(global.stdout, /Project data API origin/);
+  const login = await f.run(['login', '--help']);
+  assert.match(login.stdout, /sign in and approve/);
+  assert.equal(f.requests.length, 0);
 });

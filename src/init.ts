@@ -12,7 +12,7 @@ import { mcpPackage } from './mcp.js';
 import { mcpLaunch } from './agent-config.js';
 import { agentAdapters, agentNames, detectAgents, type Agent, type AgentAdapter, type AgentContext, type AgentScope } from './agents.js';
 
-type InitOptions = Options & { connect?: boolean; browser?: boolean; apiUrl?: string; nonInteractive?: boolean; agents?: string; scope?: string; writeTools?: boolean; json?: boolean };
+type InitOptions = Options & { browser?: boolean; apiUrl?: string; nonInteractive?: boolean; agents?: string; scope?: string; writeTools?: boolean; json?: boolean };
 type Change = { path: string; before: string | undefined; after: string; kind: string };
 type PlannedChange = Change & { destination: string; aliases: string[] };
 const version = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version as string;
@@ -114,6 +114,7 @@ export async function initialize(options: InitOptions, output: Output) {
   const detected = await detectAgents(context);
   const prompt = interactive ? createInterface({ input: process.stdin, output: process.stderr }) : undefined;
   let connectionSaved = false;
+  let accountSetup = false;
   const ask = async (label: string, fallback?: string) => {
     const cancellation = new AbortController();
     const cancel = () => cancellation.abort();
@@ -125,7 +126,7 @@ export async function initialize(options: InitOptions, output: Output) {
       const answer = (await prompt!.question(`${label}${fallback ? ` [${fallback}]` : ''}: `, { signal: cancellation.signal })).trim();
       return answer || fallback;
     } catch (error) {
-      if (cancellation.signal.aborted) throw new InputError((connectionSaved || options.connect) ? 'Init canceled. Completed login/project setup is retained. Rerun init to reuse a saved connection, or init --connect to resume project selection.' : 'Init canceled. No files were changed.');
+      if (cancellation.signal.aborted) throw new InputError((connectionSaved || accountSetup) ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.' : 'Init canceled. No files were changed.');
       throw error;
     } finally {
       prompt!.removeListener('SIGINT', cancel);
@@ -133,14 +134,22 @@ export async function initialize(options: InitOptions, output: Output) {
     }
   };
   try {
-    if (options.connect && (options.apiKeyEnv || options.credentialId || options.endpoint || options.project)) throw new InputError('--connect selects its project in the terminal after account login. Remove --endpoint, --project, --api-key-env and --credential-id, or use the existing-credential setup without --connect.');
-    if (options.connect && !interactive) throw new InputError('Browser authorization requires an interactive init session. For automation, use an existing OS credential reference or export a project key and pass --non-interactive --agents ... --scope ... --api-key-env NAME.');
     if (interactive) {
       let saved = await loadSettings(configPath(options));
-      if (!options.connect && !saved.credentialStore && !options.endpoint && !process.env.LAMBDADB_ENDPOINT && !saved.endpoint) {
-        options.connect = (await ask('Connect through Console (signup/login), or use an existing environment key? Enter browser or env', 'browser')) === 'browser';
+      let reuseConnection = false;
+      const explicitConnection = options.endpoint || options.project || options.apiKeyEnv || options.credentialId;
+      if (!explicitConnection) {
+        const currentEndpoint = process.env.LAMBDADB_ENDPOINT ?? saved.endpoint;
+        const currentProject = process.env.LAMBDADB_PROJECT ?? saved.project;
+        const reuse = !!currentEndpoint || !!saved.credentialStore;
+        const choice = await ask(reuse
+          ? `Current project: ${currentProject ?? '(not set)'} at ${currentEndpoint ?? '(not set)'}\n1. Continue with this connection\n2. Select or create another project through account login\nChoose a number`
+          : '1. Sign in and select or create a project (recommended)\n2. Use an existing project API key from an environment variable\nChoose a number', '1');
+        if (choice !== '1' && choice !== '2') throw new InputError('Choose 1 or 2. Rerun init to try again.');
+        accountSetup = reuse ? choice === '2' : choice === '1';
+        reuseConnection = reuse && choice === '1' && !!currentEndpoint && !!currentProject;
       }
-      if (options.connect) {
+      if (accountSetup) {
         const destination = await fileIdentity(configPath(options));
         output.diagnostic(`Will update ${destination}, ${destination}.account.json and ${destination}.connections.json. Secrets go only to the OS credential store. Agent settings are reviewed afterwards.`);
         if ((await ask('Continue with account login and terminal project setup? Type yes', 'no')) !== 'yes') throw new InputError('Init canceled.');
@@ -154,8 +163,8 @@ export async function initialize(options: InitOptions, output: Output) {
         saved = selected;
         connectionSaved = true;
       }
-      if (!saved.credentialStore || (options.apiKeyEnv && !options.credentialStore)) {
-        options.endpoint = await ask('API endpoint', options.endpoint ?? process.env.LAMBDADB_ENDPOINT ?? saved.endpoint);
+      if (!reuseConnection && (!saved.credentialStore || (options.apiKeyEnv && !options.credentialStore))) {
+        options.endpoint = await ask('Project data API endpoint', options.endpoint ?? process.env.LAMBDADB_ENDPOINT ?? saved.endpoint);
         options.project = await ask('Existing project name', options.project ?? process.env.LAMBDADB_PROJECT ?? saved.project);
         options.apiKeyEnv = await ask('Environment variable holding your API key (not its value)', options.apiKeyEnv ?? process.env.LAMBDADB_API_KEY_ENV ?? saved.apiKeyEnv ?? 'LAMBDADB_API_KEY');
         output.protect(options.apiKeyEnv ? process.env[options.apiKeyEnv] : undefined);
@@ -185,7 +194,7 @@ export async function initialize(options: InitOptions, output: Output) {
     for (const file of files) output.diagnostic(`${file.action}: ${[file.path, ...(file.aliases ?? [])].join(', ')}${file.destination ? ` -> ${file.destination}` : ''} — ${file.kind}`);
     output.diagnostic(`MCP: ${mcpPackage}; write tools ${options.writeTools ? 'enabled (explicit opt-in)' : 'disabled'}. ${selected.credentialStore ? `The bridge reads ${selected.credentialStore} using a non-secret reference.` : `Agents must inherit ${selected.apiKeyEnv}; only its name is stored.`}`);
     if (interactive && (await ask('Apply these changes after verifying collection-list access? Type yes', 'no')) !== 'yes') {
-      throw new InputError((connectionSaved || options.connect) ? 'Init canceled. Completed login/project setup is retained. Rerun init to reuse a saved connection, or init --connect to resume project selection.' : 'Init canceled. No files were changed.');
+      throw new InputError((connectionSaved || accountSetup) ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.' : 'Init canceled. No files were changed.');
     }
     const ctx = runtime(config);
     let connection;

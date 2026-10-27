@@ -104,17 +104,23 @@ for packaging and validation details.
 
 ### Connect or reuse a project
 
-On a first run, init offers browser setup or an existing environment-held key.
-Reruns reuse the saved connection. To select or create a project through account
-login, run `lambdadb init --connect`; previously saved project keys are reused.
+Run `lambdadb init` to start. On a first run, choose account login and terminal
+project setup (recommended), or an existing project API key supplied through an
+environment variable. A valid account login is reused.
+
+Reruns show the current project and offer to continue with that connection or
+select/create another project through account login. Saved project keys are
+reused; selecting another project does not silently replace a key.
 For SSH or a host without a visible browser, run:
 
 ```sh
-lambdadb init --connect --no-browser
+lambdadb init --no-browser
 ```
 
-Approve CLI Login in Console after Google/email signup or login. The printed URL
-and code also work in a browser on another device. Project selection and creation
+`--no-browser` only skips opening a browser on the CLI host; it does not skip
+authentication. When login is needed, open the printed URL in a browser on this
+or another device and approve CLI Login after Google/email signup or login.
+Compare the displayed code before approval. Project selection and creation
 continue in the terminal. A default Org is created only on first project
 submission. Pending invitations require a Console decision first; the survey is
 optional.
@@ -166,20 +172,22 @@ explicitly enables MCP write tools; omission disables them, including on reruns 
 `LAMBDADB_MCP_ENABLE_WRITE_TOOLS` environment variable is true.
 
 The global `--config`, `--endpoint`, `--project`, `--api-key-env`, and
-`--timeout-ms` flags apply to existing-credential setup. `--connect` instead
-chooses its target in the terminal after account login. It cannot be combined
-with explicit endpoint/project/key-reference flags and requires an interactive
-terminal. Non-interactive setup never starts browser authorization or requests
-a key. Non-TTY and `--json` runs require `--non-interactive`; missing choices,
-target or key fail with exit 2 and instructions, without prompting. This mode authorizes applying
-the displayed file plan; it does not silently select detected agents.
+`--timeout-ms` flags apply to existing-credential setup. Explicit endpoint,
+project, API-key environment name or credential-reference flags bypass the
+interactive connection-method picker and use that configuration. Without those
+flags, interactive init offers account-based project selection. Account setup
+requires an interactive terminal. Non-interactive setup never starts browser
+authorization or requests a key. Non-TTY and `--json` runs require
+`--non-interactive`; missing choices, target or key fail with exit 2 and
+instructions, without prompting. This mode authorizes applying the displayed
+file plan; it does not silently select detected agents.
 
 Cline's extension supports only user-scope MCP settings. Selecting `cline` with
 `--scope project` rejects agent installation; interactive setup offers user scope
 when Cline is selected. It never silently broadens the scope. A browser-approved
 connection may already be saved before agent choices are validated, as described
-under [files and safe reruns](#files-and-safe-reruns). Rerun without `--connect`
-to finish setup.
+under [files and safe reruns](#files-and-safe-reruns). Rerun `init` and choose to
+continue with the saved connection to finish setup.
 
 ### Files and safe reruns
 
@@ -369,7 +377,10 @@ verification in the actual agent; local contract tests simulate that boundary.
 These commands use a saved account login, independently of project API-key
 configuration. They never prompt for missing arguments. `login` deliberately
 waits for browser approval and prints a URL usable on another device; it does not
-prompt on stdin. Use the same `--config` path throughout if overriding it.
+prompt on stdin. It only signs in: project listing, creation and selection require
+explicit commands afterwards. Run `lambdadb init` instead for guided project and
+agent setup; it reuses a valid login. Use the same `--config` path throughout if
+overriding it.
 
 ```sh
 lambdadb login --no-browser
@@ -406,7 +417,7 @@ It does not limit time spent at prompts, the server-issued browser authorization
 window (up to 15 minutes), or project provisioning polling (up to 10 minutes).
 For data API commands such as `doctor`, `query` and `docs import`, it remains a
 shared command budget across sequential requests, retries and transfers. During
-`init --connect`, management uses per-request limits and the subsequent doctor
+account-based `init`, management uses per-request limits and the subsequent doctor
 check receives its own data API budget.
 A project-limit error includes `organization.max_projects`, `projects_count`,
 `can_upgrade`, and `billing_url` in JSON, plus the link in terminal diagnostics.

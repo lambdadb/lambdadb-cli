@@ -334,7 +334,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
       if (
         (await ask('After billing is updated, type retry to recheck limits, or cancel', 'cancel')) !== 'retry'
       )
-        throw new InputError('Rerun init --connect when ready. No project was created.');
+        throw new InputError('Rerun init and choose account-based project setup when ready. No project was created.');
       const id = org.id;
       orgs = await organizations(options, output);
       org = orgs.find((o) => o.id === id);
@@ -394,7 +394,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
     }
     if (project.status !== 'ACTIVE')
       throw new InputError(
-        'Provisioning is still pending. Rerun init --connect later and select the existing project.',
+        'Provisioning is still pending. Rerun init later, choose account-based project setup, and select the existing project.',
       );
     break;
   }

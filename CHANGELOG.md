@@ -4,7 +4,7 @@
 
 ### Added
 
-- Browser-approved `init --connect`, including another-device URLs for SSH, shared
+- Browser-approved `init`, including another-device URLs for SSH, shared
   Console signup/login, terminal project setup, bounded polling and explicit key issuance.
 - Separate OS-stored account login with seven-day expiry, immediate logout, and
   reusable `orgs list` / `projects list|regions|create|use` commands. Org-specific
@@ -17,6 +17,10 @@
   with `credentials remove` without revoking server keys.
 
 ### Maintenance
+
+- Remove the pre-release `init --connect` flag: plain `init` guides account setup
+  and offers connection reuse or another project on reruns. Clarify browser approval,
+  login next steps, agent scope and advanced connection options in help.
 
 - Pin published MCP `0.1.6-dev.21` on the development line for recent-write and
   agent guidance, including its SDK 0.10.0 integration. Keep credential forwarding

@@ -46,8 +46,10 @@ configured OS store is unlocked and accessible to the same user, or whether the
 selected environment variable is available. Do not silently reconnect or issue a
 new key. Kernel keyutils credentials can disappear after reboot/expiry without
 revoking the server key. `lambdadb doctor` verifies authentication and
-collection-list access only. The user can explicitly run `lambdadb init --connect`
-for Console signup/login and CLI approval, followed by terminal project selection.
+collection-list access only. The user can explicitly run `lambdadb init` and
+choose account-based project setup to reconnect through terminal project
+selection. A valid account login is reused; otherwise browser signup/login and
+CLI approval are required.
 
 MCP exposes read tools by default. Write tools require explicit setup opt-in;
 their availability does not authorize creating collections or changing data.

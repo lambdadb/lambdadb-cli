@@ -370,7 +370,7 @@ test('a demoted member can reuse a saved project key but cannot issue a replacem
 });
 
 // Run the real CLI and HTTP client; only OS credential access is simulated.
-async function cliFixture(t, handler) {
+async function cliFixture(t, handler, saveAllowed = false) {
   const { dir, config } = await directory(t);
   const fixture = await server(t, handler);
   await writeFile(`${config}.account.json`, JSON.stringify({ ...account(), apiUrl: fixture.url }));
@@ -380,18 +380,23 @@ async function cliFixture(t, handler) {
     CredentialVault.prototype.select = async () => 'keychain';
     CredentialVault.prototype.read = async () => 'synthetic-account-token';
     CredentialVault.prototype.remove = async () => {};
-    CredentialVault.prototype.save = async () => { throw Error('unexpected secret persistence'); };
+    CredentialVault.prototype.save = async () => { ${saveAllowed ? '' : "throw Error('unexpected secret persistence');"} };
+    if (process.env.LAMBDADB_TEST_INTERACTIVE) { process.stdin.isTTY = true; process.stderr.isTTY = true; }
   `);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')));
   return {
     ...fixture, config,
-    async run(args, extra = {}) {
-      const child = spawn(process.execPath, ['--import', preload, bin, ...args, '--config', config, '--json'], {
-        env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'],
+    async run(args, extra = {}, answers) {
+      const child = spawn(process.execPath, ['--import', preload, bin, ...args, '--config', config, ...(answers ? [] : ['--json'])], {
+        env: { ...env, ...extra, ...(answers ? { LAMBDADB_TEST_INTERACTIVE: 'true' } : {}) }, stdio: [answers ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       });
       let stdout = '', stderr = '';
       child.stdout.on('data', (c) => (stdout += c));
-      child.stderr.on('data', (c) => (stderr += c));
+      let answered = 0;
+      child.stderr.on('data', (c) => {
+        stderr += c;
+        if (answers && answered < answers.length && stderr.includes(answers[answered][0])) child.stdin.write(answers[answered++][1] + '\n');
+      });
       const timer = setTimeout(() => child.kill(), 5000);
       try {
         const code = await new Promise((resolve, reject) => {
@@ -400,7 +405,8 @@ async function cliFixture(t, handler) {
         });
         assert.ok(!stdout.includes('synthetic-account-token'));
         assert.ok(!stderr.includes('synthetic-account-token'));
-        return { code, value: JSON.parse(stdout), stderr };
+        if (answers) assert.equal(answered, answers.length, stderr);
+        return { code, value: answers ? undefined : JSON.parse(stdout), stderr };
       } finally { clearTimeout(timer); }
     },
   };
@@ -540,4 +546,35 @@ test('actual CLI: a bodyless connect conflict retains uncertain issuance', async
   assert.equal(result.value.error.httpStatus, 409);
   assert.ok(JSON.parse(await readFile(`${fixture.config}.connections.json`, 'utf8'))[0].pendingKeyName);
   assert.equal(fixture.calls.filter((c) => c.path.endsWith('/connect')).length, 1);
+});
+
+test('actual CLI: plain init enters account project setup and reuses a valid login', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 0 }] }));
+    assert.ok(call.path.endsWith('/projects'));
+    res.end(JSON.stringify({ projects: [] }));
+  });
+  const result = await fixture.run(['init', '--no-browser'], {}, [
+    ['Choose a number', '1'], ['Continue with account login', 'yes'],
+    ['Organization', '1'], ['Enter use for an existing project', 'cancel'],
+  ]);
+  assert.equal(result.code, 2);
+  assert.deepEqual(fixture.calls.map(c => c.path), ['/auth/cli/organizations', '/auth/cli/projects']);
+  await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
+});
+
+test('actual CLI: login only saves account access and guides explicit next commands', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path === '/auth/device/login') return res.end(JSON.stringify({ device_code: 'c'.repeat(64), user_code: 'ABCDE-FG234', verification_uri: 'https://console.example.com/auth/cli', expires_in: 15, interval: 1 }));
+    assert.equal(call.path, '/auth/device/token');
+    res.end(JSON.stringify({ account: { session_token: 'b'.repeat(64), member_id: first, email: 'synthetic@example.com', expires_at: new Date(Date.now() + 3600000).toISOString(), console_url: 'https://console.example.com' } }));
+  }, true);
+  await rm(`${fixture.config}.account.json`);
+  const result = await fixture.run(['login', '--no-browser', '--api-url', fixture.url]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /lambdadb init for guided project and agent setup/);
+  assert.match(result.stderr, /lambdadb orgs list/);
+  assert.equal(fixture.calls.length, 2);
+  assert.ok(!result.stderr.includes('b'.repeat(64)));
+  await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
 });
