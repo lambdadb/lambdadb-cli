@@ -95,6 +95,7 @@ export function formatUsage(data: Usage): string {
         lines.push(`${r}: ${used} / ${limit} ${unit}${percent}${m.exceeded ? ' — limit exceeded' : ''}`);
       }
     }
+    if (data.projects.length) lines.push('Based on recorded usage; recent activity may not be aggregated yet.');
   } else if (data.cost) {
     const c = data.cost;
     lines.push(`\nUsage period: ${c.from} to ${c.to} (exclusive, UTC; current bucket may still fill)`);
