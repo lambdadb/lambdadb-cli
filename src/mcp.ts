@@ -2,8 +2,8 @@ import { spawn } from 'node:child_process';
 import type { Config } from './config.js';
 import { InputError } from './errors.js';
 
-// Stable stdio package; this CLI only adapts credentials and process lifecycle.
-export const mcpPackage = '@functional-systems/lambdadb-mcp@0.1.5';
+// Exact stdio package; this CLI only adapts credentials and process lifecycle.
+export const mcpPackage = '@functional-systems/lambdadb-mcp@0.1.6-dev.21';
 
 export function mcpEnvironment(config: Config, writeTools: boolean): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
