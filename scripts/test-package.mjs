@@ -21,6 +21,7 @@ try {
   assert.equal(inventory.version, pkg.version);
   assert.ok(inventory.files.some(file => file.path === 'dist/cli.js'));
   assert.ok(inventory.files.some(file => file.path === 'skills/lambdadb/SKILL.md'));
+  assert.ok(inventory.files.some(file => file.path === 'skills/lambdadb/references/usage.md'));
   for (const file of inventory.files) {
     assert.ok(!/(^|\/)(\.env(?:\..*)?|\.github|test|node_modules|scripts)(\/|$)/.test(file.path), `Unexpected package file: ${file.path}`);
   }

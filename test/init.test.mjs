@@ -91,6 +91,9 @@ test('init preserves unrelated TOML/JSONC, forwards environment names, installs 
     const skill = await readFile(join(f.cwd, directory, 'skills/lambdadb/SKILL.md'), 'utf8');
     assert.match(skill, /^---\nname: lambdadb\n/);
     assert.ok(!skill.includes(secret));
+    const reference = await readFile(join(f.cwd, directory, 'skills/lambdadb/references/usage.md'), 'utf8');
+    assert.equal(reference, await readFile(new URL('../skills/lambdadb/references/usage.md', import.meta.url), 'utf8'));
+    assert.ok(!reference.includes(secret));
   }
   result = await f.run(f.init());
   assert.equal(result.code, 0);
@@ -122,8 +125,26 @@ test('user scope honors CODEX_HOME and preserves existing skill and unrelated Cl
   assert.equal(result.code, 0, result.stderr);
   assert.match(await readFile(join(codexHome, 'config.toml'), 'utf8'), /mcp_servers.lambdadb/);
   assert.equal(await readFile(skillPath, 'utf8'), 'User-maintained LambdaDB skill\n');
+  await assert.rejects(readFile(join(dirname(skillPath), 'references/usage.md')), { code: 'ENOENT' });
   assert.deepEqual(JSON.parse(await readFile(join(f.home, '.claude.json'), 'utf8')).account, { id: 'preserved' });
   assert.ok(result.data.data.files.every(file => !file.path.startsWith(f.cwd)));
+});
+
+test('skill references preserve user edits and missing bundled references are restored safely', async t => {
+  const f = await fixture(t);
+  const reference = join(await realpath(f.cwd), '.agents/skills/lambdadb/references/usage.md');
+  assert.equal((await f.run(f.init('codex'))).code, 0);
+  const bundled = await readFile(reference, 'utf8');
+  await f.file(reference, 'User-maintained usage notes\n');
+  let result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(reference, 'utf8'), 'User-maintained usage notes\n');
+  assert.equal(result.data.data.files.find(file => file.path === reference).action, 'unchanged');
+  await rm(reference);
+  result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(reference, 'utf8'), bundled);
+  assert.equal(result.data.data.files.find(file => file.path === reference).action, 'create');
 });
 
 test('additional agents preserve configuration, credentials and reruns in their supported scopes', async t => {
@@ -159,7 +180,7 @@ test('additional agents preserve configuration, credentials and reruns in their 
         await f.file(c.path, `${['cline', 'copilot'].includes(agent) ? '' : '// Keep this comment\n'}${JSON.stringify(original, null, 2)}\n`);
         let result = await f.run(f.init(agent, scope));
         assert.equal(result.code, 0, result.stderr);
-        assert.equal(result.data.data.files.length, 3);
+        assert.equal(result.data.data.files.length, 4);
         const text = await readFile(c.path, 'utf8');
         const value = jsonc(text);
         const server = value[c.map].lambdadb;
@@ -173,6 +194,8 @@ test('additional agents preserve configuration, credentials and reruns in their 
         assert.deepEqual(args.slice(2), ['mcp', '--endpoint', f.endpoint, '--project', 'existing-project', '--api-key-env', 'CUSTOM_PROJECT_KEY']);
         assert.equal(server.type, ['gemini', 'kiro'].includes(agent) ? undefined : agent === 'opencode' ? 'local' : 'stdio');
         assert.match(await readFile(c.skill, 'utf8'), /name: lambdadb/);
+        assert.equal(await readFile(join(dirname(c.skill), 'references/usage.md'), 'utf8'),
+          await readFile(new URL('../skills/lambdadb/references/usage.md', import.meta.url), 'utf8'));
         result = await f.run(f.init(agent, scope));
         assert.equal(result.code, 0, result.stderr);
         assert.ok(result.data.data.files.every(file => file.action === 'unchanged'));
@@ -204,7 +227,7 @@ test('all six agents can be installed together with separate skill paths', async
   const result = await f.run(f.init(names));
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(result.data.data.agents, names.split(','));
-  assert.equal(result.data.data.files.length, 13);
+  assert.equal(result.data.data.files.length, 19);
   assert.equal(f.requests.length, 1);
 });
 
@@ -214,9 +237,12 @@ test('all nine agents install together at user scope, sharing the Copilot and VS
   let result = await f.run(f.init(names, 'user'));
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(result.data.data.agents, names.split(','));
-  assert.equal(result.data.data.files.length, 18);
+  assert.equal(result.data.data.files.length, 26);
   const shared = result.data.data.files.find(file => file.path === join(f.home, '.copilot', 'skills', 'lambdadb', 'SKILL.md'));
   assert.match(shared.kind, /vscode skill.*copilot skill/);
+  const sharedReference = result.data.data.files.filter(file => file.path === join(dirname(shared.path), 'references/usage.md'));
+  assert.equal(sharedReference.length, 1);
+  assert.match(sharedReference[0].kind, /vscode skill reference.*copilot skill reference/);
   assert.equal(f.requests.length, 1);
   result = await f.run(f.init(names, 'user'));
   assert.equal(result.code, 0, result.stderr);
@@ -227,7 +253,7 @@ test('Claude and Copilot share a project MCP file and VS Code and Copilot share 
   const f = await fixture(t);
   let result = await f.run(f.init('claude,vscode,copilot'));
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(result.data.data.files.length, 5);
+  assert.equal(result.data.data.files.length, 7);
   const sharedMcp = result.data.data.files.find(file => basename(file.path) === '.mcp.json');
   assert.match(sharedMcp.kind, /claude MCP.*copilot MCP/);
   const text = await readFile(sharedMcp.path, 'utf8');
@@ -254,7 +280,7 @@ test('shared MCP symlinks and CLI settings symlinks retain their targets across 
   await symlink(cliTarget, f.config);
   let result = await f.run(f.init('gemini,kiro'));
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(result.data.data.files.length, 4, 'shared MCP target must be planned only once');
+  assert.equal(result.data.data.files.length, 6, 'shared MCP target must be planned only once');
   assert.equal(result.data.data.files.find(file => file.path === gemini).destination, await realpath(shared));
   assert.deepEqual(result.data.data.files.find(file => file.path === gemini).aliases, [kiro]);
   assert.match(result.stderr, / -> .*shared-mcp.json/);
