@@ -10,9 +10,10 @@ import {
   withManagementLock,
   writeMetadata,
   type AccountOptions,
+  type Account,
   type Organization,
 } from './account.js';
-import { configPath, endpoint, fileIdentity, saveSettings, type SelectedSettings } from './config.js';
+import { configPath, endpoint, fileIdentity, saveSettings, settings, type SelectedSettings } from './config.js';
 import { CredentialVault, credentialReference } from './credentials.js';
 import { openBrowser, projectAuthorization } from './device-auth.js';
 import { InputError, ManagementError } from './errors.js';
@@ -64,12 +65,12 @@ async function listProjects(api: Awaited<ReturnType<typeof management>>, org: st
 }
 export async function createProject(
   options: AccountOptions,
-  input: { org?: string; defaultOrg?: boolean; name: string; region: string },
+  input: { orgId?: string; defaultOrg?: boolean; name: string; region: string },
   output: Output,
 ) {
-  if (!!input.org === !!input.defaultOrg)
-    throw new InputError('Choose exactly one of --org UUID or --default-org.');
-  if (input.org) uuid(input.org, 'Organization');
+  if (!!input.orgId === !!input.defaultOrg)
+    throw new InputError('Choose exactly one of --org-id UUID or --default-org.');
+  if (input.orgId) uuid(input.orgId, 'Organization');
   if (!/^[a-zA-Z0-9_-]{3,45}$/.test(input.name) || !input.region)
     throw new InputError(
       'Project name must contain 3–45 letters, digits, underscores or hyphens; --region is required.',
@@ -84,7 +85,7 @@ export async function createProject(
       region: input.region,
       default_organization: !!input.defaultOrg,
     },
-    input.org,
+    input.orgId,
   );
   try {
     uuid(result.id as string, 'Created project');
@@ -163,6 +164,17 @@ async function connections(options: AccountOptions) {
   }
   return { path, before, items };
 }
+export async function connectedProject(options: AccountOptions, account: Account) {
+  const hint = 'Cannot identify the current project for usage. Run init to select a project, or pass --org-id UUID for Org usage and optionally --project-id UUID. Usage requires account login, not a project key.';
+  let selected: SelectedSettings;
+  try { selected = await settings(options, true); } catch { throw new InputError(hint); }
+  if (!selected.credentialId) throw new InputError(hint);
+  const matches = (await connections(options)).items.filter(c => c.account === `${account.apiUrl}/${account.memberId}` && c.settings && c.settings.credentialId === selected.credentialId && c.settings.endpoint === selected.endpoint && c.settings.project === selected.project);
+  const match = matches.length === 1 ? matches[0] : undefined;
+  if (!match) throw new InputError(hint);
+  return { org: match.org, projectId: match.projectId };
+}
+
 export async function useProject(
   options: AccountOptions,
   org: string,
@@ -207,7 +219,7 @@ export async function useProject(
         );
       if (!issueKey)
         throw new InputError(
-          `No reusable connection. ${item?.pendingKeyName ? `Inspect/revoke ${item.pendingKeyName} in Console first. ` : ''}Run projects use --org ${org} --project-id ${projectId} --issue-key to explicitly issue a project key.`,
+          `No reusable connection. ${item?.pendingKeyName ? `Inspect/revoke ${item.pendingKeyName} in Console first. ` : ''}Run projects use --org-id ${org} --project-id ${projectId} --issue-key to explicitly issue a project key.`,
         );
       const store = await vault.select(options.credentialStore ?? api.account.credentialStore);
       output.diagnostic(
@@ -375,7 +387,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
       throw new InputError('No project was requested.');
     const created = await createProject(
       options,
-      { org: org?.id, defaultOrg: !org, name: name ?? '', region: region.region },
+      { orgId: org?.id, defaultOrg: !org, name: name ?? '', region: region.region },
       output,
     );
     project = created;

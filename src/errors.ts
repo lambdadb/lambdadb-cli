@@ -22,6 +22,10 @@ export function describeError(error: unknown): SafeError {
       hint = `Use an existing project, or review ${organization.billing_url}. Only the owner can activate billing. Recheck server limits afterwards.`;
     } else if (error.status === 401) {
       hint = 'Run lambdadb login again. Project keys are unaffected.';
+    } else if (error.code === 'usage_request_failed') {
+      hint = error.status === 404 ? 'This Backend does not support CLI usage yet; deploy the matching Backend version.'
+        : error.status === 403 ? 'Verify Org/project membership. Pay-As-You-Go cost estimates require an owner or admin.'
+        : 'Check Backend availability, the UTC month and Org/project IDs. Free exposes only the current quota window. No writes or automatic retries were made.';
     } else if (error.code === 'project_limit_reached') {
       hint = 'Use an existing project, or review the indicated Organization billing link. Only the owner can activate billing. Recheck server limits afterwards.';
     } else if (error.details?.invitation_id) {

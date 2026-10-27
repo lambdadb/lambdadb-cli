@@ -61,6 +61,7 @@ async function server(t, handler) {
       path: req.url,
       method: req.method,
       auth: req.headers.authorization,
+      orgId: req.headers['x-organization-id'],
       body: body ? JSON.parse(body) : undefined,
     };
     calls.push(call);
@@ -314,7 +315,7 @@ for (const args of [
   ['projects', 'list'],
   ['projects', 'create', '--name', 'test'],
   ['projects', 'create', '--name', 'test', '--region', 'test'],
-  ['projects', 'use', '--org', org],
+  ['projects', 'use', '--org-id', org],
   ['orgs', 'list'],
 ]) {
   test(`non-interactive ${args.join(' ')} fails promptly with actionable input/login errors`, async (t) => {
@@ -428,7 +429,7 @@ for (const scenario of [
       res.statusCode = scenario.status;
       res.end(JSON.stringify(scenario.body));
     });
-    const args = ['projects', 'use', '--org', org, '--project-id', first];
+    const args = ['projects', 'use', '--org-id', org, '--project-id', first];
     const result = await fixture.run([...args, '--issue-key']);
     assert.equal(result.code, scenario.exit);
     assert.equal(result.value.data?.state, scenario.exit === 5 ? 'unknown' : undefined);
@@ -498,7 +499,7 @@ test('actual CLI: sequential management requests each receive a fresh timeout bu
     assert.ok(call.path.endsWith('/organizations'));
     res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
   });
-  const result = await fixture.run(['projects', 'use', '--org', org, '--project-id', first, '--timeout-ms', '500']);
+  const result = await fixture.run(['projects', 'use', '--org-id', org, '--project-id', first, '--timeout-ms', '500']);
   assert.equal(result.code, 2);
   assert.match(result.value.error.message, /--issue-key/);
   assert.equal(fixture.calls.length, 2);
@@ -540,7 +541,7 @@ test('actual CLI: a bodyless connect conflict retains uncertain issuance', async
     res.statusCode = 409;
     res.end();
   });
-  const result = await fixture.run(['projects', 'use', '--org', org, '--project-id', first, '--issue-key']);
+  const result = await fixture.run(['projects', 'use', '--org-id', org, '--project-id', first, '--issue-key']);
   assert.equal(result.code, 5);
   assert.equal(result.value.data.state, 'unknown');
   assert.equal(result.value.error.httpStatus, 409);
@@ -577,4 +578,23 @@ test('actual CLI: login only saves account access and guides explicit next comma
   assert.equal(fixture.calls.length, 2);
   assert.ok(!result.stderr.includes('b'.repeat(64)));
   await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
+});
+
+test('actual CLI: Org UUID selectors use --org-id for project listing and creation', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    assert.equal(call.path, '/auth/cli/projects');
+    assert.equal(call.orgId, org);
+    if (call.method === 'GET') return res.end(JSON.stringify({ projects: [{ id: first, organization_id: org, name: 'demo', status: 'ACTIVE' }] }));
+    assert.equal(call.method, 'POST');
+    assert.deepEqual(call.body, { name: 'demo', cloud_provider: 'aws', region: 'ap-northeast-2', default_organization: false });
+    res.end(JSON.stringify({ id: first, organization_id: org, status: 'CREATING' }));
+  });
+  assert.equal((await fixture.run(['projects', 'list', '--org-id', org])).code, 0);
+  assert.equal((await fixture.run(['projects', 'create', '--org-id', org, '--name', 'demo', '--region', 'ap-northeast-2'])).code, 0);
+  assert.equal(fixture.calls.length, 2);
+  for (const flags of [
+    ['projects', 'list', '--org', org],
+    ['projects', 'create', '--org-id', org, '--default-org', '--name', 'demo', '--region', 'ap-northeast-2'],
+  ]) assert.equal((await fixture.run(flags)).code, 2);
+  assert.equal(fixture.calls.length, 2);
 });

@@ -151,6 +151,8 @@ CLI arguments/configuration → input validation → SDK facade → LambdaDB API
   atomic non-secret settings writes.
 - `credentials.ts`: explicit native OS store selection and verified credential writes.
 - `device-auth.ts`: bounded control-plane device authorization; never retries uncertain issuance.
+- `usage.ts`: read-only account-authenticated quota/cost reporting; preserve exact
+  Backend decimal strings, missing values and per-request timeout semantics.
 - `account.ts`: isolated OS account sessions, bounded management requests and local metadata locking.
 - `projects.ts`: terminal Org/project setup, current-limit guidance and cached project selection.
 - `input.ts`: bounded file snapshots, strict request preflight, SDK serializer
