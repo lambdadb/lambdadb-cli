@@ -427,8 +427,12 @@ that contributed usage during the selected period.
 
 - **Free:** current per-project read/write/storage bytes and inference LIU,
   reported limits, usage percentages, exceeded state, quota period/window start
-  and last update. No price conversion is shown. Missing data is unavailable,
-  not zero; percentages are omitted for missing or zero limits. The API does not
+  and last update. No price conversion is shown. Backend returns zero for a
+  configured counter with no recorded usage history after a successful lookup.
+  Other missing counters remain unavailable; the CLI never replaces an absent
+  value with zero. Zero recorded usage does not confirm that recent activity has
+  been aggregated. Missing update/window timestamps remain unavailable, and
+  percentages are omitted for missing or zero limits. The API does not
   supply the next reset instant, so the CLI does not invent it.
 - **Pay-As-You-Go:** recorded read/write bytes, storage byte-hours and inference
   LIU, with per-item and total USD list-rate estimates. This view requires an

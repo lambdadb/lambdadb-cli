@@ -78,6 +78,26 @@ test('usage resolves the saved account/project and renders Free quotas without p
   assert.equal(json.value.data.cost, undefined);
 });
 
+test('Free zero recorded usage does not invent timestamps or replace unknown counters', async t => {
+  const response = structuredClone(free);
+  response.projects[0].quota = { period: 'monthly', read: { used: 0, limit: 100 }, write: { used: 0, limit: 200 }, storage: { used: 0, limit: 300 }, inference: { limit: 400 } };
+  const f = await fixture(t, response);
+  const human = await f.run();
+  assert.equal(human.code, 0, human.stdout);
+  assert.match(human.stdout, /read: 0 \/ 100 bytes \(0.0%\)/);
+  assert.match(human.stdout, /inference: unavailable \/ 400 LIU/);
+  assert.match(human.stdout, /window starts: unavailable; updated: unavailable/);
+  assert.match(human.stdout, /Based on recorded usage; recent activity may not be aggregated yet/);
+  const json = await f.run(['--json']);
+  assert.equal(json.code, 0, json.stdout);
+  const actual = json.value.data.projects[0].quota;
+  assert.equal(actual.read.used, 0);
+  assert.equal(actual.inference.used, undefined);
+  assert.equal(actual.read.exceeded, undefined);
+  assert.equal(actual.window_start_at, undefined);
+  assert.equal(actual.updated_at, undefined);
+});
+
 test('paid usage preserves exact decimals, partial prices and explicit Org scope', async t => {
   const f = await fixture(t, paid);
   const result = await f.run(['--org-id', org, '--month', '2026-10', '--json']);
