@@ -71,7 +71,7 @@ export class CredentialVault {
       return secret;
     } catch {
       throw new InputError(
-        `Cannot read the saved ${target.credentialStore} credential. Unlock the store or restore the same OS user session. Kernel keys can expire or disappear after reboot. No new key was issued. Reconnect explicitly with init --connect, or use --api-key-env NAME. Review existing CLI keys in Console before reconnecting.`,
+        `Cannot read the saved ${target.credentialStore} credential. Unlock the store or restore the same OS user session. Kernel keys can expire or disappear after reboot. No new key was issued. Reconnect explicitly with init and select another project, or use --api-key-env NAME. Review existing CLI keys in Console before reconnecting.`,
       );
     }
   }

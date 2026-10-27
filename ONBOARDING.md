@@ -251,10 +251,13 @@ setup. Existing manual Console key setup remains supported during rollout.
   Save/readback must match. Settings retain store, entry UUID, key ID and key name.
   Existing slots are never overwritten or silently migrated. `credentials remove`
   deletes the current local entry without revoking the server key.
-- `init --connect` resumes terminal Org/project selection using a saved login
+- `init` guides terminal Org/project selection using a saved login
   and reuses per-project keys. Issuing a new or replacement key is explicit.
-  On a first run, interactive init offers browser or environment setup. SSH uses `--no-browser`; automation uses
-  existing credentials with `--non-interactive --agents ... --scope ...`.
+  On a first run, interactive init offers account login or an existing environment
+  key. Reruns offer the current connection or another project; explicit target/key
+  flags use the supplied configuration without the picker. SSH uses `--no-browser`;
+  browser approval is still required on this or another device when login is needed.
+  Automation uses existing credentials with `--non-interactive --agents ... --scope ...`.
 - Browser setup previews the CLI settings path/store and saves a successfully
   delivered connection before doctor/agent installation. This intentionally lets
   a failed doctor or agent install resume without issuing another key. Agent file

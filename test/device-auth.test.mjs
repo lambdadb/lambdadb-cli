@@ -82,7 +82,7 @@ test('uncertain account redemption is never automatically retried', async (t) =>
   assert.equal(fixture.calls.filter((call) => call.path.endsWith('/token')).length, 1);
 });
 
-test('non-interactive init refuses browser authorization before any remote action', async () => {
+test('removed init --connect is rejected instead of starting authorization', async () => {
   const child = spawn(
     process.execPath,
     [
@@ -103,5 +103,5 @@ test('non-interactive init refuses browser authorization before any remote actio
   child.stderr.resume();
   const code = await new Promise((resolve) => child.on('close', resolve));
   assert.equal(code, 2);
-  assert.match(JSON.parse(stdout).error.message, /requires an interactive init session/);
+  assert.match(JSON.parse(stdout).error.message, /Invalid or incomplete command/);
 });
