@@ -18,6 +18,9 @@
 
 ### Maintenance
 
+- Pin published MCP `0.1.6-dev.21` on the development line for recent-write and
+  agent guidance, including its SDK 0.10.0 integration. Keep credential forwarding
+  and explicit write-tool opt-in unchanged; stable promotion needs a stable MCP pin.
 - Prevent inherited npm exec package/command selectors from changing the nested
   MCP launch, including when the CLI is invoked through `npx --package`.
 

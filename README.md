@@ -304,7 +304,10 @@ use different configuration locations and are outside this adapter's scope.
 ### MCP launch and credential forwarding
 
 Agent settings launch `npx -y @functional-systems/lambdadb-cli@<installed-version> mcp`,
-which runs the existing `@functional-systems/lambdadb-mcp@0.1.5` stdio package.
+which runs the exact `@functional-systems/lambdadb-mcp@0.1.6-dev.21` stdio package.
+This development checkout deliberately pins a published MCP prerelease with the
+updated agent guidance and SDK 0.10.0. Stable CLI promotion requires a reviewed
+stable MCP pin; this change does not move either package's npm `latest` tag.
 No npx cache path is saved. The exact CLI version must be published before an
 agent can fetch it; a source checkout/unpublished tarball alone does not provide
 that registry version. Node/npm and `npx` must be on the agent's PATH; first launch
