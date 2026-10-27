@@ -80,11 +80,11 @@ test('usage resolves the saved account/project and renders Free quotas without p
 
 test('paid usage preserves exact decimals, partial prices and explicit Org scope', async t => {
   const f = await fixture(t, paid);
-  const result = await f.run(['--org', org, '--month', '2026-10', '--json']);
+  const result = await f.run(['--org-id', org, '--month', '2026-10', '--json']);
   assert.equal(result.code, 0, result.stdout);
   assert.deepEqual(result.value.data.cost, { ...cost, from: '2026-10-01T00:00:00.000Z', to: '2026-10-28T00:00:00.000Z' });
   assert.equal(f.calls[0].url, '/auth/cli/usage?month=2026-10');
-  const human = await f.run(['--org', org]);
+  const human = await f.run(['--org-id', org]);
   assert.match(human.stdout, /Partial priced subtotal: \$0.300000000000000003/);
   assert.match(human.stdout, /inference: unavailable LIU — cost unavailable/);
   assert.match(human.stdout, /not a month-end forecast or invoice/);
@@ -92,7 +92,7 @@ test('paid usage preserves exact decimals, partial prices and explicit Org scope
 
 test('invalid usage inputs fail before requests and never start interactive auth', async t => {
   const f = await fixture(t);
-  for (const flags of [['--month', '2026-13'], ['--org', 'bad'], ['--project-id', project]]) {
+  for (const flags of [['--org', org], ['--month', '2026-13'], ['--org-id', 'bad'], ['--project-id', project]]) {
     const result = await f.run([...flags, '--json']);
     assert.equal(result.code, 2); assert.equal(f.calls.length, 0);
   }
@@ -106,9 +106,9 @@ test('environment connections and stale saved identities require an explicit Org
   for (const settings of [{ endpoint: f.settings.endpoint, project: 'demo', apiKeyEnv: 'LAMBDADB_API_KEY' }, { ...f.settings, project: 'different' }]) {
     await writeFile(f.config, JSON.stringify(settings));
     const result = await f.run(['--json']);
-    assert.equal(result.code, 2); assert.match(result.value.error.message, /--org UUID/); assert.equal(f.calls.length, 0);
+    assert.equal(result.code, 2); assert.match(result.value.error.message, /--org-id UUID/); assert.equal(f.calls.length, 0);
   }
-  assert.equal((await f.run(['--org', org, '--json'])).code, 0);
+  assert.equal((await f.run(['--org-id', org, '--json'])).code, 0);
 });
 
 test('unsafe or mismatched usage responses are rejected without inventing zero usage', async t => {
@@ -119,18 +119,18 @@ test('unsafe or mismatched usage responses are rejected without inventing zero u
     { ...paid, cost: { ...cost, total_usd: null } },
   ]) {
     const f = await fixture(t, bad);
-    assert.equal((await f.run(['--org', org, '--json'])).code, 2);
+    assert.equal((await f.run(['--org-id', org, '--json'])).code, 2);
   }
 });
 
 test('usage access, compatibility and timeout errors retain request-failure semantics with actionable hints', async t => {
   for (const [status, hint] of [[403, /owner or admin/], [404, /matching Backend/]]) {
     const f = await fixture(t, { error: 'hidden-server-detail' }, status);
-    const result = await f.run(['--org', org, '--json']);
+    const result = await f.run(['--org-id', org, '--json']);
     assert.equal(result.code, 3); assert.equal(result.value.error.httpStatus, status); assert.match(result.value.error.hint, hint);
     assert.ok(!result.stdout.includes('hidden-server-detail')); assert.equal(f.calls.length, 1);
   }
   const f = await fixture(t, free, 200, 400);
-  const result = await f.run(['--org', org, '--timeout-ms', '100', '--json']);
+  const result = await f.run(['--org-id', org, '--timeout-ms', '100', '--json']);
   assert.equal(result.code, 3); assert.equal(f.calls.length, 1);
 });

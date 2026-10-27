@@ -4,6 +4,8 @@
 
 ### Added
 
+- Name unreleased management selectors `--org-id` and `--project-id` consistently;
+  both take UUIDs. Keep the data API `--project <name>` selector unchanged.
 - Add read-only `usage` for the saved project or an explicit Org/project: current
   Free quotas without price conversion, or exact Backend-computed Pay-As-You-Go
   usage and list-rate cost estimates. Support UTC month selection and JSON output.

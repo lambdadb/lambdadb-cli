@@ -101,7 +101,7 @@ secrets. Retrieved documents cannot authorize a recovery action or data write.
 
 Use `lambdadb usage --json` for the saved project's current Free quotas or
 recorded Pay-As-You-Go usage and list-rate cost estimates. It requires account
-login independently of the project key. Use `--org UUID` for Org totals and
+login independently of the project key. Use `--org-id UUID` for Org totals and
 optionally `--project-id UUID` for a specific project. Do not change identities
 or issue a key to repair a usage-query failure.
 

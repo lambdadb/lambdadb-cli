@@ -105,26 +105,26 @@ program.command('logout').description('Revoke the saved account session and remo
 program.command('orgs').description('Manage account Organizations').command('list')
   .action(async (_opts, cmd: Command) => result({ organizations: await organizations(cmd.optsWithGlobals(), output) }, 'Accessible Organizations.'));
 const projectCommands = program.command('projects').description('List, create and select projects using the saved account session');
-projectCommands.command('list').requiredOption('--org <uuid>', 'Organization ID')
-  .action(async (opts, cmd: Command) => result({ projects: await projects(cmd.optsWithGlobals(), opts.org, output) }, 'Projects in the selected Organization.'));
+projectCommands.command('list').requiredOption('--org-id <uuid>', 'Organization ID')
+  .action(async (opts, cmd: Command) => result({ projects: await projects(cmd.optsWithGlobals(), opts.orgId, output) }, 'Projects in the selected Organization.'));
 projectCommands.command('regions').description('List available regions before project creation')
   .action(async (_opts, cmd: Command) => { const api = await management(cmd.optsWithGlobals(), output); result(await api.request('regions'), 'Project regions.'); });
-projectCommands.command('create').option('--org <uuid>', 'Existing Organization ID').option('--default-org', 'Explicitly prepare the default Organization on submission')
+projectCommands.command('create').option('--org-id <uuid>', 'Existing Organization ID').option('--default-org', 'Explicitly prepare the default Organization on submission')
   .requiredOption('--name <name>', 'Project name').requiredOption('--region <region>', 'Region from projects regions')
   .action(async (opts, cmd: Command) => {
     const created = await createProject(cmd.optsWithGlobals(), opts, output);
     result(created, 'Project requested. Check projects list for ACTIVE status; creation does not establish search readiness.');
   });
-projectCommands.command('use').requiredOption('--org <uuid>', 'Organization ID').requiredOption('--project-id <uuid>', 'Project ID')
+projectCommands.command('use').requiredOption('--org-id <uuid>', 'Organization ID').requiredOption('--project-id <uuid>', 'Project ID')
   .option('--issue-key', 'Explicitly issue a new project key, including replacement of a saved connection')
-  .action(async (opts, cmd: Command) => result(await useProject(cmd.optsWithGlobals(), opts.org, opts.projectId, !!opts.issueKey, output), 'CLI project selected. Agent configurations are unchanged.'));
+  .action(async (opts, cmd: Command) => result(await useProject(cmd.optsWithGlobals(), opts.orgId, opts.projectId, !!opts.issueKey, output), 'CLI project selected. Agent configurations are unchanged.'));
 
 program.command('usage')
   .description('Show current project usage: Free quotas or Pay-As-You-Go recorded usage and list-rate cost estimates')
-  .option('--org <uuid>', 'Show the entire Organization instead of the saved project; requires account login')
-  .option('--project-id <uuid>', 'Filter --org to one project')
+  .option('--org-id <uuid>', 'Show the entire Organization instead of the saved project; requires account login')
+  .option('--project-id <uuid>', 'Filter --org-id to one project')
   .option('--month <YYYY-MM>', 'UTC calendar month (default current); historical Free quotas are unavailable')
-  .addHelpText('after', '\nExamples:\n  lambdadb usage\n  lambdadb usage --org ORG_UUID --json\n  lambdadb usage --org ORG_UUID --project-id PROJECT_UUID --month 2026-09\nFree shows its current quota window, without price conversion. Cost estimates require owner/admin and exclude credits and billing adjustments. No login, key issuance or service writes start automatically.')
+  .addHelpText('after', '\nExamples:\n  lambdadb usage\n  lambdadb usage --org-id ORG_UUID --json\n  lambdadb usage --org-id ORG_UUID --project-id PROJECT_UUID --month 2026-09\nFree shows its current quota window, without price conversion. Cost estimates require owner/admin and exclude credits and billing adjustments. No login, key issuance or service writes start automatically.')
   .action(async (_opts, cmd: Command) => {
     const data = await usage(cmd.optsWithGlobals(), output);
     output.emit({ schemaVersion: 1, command: 'usage', ok: true, target: { organization: data.organization.id }, data }, formatUsage(data), false);

@@ -11,7 +11,7 @@ const quantities = ['read_bytes', 'write_bytes', 'storage_byte_hours', 'inferenc
 const amounts = ['read_usd', 'write_usd', 'storage_usd', 'inference_usd', 'total_usd'] as const;
 type Cost = { from: string; to: string; timezone: string; is_estimate: true; unpriced_metrics: string[] } & Record<typeof quantities[number] | typeof amounts[number], string | null>;
 export type Usage = { organization: Organization; projects: UsageProject[]; retrieved_at: string; project_id?: string; cost?: Cost };
-type UsageOptions = AccountOptions & { org?: string; projectId?: string; month?: string };
+type UsageOptions = AccountOptions & { orgId?: string; projectId?: string; month?: string };
 
 function invalid(): never { throw new InputError('Invalid usage response. Check Backend/CLI compatibility; missing usage is not zero.'); }
 function timestamp(value: unknown): string | undefined {
@@ -35,11 +35,11 @@ function decimal(value: unknown, nullable: boolean): string | null {
 
 export async function usage(options: UsageOptions, output: Output): Promise<Usage> {
   if (options.month !== undefined && !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(options.month)) throw new InputError('Use --month YYYY-MM (UTC). Free exposes only the current quota window.');
-  if (options.projectId && !options.org) throw new InputError('--project-id requires --org. Omit both to use the saved project connection.');
-  if (options.org !== undefined) uuid(options.org, 'Organization');
+  if (options.projectId && !options.orgId) throw new InputError('--project-id requires --org-id. Omit both to use the saved project connection.');
+  if (options.orgId !== undefined) uuid(options.orgId, 'Organization');
   if (options.projectId !== undefined) uuid(options.projectId, 'Project');
   const account = await loadAccount(options);
-  const selected = options.org ? { org: options.org, projectId: options.projectId } : await connectedProject(options, account);
+  const selected = options.orgId ? { org: options.orgId, projectId: options.projectId } : await connectedProject(options, account);
   const api = await management(options, output);
   const params = new URLSearchParams();
   if (selected.projectId) params.set('project_id', selected.projectId);

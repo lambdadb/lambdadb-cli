@@ -386,18 +386,22 @@ overriding it.
 lambdadb login --no-browser
 lambdadb orgs list --json
 lambdadb projects regions --json
-lambdadb projects list --org ORG_UUID --json
-lambdadb projects create --org ORG_UUID --name my-project --region REGION --json
-# For a new account with no Org, choose --default-org instead of --org.
-lambdadb projects list --org ORG_UUID --json  # wait until ACTIVE
-lambdadb projects use --org ORG_UUID --project-id PROJECT_UUID --issue-key
+lambdadb projects list --org-id ORG_UUID --json
+lambdadb projects create --org-id ORG_UUID --name my-project --region REGION --json
+# For a new account with no Org, choose --default-org instead of --org-id.
+lambdadb projects list --org-id ORG_UUID --json  # wait until ACTIVE
+lambdadb projects use --org-id ORG_UUID --project-id PROJECT_UUID --issue-key
 lambdadb doctor
 # Later switches reuse a previously saved key without --issue-key:
-lambdadb projects use --org ORG_UUID --project-id PROJECT_UUID
+lambdadb projects use --org-id ORG_UUID --project-id PROJECT_UUID
 lambdadb logout
 ```
 
-`create` requires exactly one of `--org UUID` or `--default-org`, plus `--name`
+`--org-id` and `--project-id` take UUIDs, not names. Find them with `orgs list`
+and `projects list --org-id UUID`. The global `--project <name>` remains a
+project-name selector for data API commands.
+
+`create` requires exactly one of `--org-id UUID` or `--default-org`, plus `--name`
 and `--region`. Creation does not select the CLI default or install agents.
 `use` requires both IDs; first connection or deliberate key replacement requires
 `--issue-key` and owner/admin key-management permission. Saved project keys are
@@ -410,14 +414,14 @@ ordinary management commands never start browser login automatically.
 
 ```sh
 lambdadb usage                         # current saved project
-lambdadb usage --org ORG_UUID          # entire Org
-lambdadb usage --org ORG_UUID --project-id PROJECT_UUID --month 2026-09 --json
+lambdadb usage --org-id ORG_UUID          # entire Org
+lambdadb usage --org-id ORG_UUID --project-id PROJECT_UUID --month 2026-09 --json
 ```
 
 Usage requires a valid account `login` and matching Backend CLI-usage support.
 It never opens a browser, issues keys or changes service data. The default target
 comes from the saved project connection for that account. Environment-key setups,
-missing connection metadata or overridden targets require explicit `--org` and,
+missing connection metadata or overridden targets require explicit `--org-id` and,
 for one project, `--project-id`. Org-wide cost usage includes deleted projects
 that contributed usage during the selected period.
 
