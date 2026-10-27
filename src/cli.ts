@@ -12,6 +12,7 @@ import { initialize } from './init.js';
 import { serveMcp } from './mcp.js';
 import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
+import { usage, formatUsage } from './usage.js';
 import { organizations, projects, createProject, useProject } from './projects.js';
 
 const output = new Output();
@@ -117,6 +118,17 @@ projectCommands.command('create').option('--org <uuid>', 'Existing Organization 
 projectCommands.command('use').requiredOption('--org <uuid>', 'Organization ID').requiredOption('--project-id <uuid>', 'Project ID')
   .option('--issue-key', 'Explicitly issue a new project key, including replacement of a saved connection')
   .action(async (opts, cmd: Command) => result(await useProject(cmd.optsWithGlobals(), opts.org, opts.projectId, !!opts.issueKey, output), 'CLI project selected. Agent configurations are unchanged.'));
+
+program.command('usage')
+  .description('Show current project usage: Free quotas or Pay-As-You-Go recorded usage and list-rate cost estimates')
+  .option('--org <uuid>', 'Show the entire Organization instead of the saved project; requires account login')
+  .option('--project-id <uuid>', 'Filter --org to one project')
+  .option('--month <YYYY-MM>', 'UTC calendar month (default current); historical Free quotas are unavailable')
+  .addHelpText('after', '\nExamples:\n  lambdadb usage\n  lambdadb usage --org ORG_UUID --json\n  lambdadb usage --org ORG_UUID --project-id PROJECT_UUID --month 2026-09\nFree shows its current quota window, without price conversion. Cost estimates require owner/admin and exclude credits and billing adjustments. No login, key issuance or service writes start automatically.')
+  .action(async (_opts, cmd: Command) => {
+    const data = await usage(cmd.optsWithGlobals(), output);
+    output.emit({ schemaVersion: 1, command: 'usage', ok: true, target: { organization: data.organization.id }, data }, formatUsage(data), false);
+  });
 
 program.command('mcp')
   .description('Launch the existing stdio MCP package with runtime credential forwarding (used by init)')

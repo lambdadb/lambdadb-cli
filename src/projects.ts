@@ -10,9 +10,10 @@ import {
   withManagementLock,
   writeMetadata,
   type AccountOptions,
+  type Account,
   type Organization,
 } from './account.js';
-import { configPath, endpoint, fileIdentity, saveSettings, type SelectedSettings } from './config.js';
+import { configPath, endpoint, fileIdentity, saveSettings, settings, type SelectedSettings } from './config.js';
 import { CredentialVault, credentialReference } from './credentials.js';
 import { openBrowser, projectAuthorization } from './device-auth.js';
 import { InputError, ManagementError } from './errors.js';
@@ -163,6 +164,17 @@ async function connections(options: AccountOptions) {
   }
   return { path, before, items };
 }
+export async function connectedProject(options: AccountOptions, account: Account) {
+  const hint = 'Cannot identify the current project for usage. Run init to select a project, or pass --org UUID for Org usage and optionally --project-id UUID. Usage requires account login, not a project key.';
+  let selected: SelectedSettings;
+  try { selected = await settings(options, true); } catch { throw new InputError(hint); }
+  if (!selected.credentialId) throw new InputError(hint);
+  const matches = (await connections(options)).items.filter(c => c.account === `${account.apiUrl}/${account.memberId}` && c.settings && c.settings.credentialId === selected.credentialId && c.settings.endpoint === selected.endpoint && c.settings.project === selected.project);
+  const match = matches.length === 1 ? matches[0] : undefined;
+  if (!match) throw new InputError(hint);
+  return { org: match.org, projectId: match.projectId };
+}
+
 export async function useProject(
   options: AccountOptions,
   org: string,

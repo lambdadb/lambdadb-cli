@@ -406,6 +406,46 @@ agent entries stay pinned until you rerun `init` and approve their file plan.
 Expired, missing or unreadable account credentials fail with login/unlock guidance;
 ordinary management commands never start browser login automatically.
 
+### Usage and cost estimates
+
+```sh
+lambdadb usage                         # current saved project
+lambdadb usage --org ORG_UUID          # entire Org
+lambdadb usage --org ORG_UUID --project-id PROJECT_UUID --month 2026-09 --json
+```
+
+Usage requires a valid account `login` and matching Backend CLI-usage support.
+It never opens a browser, issues keys or changes service data. The default target
+comes from the saved project connection for that account. Environment-key setups,
+missing connection metadata or overridden targets require explicit `--org` and,
+for one project, `--project-id`. Org-wide cost usage includes deleted projects
+that contributed usage during the selected period.
+
+- **Free:** current per-project read/write/storage bytes and inference LIU,
+  reported limits, usage percentages, exceeded state, quota period/window start
+  and last update. No price conversion is shown. Missing data is unavailable,
+  not zero; percentages are omitted for missing or zero limits. The API does not
+  supply the next reset instant, so the CLI does not invent it.
+- **Pay-As-You-Go:** recorded read/write bytes, storage byte-hours and inference
+  LIU, with per-item and total USD list-rate estimates. This view requires an
+  Org owner/admin, matching the existing cost API. It uses Backend rate cards,
+  not CLI pricing constants. Missing prices remain unavailable; the total is
+  explicitly a partial priced subtotal if any metric is unpriced.
+
+Paid usage defaults to the current UTC calendar month. `--month YYYY-MM` selects
+one current or past month; the response range has an exclusive end and can
+include today's still-filling bucket. It is accumulated recorded usage, not a
+month-end forecast or final invoice. Estimates exclude free allowances, credits,
+taxes and billing rounding. Historical Free quotas are unavailable: omit
+`--month` to read the current quota window. Retrieval time is distinct from the
+quota's reported update time; the command does not claim real-time freshness.
+
+Human output is a concise report; `--json` retains the versioned result envelope.
+Amounts, LIU and paid raw totals are decimal strings to preserve precision. Free
+quota counters must be safe integers; incompatible responses fail instead of
+silently rounding them. Both modes respect the account API's per-request
+`--timeout-ms` / `LAMBDADB_TIMEOUT_MS` budget.
+
 ### Limits and failures
 
 The API-key environment path remains available without account login. Management

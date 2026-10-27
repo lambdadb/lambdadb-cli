@@ -4,6 +4,10 @@
 
 ### Added
 
+- Add read-only `usage` for the saved project or an explicit Org/project: current
+  Free quotas without price conversion, or exact Backend-computed Pay-As-You-Go
+  usage and list-rate cost estimates. Support UTC month selection and JSON output.
+
 - Browser-approved `init`, including another-device URLs for SSH, shared
   Console signup/login, terminal project setup, bounded polling and explicit key issuance.
 - Separate OS-stored account login with seven-day expiry, immediate logout, and

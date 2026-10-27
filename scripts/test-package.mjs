@@ -39,7 +39,7 @@ try {
   assert.equal(execFileSync(process.execPath, [bin, '--version'], { encoding: 'utf8' }).trim(), pkg.version);
   assert.equal(execFileSync(npm, ['exec', '--prefix', consumer, '--offline', '--', 'lambdadb', '--version'], { encoding: 'utf8' }).trim(), pkg.version);
   assert.match(execFileSync(process.execPath, [bin, '--help'], { encoding: 'utf8' }), /Usage: lambdadb/);
-  execFileSync(process.execPath, ['--test', 'test/cli.test.mjs', 'test/init.test.mjs', 'test/credentials.test.mjs', 'test/device-auth.test.mjs', 'test/account.test.mjs', 'test/native-credentials.test.mjs'], {
+  execFileSync(process.execPath, ['--test', 'test/cli.test.mjs', 'test/init.test.mjs', 'test/credentials.test.mjs', 'test/device-auth.test.mjs', 'test/account.test.mjs', 'test/usage.test.mjs', 'test/native-credentials.test.mjs'], {
     stdio: 'inherit', env: { ...process.env, LAMBDADB_TEST_CLI: bin },
   });
   // Optional native bindings must not break environment-based setup or help.
