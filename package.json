@@ -2,7 +2,7 @@
   "name": "@functional-systems/lambdadb-cli",
   "version": "0.1.7-dev.1",
   "private": false,
-  "description": "Project-scoped LambdaDB command-line tools",
+  "description": "LambdaDB CLI for account and project management, usage, data and coding agents",
   "type": "module",
   "bin": {
     "lambdadb": "dist/cli.js"
@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "src",
+    "docs",
     "README.md",
     "DESIGN.md",
     "ONBOARDING.md",

@@ -24,7 +24,7 @@ let mutationStarted = false;
 
 const program = new Command()
   .name('lambdadb')
-  .description('Project-scoped LambdaDB CLI. Only init prompts; all other commands are non-interactive.')
+  .description('Set up LambdaDB, manage projects, view usage and work with data and coding agents. Only init prompts; all other commands are non-interactive.')
   .version(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version)
   .option('--json', 'Emit one versioned JSON result on stdout; diagnostics stay on stderr')
   .addOption(new Option('--api-url <url>', 'Account management API origin (login reuses the saved origin, otherwise https://api.lambdadb.ai)').helpGroup('Advanced connection options:'))
