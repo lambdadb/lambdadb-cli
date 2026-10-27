@@ -22,6 +22,9 @@ try {
   assert.ok(inventory.files.some(file => file.path === 'dist/cli.js'));
   assert.ok(inventory.files.some(file => file.path === 'skills/lambdadb/SKILL.md'));
   assert.ok(inventory.files.some(file => file.path === 'skills/lambdadb/references/usage.md'));
+  for (const guide of ['setup', 'agents', 'account', 'data']) {
+    assert.ok(inventory.files.some(file => file.path === `docs/${guide}.md`), `Missing packaged guide: ${guide}`);
+  }
   for (const file of inventory.files) {
     assert.ok(!/(^|\/)(\.env(?:\..*)?|\.github|test|node_modules|scripts)(\/|$)/.test(file.path), `Unexpected package file: ${file.path}`);
   }
