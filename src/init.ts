@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { configPath, fileIdentity, loadSettings, resolveConfig, saveSettings, settings, type Options, type SelectedSettings } from './config.js';
 import { terminalSetup } from './projects.js';
@@ -46,6 +46,7 @@ async function plan(selected: SelectedSettings, chosen: Agent[], scope: AgentSco
   const path = configPath(options);
   changes.push({ path, before: await readOptional(path), after: JSON.stringify(selected, null, 2) + '\n', kind: 'CLI settings (no key)' });
   const skill = await readFile(new URL('../skills/lambdadb/SKILL.md', import.meta.url), 'utf8');
+  const usage = await readFile(new URL('../skills/lambdadb/references/usage.md', import.meta.url), 'utf8');
   for (const agent of chosen) {
     const adapter: AgentAdapter = agentAdapters.find(adapter => adapter.id === agent)!;
     const paths = await adapter.paths(scope, context);
@@ -57,6 +58,11 @@ async function plan(selected: SelectedSettings, chosen: Agent[], scope: AgentSco
     const previousSkill = await readOptional(skillPath);
     // Preserve existing skills, including user edits, rather than taking ownership.
     changes.push({ path: skillPath, before: previousSkill, after: previousSkill ?? skill, kind: `${agent} skill (${scope}${previousSkill && previousSkill !== skill ? ', existing skill preserved' : ''})` });
+    if (previousSkill === undefined || previousSkill === skill) {
+      const referencePath = join(dirname(skillPath), 'references', 'usage.md');
+      const previousReference = await readOptional(referencePath);
+      changes.push({ path: referencePath, before: previousReference, after: previousReference ?? usage, kind: `${agent} skill reference (${scope})` });
+    }
   }
   const unique = new Map<string, PlannedChange>();
   for (const change of changes) {
@@ -188,8 +194,8 @@ export async function initialize(options: InitOptions, output: Output) {
     const nextSteps = [
       selected.credentialStore ? `Restart/reload selected agents as the same OS user with ${selected.credentialStore} accessible and npx on PATH. No shell key export is required.` : `Restart/reload selected agents from an environment containing ${selected.apiKeyEnv} and npx on PATH. GUI launches may not inherit shell exports.`,
       agentAdapters.filter(adapter => chosen.includes(adapter.id)).map(adapter => adapter.instructions).join(' '),
-      'Agent prompt: Use LambdaDB MCP to list collections, inspect the collection I choose, then read up to five documents at branch:main with query omitted. Help me search an actual indexed field. Do not create or modify data.',
-      'CLI alternative: run lambdadb collections list --json and lambdadb collections describe --collection NAME --json. Save {"size":5} in first-query.json, then run lambdadb query --collection NAME --ref branch:main --file first-query.json --json. Replace NAME with the collection you chose.',
+      `Agent prompt: Prefer LambdaDB CLI with --json and configuration file ${JSON.stringify(configPath(options))}; use the matching MCP connection if terminal execution is unavailable or I request MCP. List collections, inspect the collection I choose, then read a small sample at my selected ref (branch:main if none is intended). Help me search an actual indexed field. Do not create or modify data.`,
+      'CLI reads: run lambdadb collections list --json and lambdadb collections describe --collection NAME --json. Save {"size":5} in first-query.json, then run lambdadb query --collection NAME --ref branch:main --file first-query.json --json. Pass the configuration file above with --config; replace NAME and ref with the chosen target.',
       'If the project has no collections/data, populate it deliberately outside init. Connection success does not establish search readiness.',
     ];
     return { ...connection, settings: selected, detectedAgents: detected, agents: chosen, scope: options.scope,

@@ -41,9 +41,17 @@ Init checks authentication and collection-list access. It does not create
 collections or documents, and success does not establish search readiness.
 For an existing collection, try this prompt in your agent:
 
-> List my LambdaDB collections. Inspect the selected collection's index
-> configuration, then read up to five documents at branch:main before searching
-> an indexed field. Do not create or modify data.
+> Prefer the LambdaDB CLI with JSON output and my selected configuration file;
+> use MCP if terminal execution is unavailable or I request it. List collections,
+> inspect the chosen collection's index, and read a small sample at my selected
+> ref before searching an indexed field. Do not create or modify data.
+
+The installed skill prefers an available, authenticated CLI and keeps the same
+target when using MCP instead. Its usage reference covers recent-write visibility,
+query examples, pagination, result interpretation and error recovery. CLI defaults
+can differ from an existing MCP entry; check the target before switching. A recent
+empty read is not by itself an error: eligible ordinary writes can be read with
+`consistentRead:true` on a direct branch, separately from committed index checks.
 
 Browser setup requires matching Backend and Console support and an accessible
 OS credential store. If either is unavailable, use
@@ -196,8 +204,11 @@ connection or writes; restore their targets before rerunning init.
 
 Reruns update only recognizable init-generated `lambdadb` MCP entries;
 existing custom entries or additions inside a generated entry cause an actionable
-conflict. Existing skills are preserved, including user edits; remove the skill
-file deliberately if you want to reinstall the bundled version. Writes use
+conflict. Existing skills and reference files are preserved, including user edits.
+New skills include `references/usage.md`; an unchanged current bundled skill can
+also have its missing reference restored on rerun. Custom or older skill bodies
+are left intact. To reinstall the bundled version, back up the skill directory
+and remove only the files you want init to reinstall. Writes use
 atomic replacement per file, not a transaction across files: a disk/permission
 failure can leave a partial installation; inspect the displayed paths and rerun.
 
