@@ -59,6 +59,8 @@ Type `settings` at that
 prompt to change scope or explicitly enable write tools, then review the revised
 plan. Cline requires explicit user-scope confirmation. Existing `--agents`,
 `--scope`, and `--write-tools` flags can set these choices in advance.
+Pressing Enter in settings keeps the current write-tool choice, including a
+previous explicit opt-in.
 
 Successful ordinary output is a short connection summary with selected-agent
 reload instructions and a next step. Full structured results, including check

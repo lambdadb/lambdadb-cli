@@ -117,6 +117,9 @@ export async function initialize(options: InitOptions, output: Output) {
   let prompt = interactive ? createInterface({ input: process.stdin, output: process.stderr }) : undefined;
   let connectionSaved = false;
   let accountSetup = false;
+  const canceled = () => new InputError((connectionSaved || accountSetup)
+    ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.'
+    : 'Init canceled. No files were changed.');
   const ask = async (label: string, fallback?: string) => {
     const cancellation = new AbortController();
     const cancel = () => cancellation.abort();
@@ -128,7 +131,7 @@ export async function initialize(options: InitOptions, output: Output) {
       const answer = (await prompt!.question(`${label}${fallback ? ` [${fallback}]` : ''}: `, { signal: cancellation.signal })).trim();
       return answer || fallback;
     } catch (error) {
-      if (cancellation.signal.aborted) throw new InputError((connectionSaved || accountSetup) ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.' : 'Init canceled. No files were changed.');
+      if (cancellation.signal.aborted) throw canceled();
       throw error;
     } finally {
       prompt!.removeListener('SIGINT', cancel);
@@ -183,14 +186,14 @@ export async function initialize(options: InitOptions, output: Output) {
         prompt?.close();
         try {
           const agents = await checkbox<Agent>({
-            message: 'Select agents (Space to toggle, Enter to continue; none to skip)',
+            message: 'Select agents (Space to toggle; Enter with none selected to skip)',
             pageSize: agentAdapters.length,
             choices: agentAdapters.map(adapter => ({ value: adapter.id, name: `${adapter.id}${detected.includes(adapter.id) ? ' (detected)' : ''}`, checked: false })),
           }, { output: process.stderr });
           options.agents = agents.join(',') || 'none';
         } catch (error) {
           if (error instanceof Error && ['ExitPromptError', 'AbortPromptError'].includes(error.name)) {
-            throw new InputError('Init canceled. Completed connection setup is retained; rerun init to continue.');
+            throw canceled();
           }
           throw error;
         }
@@ -201,7 +204,7 @@ export async function initialize(options: InitOptions, output: Output) {
         if (scopes.includes('project')) options.scope = 'project';
         else for (;;) {
           const scope = await ask('Selected agents require user scope. Type user to install for your OS user, or cancel', 'cancel');
-          if (scope === 'cancel') throw new InputError('Agent setup canceled. Completed connection setup is retained.');
+          if (scope === 'cancel') throw canceled();
           if (scope === 'user') { options.scope = scope; break; }
           output.diagnostic('Choose user or cancel.');
         }
@@ -234,7 +237,7 @@ export async function initialize(options: InitOptions, output: Output) {
         const answer = await ask('Apply these changes after verifying collection-list access? Type yes, settings, details, or no', 'no');
         if (answer === 'yes') break;
         if (answer === 'details') { details = true; continue; }
-        if (answer === 'no') throw new InputError((connectionSaved || accountSetup) ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.' : 'Init canceled. No files were changed.');
+        if (answer === 'no') throw canceled();
         if (answer !== 'settings') { output.diagnostic('Choose yes, settings, details, or no.'); continue; }
         const scopes = availableScopes(chosen);
         for (;;) {
@@ -242,7 +245,7 @@ export async function initialize(options: InitOptions, output: Output) {
           if (scopes.includes(scope as AgentScope)) { options.scope = scope; break; }
           output.diagnostic(`Choose scope ${scopes.join(' or ')}.`);
         }
-        options.writeTools = (await ask('Enable MCP write tools? Type yes to opt in', 'no')) === 'yes';
+        options.writeTools = (await ask('Enable MCP write tools? Type yes to opt in', options.writeTools ? 'yes' : 'no')) === 'yes';
         changes = await plan(selected, chosen, options.scope as AgentScope, options, context);
         files = describe();
         details = false;

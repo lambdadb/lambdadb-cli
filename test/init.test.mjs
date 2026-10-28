@@ -778,6 +778,41 @@ test('interactive review can change scope and explicitly enable write tools befo
   await assert.rejects(readFile(join(f.cwd, '.codex', 'config.toml')), { code: 'ENOENT' });
 });
 
+for (const enabledBy of ['flag', 'earlier settings']) {
+  test(`interactive settings retain write tools enabled by ${enabledBy} when Enter accepts the default`, async t => {
+    const f = await fixture(t);
+    assert.equal((await f.run(f.init('none'))).code, 0);
+    const result = await f.run(['init', '--agents', 'codex', ...(enabledBy === 'flag' ? ['--write-tools'] : [])], {}, [
+      ['Choose a number', '1'],
+      ...(enabledBy === 'earlier settings' ? [
+        ['Apply these changes', 'settings'], ['Agent configuration scope', 'project'], ['Enable MCP write tools?', 'yes'],
+      ] : []),
+      ['Apply these changes', 'settings'], ['Agent configuration scope', 'user'], ['Enable MCP write tools?', ''],
+      ['Apply these changes', 'yes'],
+    ]);
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stderr, /Enable MCP write tools\? Type yes to opt in \[yes\]/);
+    assert.match(result.stdout, /user scope; MCP read and write/);
+    const mcp = toml(await readFile(join(f.home, '.codex/config.toml'), 'utf8'));
+    assert.ok(mcp.mcp_servers.lambdadb.args.includes('--write-tools'));
+  });
+}
+
+for (const step of ['checkbox', 'user scope']) {
+  test(`interactive manual setup canceled at ${step} reports no saved connection`, async t => {
+    const f = await fixture(t);
+    const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', ...(step === 'user scope' ? ['--agents', 'cline'] : [])], {}, [
+      ['Project data API endpoint', ''], ['Existing project name', ''], ['Environment variable holding your API key', ''],
+      ...(step === 'checkbox' ? [['Select agents (Space to toggle', { keys: ['\x03'] }]] : [['Selected agents require user scope', 'cancel']]),
+    ]);
+    assert.equal(result.code, 2, result.stderr);
+    assert.match(result.stderr, /Init canceled\. No files were changed\./);
+    assert.doesNotMatch(result.stderr, /setup is retained/);
+    await assert.rejects(readFile(f.config), { code: 'ENOENT' });
+    assert.equal(f.requests.length, 0);
+  });
+}
+
 test('interactive Cline still requires explicit approval of user scope', async t => {
   const f = await fixture(t);
   assert.equal((await f.run(f.init('none'))).code, 0);

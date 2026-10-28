@@ -674,6 +674,22 @@ test('guided init still requires explicit new-key approval', async t => {
   await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
 });
 
+test('guided cancellation after project connection reports and retains the completed setup', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
+    if (call.path.endsWith('/projects')) return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+    assert.equal(call.path, '/auth/cli/connect');
+    res.end(JSON.stringify({ endpoint: fixture.url, project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: { key_id: 'key-id' } } }));
+  }, true);
+  const result = await fixture.run(['init', '--agents', 'cline'], {}, [
+    ['Choose a number', '1'], ['Project\n1. first', '1'], ['Create a key for first', 'yes'], ['Selected agents require user scope', 'cancel'],
+  ]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /Completed login\/project setup is retained/);
+  assert.equal(JSON.parse(await readFile(fixture.config, 'utf8')).project, 'first');
+  assert.equal(fixture.calls.filter(c => c.path.endsWith('/connect')).length, 1);
+});
+
 test('guided creation at the project limit offers billing without creating a project or key', async t => {
   const fixture = await cliFixture(t, (call, res) => {
     if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
@@ -698,7 +714,7 @@ test('guided first-project creation skips the action picker but keeps region sel
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
     ['Choose a number', '1'], ['Region\n1. Seoul', '99'], ['Region\n1. Seoul', '1'],
-    ['Project name', 'x'.repeat(46)], ['Project name', 'bad name'], ['Project name', 'example'], ['Create this project?', 'no'],
+    ['Project name:', 'x'.repeat(46)], ['Project name:', 'bad name'], ['Project name:', 'example'], ['Create this project?', 'no'],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.doesNotMatch(result.stderr, /Project\n1. Create/);
@@ -741,7 +757,7 @@ test('guided cold-region creation retains the selection and returns provisioning
     res.end(JSON.stringify({ id: first, organization_id: org, status: 'CREATING' }));
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Choose a number', '1'], ['Region\n1. Seoul', '2'], ['Project name', 'example'], ['Create this project?', 'yes'],
+    ['Choose a number', '1'], ['Region\n1. Seoul', '2'], ['Project name:', 'example'], ['Create this project?', 'yes'],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, /Ireland \(eu-west-1\).*regional setup required/);

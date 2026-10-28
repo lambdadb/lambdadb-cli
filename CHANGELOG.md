@@ -34,6 +34,8 @@
   and summarize unchanged files with `details` to expand the full plan. Keep
   explicit region selection and include public AWS regions requiring deployment,
   with guidance to resume pending projects without creating them again.
+  Preserve the current write-tool choice when accepting settings defaults and
+  make cancellation/empty-selection guidance match the actual setup state.
   Keep account/project response-body timeouts effective after garbage collection
   on Node.js 22, preserving uncertain issuance and definite rejection semantics.
 
