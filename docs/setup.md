@@ -61,6 +61,8 @@ plan. Cline requires explicit user-scope confirmation. Existing `--agents`,
 `--scope`, and `--write-tools` flags can set these choices in advance.
 Pressing Enter in settings keeps the current write-tool choice, including a
 previous explicit opt-in.
+If the selected scope has a configuration conflict, init offers another supported
+scope or cancellation before writing files; existing entries stay protected.
 
 Successful ordinary output is a short connection summary with selected-agent
 reload instructions and a next step. Full structured results, including check

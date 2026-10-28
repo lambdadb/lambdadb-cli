@@ -870,3 +870,42 @@ test('interactive review retries invalid actions and scope without applying an u
   await assert.rejects(readFile(join(f.home, '.codex/config.toml')), { code: 'ENOENT' });
   assert.equal(f.requests.length, 1);
 });
+
+test('interactive planning conflict allows user scope without overwriting project settings', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const projectConfig = join(f.cwd, '.mcp.json');
+  const original = '{"mcpServers":{"lambdadb":{"command":"manual-server"}}}\n';
+  await f.file(projectConfig, original);
+  const result = await f.run(['init', '--agents', 'claude'], {}, [
+    ['Choose a number', '1'], ['Choose a different agent scope', 'invalid'],
+    ['Choose a different agent scope', 'user'], ['Apply these changes', 'yes'],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /Cannot prepare project scope/);
+  assert.match(result.stderr, /Scope: user/);
+  assert.equal(await readFile(projectConfig, 'utf8'), original);
+  const configured = JSON.parse(await readFile(join(f.home, '.claude.json'), 'utf8'));
+  assert.ok(configured.mcpServers.lambdadb.args.includes('mcp'));
+  assert.equal(f.requests.length, 2);
+});
+
+test('interactive planning recovery cancellation preserves files and non-interactive conflicts still fail', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const projectConfig = join(f.cwd, '.mcp.json');
+  const original = '{"mcpServers":{"lambdadb":{"command":"manual-server"}}}\n';
+  await f.file(projectConfig, original);
+  const before = await readFile(f.config, 'utf8');
+  const result = await f.run(['init', '--agents', 'claude'], {}, [
+    ['Choose a number', '1'], ['Choose a different agent scope', 'cancel'],
+  ]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.equal(await readFile(projectConfig, 'utf8'), original);
+  assert.equal(await readFile(f.config, 'utf8'), before);
+  await assert.rejects(readFile(join(f.home, '.claude.json')), { code: 'ENOENT' });
+  const nonInteractive = await f.run(f.init('claude'));
+  assert.equal(nonInteractive.code, 2);
+  assert.doesNotMatch(nonInteractive.stderr, /Choose a different agent scope/);
+  assert.equal(f.requests.length, 1);
+});

@@ -225,7 +225,23 @@ export async function initialize(options: InitOptions, output: Output) {
     if (!selected.credentialStore && !process.env[selected.apiKeyEnv]?.trim()) throw new InputError(`Export ${selected.apiKeyEnv} securely in this shell, then rerun init. Obtain a project API key in the LambdaDB Console; never pass its value as a flag.`);
     const config = await resolveConfig(options, true);
     output.protect(config.apiKey);
-    let changes = await plan(selected, chosen, options.scope as AgentScope, options, context);
+    const planWithScopeRecovery = async () => {
+      for (;;) {
+        try { return await plan(selected, chosen, options.scope as AgentScope, options, context); }
+        catch (error) {
+          const scopes = availableScopes(chosen);
+          if (!interactive || !chosen.length || scopes.length < 2 || !(error instanceof InputError)) throw error;
+          output.diagnostic(`Cannot prepare ${options.scope} scope: ${error.message}`);
+          for (;;) {
+            const scope = await ask(`Choose a different agent scope: ${scopes.join(' or ')}, or cancel`, 'cancel');
+            if (scope === 'cancel') throw canceled();
+            if (scopes.includes(scope as AgentScope)) { options.scope = scope; break; }
+            output.diagnostic(`Choose scope ${scopes.join(' or ')}, or cancel.`);
+          }
+        }
+      }
+    };
+    let changes = await planWithScopeRecovery();
     const describe = () => changes.map(change => ({ path: change.path, ...(change.aliases.length ? { aliases: change.aliases } : {}), ...(change.destination !== change.path ? { destination: change.destination } : {}), kind: change.kind,
       action: change.before === change.after ? 'unchanged' : change.before === undefined ? 'create' : 'update' }));
     let files = describe();
@@ -246,7 +262,7 @@ export async function initialize(options: InitOptions, output: Output) {
           output.diagnostic(`Choose scope ${scopes.join(' or ')}.`);
         }
         options.writeTools = (await ask('Enable MCP write tools? Type yes to opt in', options.writeTools ? 'yes' : 'no')) === 'yes';
-        changes = await plan(selected, chosen, options.scope as AgentScope, options, context);
+        changes = await planWithScopeRecovery();
         files = describe();
         details = false;
       }
