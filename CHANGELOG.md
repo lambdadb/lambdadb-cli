@@ -24,10 +24,12 @@
 
 ### Maintenance
 
-- Trim interactive init output: skip file review when no agents are selected and
-  no settings need saving, omit irrelevant agent options, summarize account
-  storage in one line, and report connection success once with a short next step.
-  New settings and selected agents retain review; JSON results remain complete.
+- Unify interactive init with Clack: arrow-key menus, inline validation, explicit
+  confirmations, an optional agent multiselect, boxed file review, progress and
+  aligned completion rows. Replace mixed numbered/readline and checkbox styles.
+  Skip file review when no agents are selected and no settings need saving; keep
+  advanced details in menu actions and finish with a short next step. New settings
+  and selected agents retain review; non-interactive and JSON contracts stay intact.
 
 - Simplify interactive init into connection, agent selection and file review.
   Label detected agents without preselecting them; use a keyboard checkbox list.
@@ -35,8 +37,8 @@
   Keep explicit key issuance and file approval, with scope/write-tool changes
   available from review. Replace the ordinary JSON dump with a concise result;
   preserve non-interactive flags and the structured JSON contract.
-  Skip the redundant first-project action menu, retry invalid interactive choices,
-  and summarize unchanged files with `details` to expand the full plan. Keep
+  Skip the redundant first-project action menu and summarize unchanged files,
+  with an option to expand the full plan. Keep
   explicit region selection and include public AWS regions requiring deployment,
   with guidance to resume pending projects without creating them again.
   Preserve the current write-tool choice when accepting settings defaults and

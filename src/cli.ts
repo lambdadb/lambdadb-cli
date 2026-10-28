@@ -89,9 +89,11 @@ program.command('init')
   .option('--write-tools', 'Explicitly enable MCP write tools (default: read-only)')
   .addHelpText('after', '\nGet started: lambdadb init\nSSH: lambdadb init --no-browser (browser approval is still required on another device).\nReruns offer to reuse the current connection or select another project.\nAccount setup reuses a valid login, or guides signup/login and CLI approval in a browser. Select or create a project in the terminal; secrets are saved only in the OS credential store.\nManual/CI setup: obtain a project key in Console and export it securely; init saves only the environment-variable name.\nAutomation example (export LAMBDADB_API_KEY first):\n  lambdadb init --non-interactive --agents codex,claude,cursor --scope project --endpoint https://api.lambdadb.ai --project my-project --json')
   .action(async (_opts, cmd: Command) => {
-    const data = await initialize(cmd.optsWithGlobals(), output);
+    const options = cmd.optsWithGlobals();
+    const interactive = !options.nonInteractive && !options.json && !!process.stdin.isTTY && !!process.stderr.isTTY;
+    const data = await initialize(options, output);
     target = { endpoint: data.settings.endpoint, project: data.settings.project };
-    output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data }, formatInit(data, configPath(cmd.optsWithGlobals())), false);
+    output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data }, formatInit(data, configPath(options), interactive), false);
   });
 
 program.command('login').description('Authorize account management in a browser and save a separate OS session')

@@ -18,6 +18,7 @@ import { CredentialVault, credentialReference } from './credentials.js';
 import { openBrowser, projectAuthorization } from './device-auth.js';
 import { InputError, ManagementError } from './errors.js';
 import type { Output } from './output.js';
+import type { SetupPrompts } from './init-ui.js';
 
 export type Project = {
   id: string;
@@ -222,8 +223,8 @@ export async function useProject(
           `No reusable connection. ${item?.pendingKeyName ? `Inspect/revoke ${item.pendingKeyName} in Console first. ` : ''}Run projects use --org-id ${org} --project-id ${projectId} --issue-key to explicitly issue a project key.`,
         );
       const store = await vault.select(options.credentialStore ?? api.account.credentialStore);
-      output.diagnostic(
-        options.guided ? `Saving the project key in ${store}.` : `Project credential store: ${store}. The key retains existing API permissions, including writes; MCP write-tool visibility is configured separately.`,
+      if (!options.guided) output.diagnostic(
+        `Project credential store: ${store}. The key retains existing API permissions, including writes; MCP write-tool visibility is configured separately.`,
       );
       if (store === 'keyutils')
         output.diagnostic(
@@ -232,7 +233,7 @@ export async function useProject(
       const requestId = randomUUID(),
         keyName = `lambdadb-cli-${requestId}`;
       output.diagnostic(
-        options.guided ? `Creating key ${keyName}. Keep this name for recovery if setup fails.` : `Issuing ${keyName}. If delivery fails, inspect it in Console; no request will be retried automatically.`,
+        options.guided ? `Creating project key in ${store}.\nRecovery name: ${keyName}` : `Issuing ${keyName}. If delivery fails, inspect it in Console; no request will be retried automatically.`,
       );
       if (!item) {
         item = { account, org, projectId };
@@ -290,28 +291,24 @@ export async function useProject(
   });
 }
 
-type Ask = (label: string, fallback?: string) => Promise<string | undefined>;
-async function choose<T>(items: T[], label: (item: T) => string, ask: Ask, prompt: string): Promise<T> {
+async function choose<T>(items: T[], label: (item: T) => string, prompts: SetupPrompts, title: string, hint?: (item: T) => string | undefined): Promise<T> {
   if (!items.length) throw new InputError('No choices are available.');
-  // eslint-disable-next-line no-control-regex -- Keep item names from adding fake choices or terminal escapes.
-  const labels = items.map((item, i) => `${i + 1}. ${label(item).replace(/[\x00-\x1f\x7f]/g, ' ')}`);
-  let hint = '';
-  for (;;) {
-    const answer = await ask(`${hint}${prompt}\n${labels.join('\n')}\nChoose a number (or cancel)`, '1');
-    if (answer === 'cancel') throw new InputError('Setup canceled. Saved login and project connections remain available.');
-    const index = Number(answer) - 1;
-    const choice = Number.isInteger(index) && index >= 0 ? items[index] : undefined;
-    if (choice !== undefined) return choice;
-    hint = 'Choose one of the listed numbers.\n';
-  }
+  const answer = await prompts.select(title, [
+    ...items.map((item, index) => ({ value: String(index), label: label(item), ...(hint ? { hint: hint(item) } : {}) })),
+    { value: 'cancel', label: 'Cancel' },
+  ]);
+  if (answer === 'cancel') throw new InputError('Setup canceled. Saved login and project connections remain available.');
+  const selected = items[Number(answer)];
+  if (selected === undefined) throw new InputError('Choose a listed option.');
+  return selected;
 }
-export async function terminalSetup(options: AccountOptions, output: Output, ask: Ask) {
+export async function terminalSetup(options: AccountOptions, output: Output, prompts: SetupPrompts) {
   if (!(await readOptional(await accountPath(options)))) await login(options, output);
   else {
     try {
       await loadAccount(options);
     } catch {
-      if ((await ask('Login is unavailable or expired. Authorize login again? Type yes', 'no')) !== 'yes')
+      if (!(await prompts.confirm('Sign in again? Your saved login has expired.')))
         throw new InputError('Run login to renew account access.');
       await login(options, output);
     }
@@ -320,9 +317,10 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
   let org = orgs.length === 1 ? orgs[0] : orgs.length
     ? await choose(
         orgs,
-        (o) => `${o.name} (${o.role}, ${o.plan}, projects ${o.projects_count}/${o.max_projects})`,
-        ask,
+        (o) => o.name,
+        prompts,
         'Organization',
+        o => `${o.role} · ${o.plan} · projects ${o.projects_count}/${o.max_projects}`,
       )
     : undefined;
   if (org) output.diagnostic(`Organization: ${org.name} (${org.role}, ${org.plan}).`);
@@ -330,36 +328,33 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
   let project: Project | undefined;
   for (;;) {
     const atLimit = org && org.projects_count >= org.max_projects;
-    const choices = [
-      ...available.map((p, index) => ({ label: `${p.name} (${p.status})`, action: 'use', index })),
+    const choices: { label: string; hint?: string; action: string; index: number }[] = [
+      ...available.map((p, index) => ({ label: p.name, hint: p.status === 'ACTIVE' ? 'Ready' : p.status, action: 'use', index })),
       { label: atLimit && org ? `Create a new project — limit ${org.projects_count}/${org.max_projects}; review billing` : 'Create a new project', action: atLimit ? 'billing' : 'create', index: -1 },
       ...(orgs.length > 1 ? [{ label: 'Choose another Organization', action: 'org', index: -1 }] : []),
-      { label: 'Cancel', action: 'cancel', index: -1 },
     ];
     const startCreation = !available.length && !atLimit && orgs.length <= 1;
     if (startCreation) output.diagnostic('No projects yet. Set up your first project.');
-    const choice = startCreation ? { action: 'create', index: -1 } : await choose(choices, value => value.label, ask, 'Project');
+    const choice = startCreation ? { action: 'create', index: -1 } : await choose(choices, value => value.label, prompts, 'Project', value => value.hint);
     if (choice.action === 'use') {
       project = available[choice.index];
       if (!project) throw new InputError('Choose a listed project.');
       break;
     }
     if (choice.action === 'org') {
-      org = await choose(orgs, o => `${o.name} (${o.role}, ${o.plan})`, ask, 'Organization');
+      org = await choose(orgs, o => o.name, prompts, 'Organization', o => `${o.role} · ${o.plan}`);
       available = await projects(options, org.id, output);
       continue;
     }
     const action = choice.action;
-    if (action === 'cancel')
-      throw new InputError('Setup canceled. Saved login and project connections remain available.');
     if (action === 'billing' && org) {
       output.diagnostic(
         `${org.can_upgrade ? 'Review your plan or request a limit increase' : 'Ask the Organization owner to activate billing'}: ${org.billing_url}`,
       );
-      if (org.can_upgrade && (await ask('Open billing in your browser? Type yes', 'no')) === 'yes')
+      if (org.can_upgrade && await prompts.confirm('Open billing in your browser?'))
         openBrowser(org.billing_url, output);
       if (
-        (await ask('After billing is updated, type retry to recheck limits, or cancel', 'cancel')) !== 'retry'
+        (await prompts.select('After updating billing', [{ value: 'retry', label: 'Recheck project limits' }, { value: 'cancel', label: 'Cancel' }], 'cancel')) !== 'retry'
       )
         throw new InputError('Rerun init and choose account-based project setup when ready. No project was created.');
       const id = org.id;
@@ -385,21 +380,18 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
     if (!Array.isArray(regions)) throw new InputError('Invalid region list.');
     const region = await choose(
       regions.filter((r) => r.cloud_provider === 'aws'),
-      (r) => `${r.name} (${r.region})${r.is_open ? '' : ' — regional setup required; takes longer'}`,
-      ask,
+      (r) => `${r.name} (${r.region})`,
+      prompts,
       'Region',
+      r => r.is_open ? 'Ready to deploy' : 'Additional regional setup · takes longer',
     );
     if (!region.is_open) output.diagnostic('This region needs additional deployment. Provisioning can take longer; you can return later to connect the created project.');
-    let name: string;
-    for (;;) {
-      const answer = await ask('Project name');
-      if (answer && /^[a-zA-Z0-9_-]{3,45}$/.test(answer)) { name = answer; break; }
-      output.diagnostic('Project name must contain 3–45 letters, digits, underscores or hyphens.');
-    }
+    const name = await prompts.text('Project name', undefined, value => /^[a-zA-Z0-9_-]{3,45}$/.test(value.trim())
+      ? undefined : 'Use 3–45 letters, digits, underscores or hyphens.');
     output.diagnostic(
       `Create ${name ?? ''} in ${org?.name ?? 'your default Organization'} (${region.region}).`,
     );
-    if ((await ask('Create this project? Type yes', 'no')) !== 'yes')
+    if (!(await prompts.confirm('Create this project?')))
       throw new InputError('No project was requested.');
     const created = await createProject(
       options,
@@ -464,8 +456,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
         `Inspect/revoke ${saved.pendingKeyName} in Console before replacing the uncertain connection.`,
       );
     if (
-      (await ask(`Create a key for ${project.name} and save it in your OS credential store? The key includes write access. Type yes`, 'no')) !==
-      'yes'
+      !(await prompts.confirm('Create a project key with write access?'))
     )
       throw new InputError('No project key was requested.');
   }

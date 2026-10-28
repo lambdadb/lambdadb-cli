@@ -1,3 +1,4 @@
+import { terminalInput, keys, enter, down, up, left, cancel } from './terminal-input.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -382,26 +383,21 @@ async function cliFixture(t, handler, saveAllowed = false) {
     CredentialVault.prototype.read = async () => 'synthetic-account-token';
     CredentialVault.prototype.remove = async () => {};
     CredentialVault.prototype.save = async () => { ${saveAllowed ? '' : "throw Error('unexpected secret persistence');"} };
-    if (process.env.LAMBDADB_TEST_INTERACTIVE) { process.stdin.isTTY = true; process.stderr.isTTY = true; }
+    if (process.env.LAMBDADB_TEST_INTERACTIVE) { process.stdin.isTTY = true; process.stdin.setRawMode = () => process.stdin; process.stderr.isTTY = true; process.stderr.columns = 100; }
     if (global.gc) setInterval(() => global.gc(), 20).unref();
   `);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')));
   return {
     ...fixture, config,
-    async run(args, extra = {}, answers, nodeArgs = []) {
+    async run(args, extra = {}, answers, nodeArgs = [], onSpawn = () => {}) {
       const child = spawn(process.execPath, [...nodeArgs, '--import', preload, bin, ...args, '--config', config, ...(answers ? [] : ['--json'])], {
-        env: { ...env, ...extra, ...(answers ? { LAMBDADB_TEST_INTERACTIVE: 'true' } : {}) }, stdio: [answers ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+        env: { ...env, ...extra, ...(answers ? { LAMBDADB_TEST_INTERACTIVE: 'true', TERM: 'xterm-256color' } : {}) }, stdio: [answers ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       });
+      onSpawn(child);
       let stdout = '', stderr = '';
       child.stdout.on('data', (c) => (stdout += c));
-      let answered = 0, cursor = 0;
-      child.stderr.on('data', (c) => {
-        stderr += c;
-        if (answers && answered < answers.length && stderr.slice(cursor).includes(answers[answered][0])) {
-          cursor = stderr.length;
-          child.stdin.write(answers[answered++][1] + '\n');
-        }
-      });
+      child.stderr.on('data', chunk => { stderr += chunk; });
+      const answered = terminalInput(child, answers);
       const timer = setTimeout(() => child.kill(), 5000);
       try {
         const code = await new Promise((resolve, reject) => {
@@ -410,7 +406,7 @@ async function cliFixture(t, handler, saveAllowed = false) {
         });
         assert.ok(!stdout.includes('synthetic-account-token'));
         assert.ok(!stderr.includes('synthetic-account-token'));
-        if (answers) assert.equal(answered, answers.length, stderr);
+        if (answers) assert.equal(answered(), answers.length, stderr);
         return { code, stdout, value: answers ? undefined : JSON.parse(stdout), stderr };
       } finally { clearTimeout(timer); }
     },
@@ -591,7 +587,7 @@ test('actual CLI: plain init enters account project setup and reuses a valid log
     res.end(JSON.stringify({ regions: [{ region: 'ap-northeast-2', name: 'Seoul', is_open: true, cloud_provider: 'aws' }] }));
   });
   const result = await fixture.run(['init', '--no-browser'], {}, [
-    ['Choose a number', '1'], ['Region\n1. Seoul', 'cancel'],
+    ['Connection', enter], ['Region', cancel],
   ]);
   assert.equal(result.code, 2);
   assert.match(result.stderr, /No projects yet/);
@@ -643,22 +639,22 @@ test('guided init selects an existing project at its limit without a billing det
     res.end(JSON.stringify({ collections: [] }));
   }, true);
   const result = await fixture.run(['init', '--agents', 'none', '--no-browser'], {}, [
-    ['Choose a number', '1'], ['Project\n1. first (ACTIVE)', '1'],
-    ['Create a key for first', 'yes'],
+    ['Connection', enter], ['Project', enter],
+    ['Create a project key with write access?', keys(left, '\r')],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /Organization: Team/);
   assert.doesNotMatch(result.stderr, /Continue with account|Enter use|Project limit reached|rerun init to update|Enable MCP write tools\?/);
-  assert.match(result.stdout, /Connected to first/);
+  assert.match(result.stdout, /Project\s+first/);
   assert.doesNotMatch(result.stdout + result.stderr, /synthetic-issued-secret/);
   assert.equal(fixture.calls.filter(c => c.path === '/auth/cli/connect').length, 1);
   assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 1);
   const rerun = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Choose a number', '1'],
+    ['Connection', enter],
   ]);
   assert.equal(rerun.code, 0, rerun.stderr);
   assert.doesNotMatch(rerun.stderr, /Account metadata|Project references|Connected project:|Scope:|MCP tools:|Apply these changes/);
-  assert.match(rerun.stderr, /3\/3 Verify connection/);
+  assert.match(rerun.stderr, /Authentication and collection access verified/);
   assert.equal(fixture.calls.filter(c => c.path === '/auth/cli/connect').length, 1);
 });
 
@@ -669,7 +665,7 @@ test('guided init still requires explicit new-key approval', async t => {
     res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Choose a number', '1'], ['Project\n1. first (ACTIVE)', '1'], ['Create a key for first', ''],
+    ['Connection', enter], ['Project', enter], ['Create a project key with write access?', enter],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 0);
@@ -684,7 +680,7 @@ test('guided cancellation after project connection reports and retains the compl
     res.end(JSON.stringify({ endpoint: fixture.url, project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: { key_id: 'key-id' } } }));
   }, true);
   const result = await fixture.run(['init', '--agents', 'cline'], {}, [
-    ['Choose a number', '1'], ['Project\n1. first', '1'], ['Create a key for first', 'yes'], ['Selected agents require user scope', 'cancel'],
+    ['Connection', enter], ['Project', enter], ['Create a project key with write access?', keys(left, '\r')], ['Install agent settings for your OS user?', enter],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, /Completed login\/project setup is retained/);
@@ -699,8 +695,8 @@ test('guided creation at the project limit offers billing without creating a pro
     res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
   });
   const result = await fixture.run(['init', '--agents', 'none', '--no-browser'], {}, [
-    ['Choose a number', '1'], ['Project\n1. first (ACTIVE)', '2'],
-    ['Open billing in your browser?', 'no'], ['After billing is updated', 'cancel'],
+    ['Connection', enter], ['Project', keys(down, '\r')],
+    ['Open billing in your browser?', enter], ['After updating billing', enter],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, new RegExp(`/organization/billing/open\\?org_id=${org}`));
@@ -715,19 +711,20 @@ test('guided first-project creation skips the action picker but keeps region sel
     res.end(JSON.stringify({ regions: [{ region: 'ap-northeast-2', name: 'Seoul', is_open: true, cloud_provider: 'aws' }] }));
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Choose a number', '1'], ['Region\n1. Seoul', '99'], ['Region\n1. Seoul', '1'],
-    ['Project name:', 'x'.repeat(46)], ['Project name:', 'bad name'], ['Project name:', 'example'], ['Create this project?', 'no'],
+    ['Connection', enter], ['Region', enter],
+    ['Project name', 'x'.repeat(46)],
+    ['error:Use 3–45 letters', keys(...Array(46).fill('\x7f'), 'bad name', '\r')],
+    ['error:Use 3–45 letters', keys(...Array(8).fill('\x7f'), 'example', '\r')], ['Create this project?', enter],
   ]);
   assert.equal(result.code, 2, result.stderr);
-  assert.doesNotMatch(result.stderr, /Project\n1. Create/);
-  assert.match(result.stderr, /Choose one of the listed numbers/);
-  assert.match(result.stderr, /Project name must contain 3–45/);
+  assert.doesNotMatch(result.stderr, /◆ {2}Project\n/);
+  assert.match(result.stderr, /Use 3–45 letters/);
   assert.match(result.stderr, /No project was requested/);
   assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 0);
   await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
 });
 
-test('guided Org and project pickers retry invalid numbers without repeating requests', async t => {
+test('guided Org and project menus navigate without repeating requests', async t => {
   const otherOrg = '44444444-4444-4444-8444-444444444444';
   const fixture = await cliFixture(t, (call, res) => {
     if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [org, otherOrg].map((id, index) => ({ id, name: `Team${index}`, role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 })) }));
@@ -736,8 +733,8 @@ test('guided Org and project pickers retry invalid numbers without repeating req
     res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Choose a number', '1'], ['Organization\n1. Team0', '0'], ['Organization\n1. Team0', '1'],
-    ['Project\n1. first', 'abc'], ['Project\n1. first', '1'], ['Create a key for first', 'no'],
+    ['Connection', enter], ['Organization', keys(down, up, '\r')],
+    ['Project', enter], ['Create a project key with write access?', enter],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.equal(fixture.calls.length, 2);
@@ -759,10 +756,10 @@ test('guided cold-region creation retains the selection and returns provisioning
     res.end(JSON.stringify({ id: first, organization_id: org, status: 'CREATING' }));
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Choose a number', '1'], ['Region\n1. Seoul', '2'], ['Project name:', 'example'], ['Create this project?', 'yes'],
+    ['Connection', enter], ['Region', keys(down, '\r')], ['Project name', 'example'], ['Create this project?', keys(left, '\r')],
   ]);
   assert.equal(result.code, 2, result.stderr);
-  assert.match(result.stderr, /Ireland \(eu-west-1\).*regional setup required/);
+  assert.match(result.stderr, /Additional regional setup/);
   assert.match(result.stderr, /needs additional deployment/);
   assert.match(result.stderr, /was created in eu-west-1 and is provisioning/);
   assert.match(result.stderr, /select this existing project\. Do not create it again/);
@@ -778,7 +775,7 @@ test('guided rerun selects a provisioning project without creating another or as
     res.end(JSON.stringify({ projects: [{ id: first, name: 'pending', status: 'CREATING', organization_id: org }] }));
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Choose a number', '1'], ['Project\n1. pending (CREATING)', '1'],
+    ['Connection', enter], ['Project', enter],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, /is CREATING and is not ready to connect/);
@@ -786,4 +783,24 @@ test('guided rerun selects a provisioning project without creating another or as
   assert.doesNotMatch(result.stderr, /Create a key for/);
   assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 0);
   await assert.rejects(readFile(`${fixture.config}.connections.json`), { code: 'ENOENT' });
+});
+
+
+test('guided cancellation during key delivery keeps unknown issuance and never retries', async t => {
+  let child;
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
+    if (call.path.endsWith('/projects')) return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+    assert.equal(call.path, '/auth/cli/connect');
+    res.write('{');
+    child.kill('SIGINT');
+  });
+  const result = await fixture.run(['init', '--agents', 'none'], {}, [
+    ['Connection', enter], ['Project', enter], ['Create a project key with write access?', keys(left, '\r')],
+  ], [], spawned => { child = spawned; });
+  assert.equal(result.code, 5, result.stderr);
+  assert.match(result.stdout, /"state": "unknown"/);
+  assert.match(JSON.parse(await readFile(`${fixture.config}.connections.json`, 'utf8'))[0].pendingKeyName, /^lambdadb-cli-/);
+  assert.equal(fixture.calls.filter(call => call.method !== 'GET').length, 1);
+  await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
 });

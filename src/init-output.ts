@@ -1,4 +1,5 @@
 import { relative, isAbsolute, sep } from 'node:path';
+import { styleText } from 'node:util';
 import { agentAdapters, type Agent } from './agents.js';
 import { configPath } from './config.js';
 import type { initialize } from './init.js';
@@ -21,23 +22,38 @@ export function formatPlan(files: FilePlan[], agents: Agent[], scope: string, wr
   const visible = details ? [...changed, ...unchanged] : changed;
   return [
     ...(agents.length ? [
-      `Agents: ${agents.join(', ')}`,
+      `Agents: ${agents.map(agent => agentAdapters.find(adapter => adapter.id === agent)!.name).join(', ')}`,
       `Scope: ${scope} (${text(scope === 'project' ? context.cwd : context.home)})`,
       `MCP tools: ${writeTools ? 'read and write (explicit opt-in)' : 'read-only'}`,
       '',
     ] : []),
     ...(visible.length ? [details ? 'All files (. = current directory, ~ = home):' : 'Files to change (. = current directory, ~ = home):'] : ['No file changes.']),
     ...visible.map(file => `  ${file.action.padEnd(9)} ${[file.path, ...(file.aliases ?? [])].map(displayPath).join(', ')}${file.destination ? ` -> ${text(file.destination)}` : ''}`),
-    ...(!details && unchanged.length ? [`${unchanged.length} file${unchanged.length === 1 ? '' : 's'} unchanged. Type details below to show all files.`] : []),
-    '',
-    ...(agents.length ? ['Type settings below to change scope or MCP write tools.'] : []),
+    ...(!details && unchanged.length ? [`${unchanged.length} file${unchanged.length === 1 ? '' : 's'} unchanged.`] : []),
   ].join('\n');
 }
 
-export function formatInit(data: Awaited<ReturnType<typeof initialize>>, config: string) {
+export function formatInit(data: Awaited<ReturnType<typeof initialize>>, config: string, interactive = false) {
   const { settings, agents } = data;
   const count = data.files.filter(file => file.action !== 'unchanged').length;
   const customConfig = config !== configPath({});
+  if (interactive) {
+    const row = (label: string, value: string) => `  ${styleText('dim', label.padEnd(8))} ${text(value)}`;
+    return [
+      row('Project', settings.project),
+      row('Agents', agents.length ? agents.map(agent => agentAdapters.find(adapter => adapter.id === agent)!.name).join(', ') : 'Skipped'),
+      ...(agents.length ? [row('Install', `${data.scope} scope · MCP ${data.writeTools ? 'read and write' : 'read-only'}`)] : []),
+      ...(customConfig ? [row('Config', config)] : []),
+      '',
+      `  ${styleText('bold', 'Next')}`,
+      ...(agents.length ? [
+        '    Restart your selected agents to load LambdaDB.',
+        `    Ask: "${customConfig ? `Use LambdaDB with CLI config ${JSON.stringify(config)}. ` : ''}List my LambdaDB collections and help me search one. Do not modify data."`,
+      ] : [`    lambdadb collections list --json${customConfig ? ' (pass --config with the path above)' : ''}`]),
+      '',
+      styleText('dim', '  Run your first query to verify search.'),
+    ].join('\n');
+  }
   return [
     `Connected to ${text(settings.project)}`,
     'Authentication and collection access verified; search not yet verified.',

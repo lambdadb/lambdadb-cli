@@ -33,6 +33,10 @@ executable. In the examples below, you can replace `lambdadb` with
    and MCP write-tool choice before approving the changes.
 4. Restart or reload the selected agents and follow the first-query guidance.
 
+Use arrow keys and Enter in menus, and Space to toggle agents. Nothing is
+preselected in the agent list. File review offers **Change options** for scope
+and MCP write tools; **Show all files** expands unchanged paths.
+
 For SSH or a host without a visible browser:
 
 ```sh

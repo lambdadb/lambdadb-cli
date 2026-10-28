@@ -9,6 +9,7 @@ export type AgentContext = { cwd: string; home: string; env: NodeJS.ProcessEnv; 
 type AgentPaths = { mcp: string; skill?: string };
 export type AgentAdapter = {
   id: string;
+  name: string;
   executable: string | readonly string[];
   scopes?: readonly AgentScope[];
   detectionDirectories(context: AgentContext): string[];
@@ -100,7 +101,7 @@ function clineSettingsDirectory(context: AgentContext): string {
 // Register new agents here; init consumes this contract without agent-specific branches.
 export const agentAdapters = [
   {
-    id: 'codex', executable: 'codex',
+    id: 'codex', name: 'Codex', executable: 'codex',
     detectionDirectories: ({ cwd, home, env }) => [env.CODEX_HOME ?? join(home, '.codex'), join(cwd, '.codex')],
     paths(scope, { cwd, home, env }) {
       const root = scope === 'user' ? home : cwd;
@@ -111,7 +112,7 @@ export const agentAdapters = [
     instructions: 'Codex: trust the project if using project scope, start a new session, and check /mcp.',
   },
   {
-    id: 'claude', executable: 'claude',
+    id: 'claude', name: 'Claude Code', executable: 'claude',
     detectionDirectories: ({ cwd, home, env }) => [env.CLAUDE_CONFIG_DIR ?? join(home, '.claude'), join(cwd, '.claude')],
     paths(scope, { cwd, home, env }) {
       const root = scope === 'user' ? home : cwd;
@@ -123,7 +124,7 @@ export const agentAdapters = [
     instructions: 'Claude Code: restart and approve the project MCP server if prompted; check /mcp.',
   },
   {
-    id: 'cursor', executable: ['cursor', 'cursor-agent'],
+    id: 'cursor', name: 'Cursor', executable: ['cursor', 'cursor-agent'],
     detectionDirectories: ({ cwd, home }) => [join(home, '.cursor'), join(cwd, '.cursor')],
     paths(scope, { cwd, home }) {
       const root = scope === 'user' ? home : cwd;
@@ -133,7 +134,7 @@ export const agentAdapters = [
     instructions: 'Cursor: restart/reload and check MCP settings.',
   },
   {
-    id: 'vscode', executable: 'code',
+    id: 'vscode', name: 'VS Code', executable: 'code',
     detectionDirectories: context => [join(context.home, '.vscode'), join(context.cwd, '.vscode'), vscodeUserDirectory(context)],
     paths(scope, context) {
       return { mcp: scope === 'user' ? join(vscodeUserDirectory(context), 'mcp.json') : join(context.cwd, '.vscode', 'mcp.json'),
@@ -143,7 +144,7 @@ export const agentAdapters = [
     instructions: 'VS Code: reload the window, trust the workspace, and use MCP: List Servers to start/check lambdadb. Init targets the Local harness and the default user profile, not portable Copilot or remote profiles.',
   },
   {
-    id: 'gemini', executable: 'gemini',
+    id: 'gemini', name: 'Gemini CLI', executable: 'gemini',
     detectionDirectories: context => [geminiDirectory(context), join(context.cwd, '.gemini')],
     paths(scope, context) {
       const root = scope === 'user' ? geminiDirectory(context) : join(context.cwd, '.gemini');
@@ -153,21 +154,21 @@ export const agentAdapters = [
     instructions: 'Gemini CLI: restart or run /mcp refresh and /skills reload, trust the workspace if prompted, and check /mcp and /skills list.',
   },
   {
-    id: 'opencode', executable: 'opencode',
+    id: 'opencode', name: 'OpenCode', executable: 'opencode',
     detectionDirectories: context => [opencodeDirectory(context), join(context.cwd, '.opencode'), join(context.cwd, 'opencode.json'), join(context.cwd, 'opencode.jsonc')],
     paths: opencodePaths,
     configure: (path, text, launch) => jsonConfig(path, text, launch, opencodeServer, opencodeMapPath),
     instructions: 'OpenCode: restart and run opencode mcp list. Init preserves existing V2 mcp.servers maps; new files use V1 syntax supported by V1 and V2. Custom config files and organization policies may override these settings.',
   },
   {
-    id: 'copilot', executable: 'copilot',
+    id: 'copilot', name: 'GitHub Copilot', executable: 'copilot',
     detectionDirectories: context => [copilotDirectory(context), join(context.cwd, '.github', 'mcp.json')],
     paths: copilotPaths,
     configure: (path, text, launch) => strictJsonConfig(path, text, launch, claudeServer, copilotMapPath),
     instructions: 'GitHub Copilot CLI: restart with the configured credential source available, trust the repository, then check /mcp and run /skills reload. Project MCP settings override user settings.',
   },
   {
-    id: 'kiro', executable: ['kiro', 'kiro-cli'],
+    id: 'kiro', name: 'Kiro', executable: ['kiro', 'kiro-cli'],
     detectionDirectories: ({ cwd, home }) => [join(home, '.kiro'), join(cwd, '.kiro')],
     paths(scope, { cwd, home }) {
       const directory = join(scope === 'user' ? home : cwd, '.kiro');
@@ -177,7 +178,7 @@ export const agentAdapters = [
     instructions: 'Kiro IDE/CLI: restart with the configured credential source available and check /mcp. For environment mode, approve the selected variable in Mcp Approved Env Vars when prompted. Custom agents must include the MCP JSON and skill resources; init does not alter agent permissions or definitions.',
   },
   {
-    id: 'cline', executable: [], scopes: ['user'],
+    id: 'cline', name: 'Cline', executable: [], scopes: ['user'],
     detectionDirectories: context => [clineSettingsDirectory(context)],
     paths(_scope, context) {
       return { mcp: join(clineSettingsDirectory(context), 'cline_mcp_settings.json'),

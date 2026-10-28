@@ -15,14 +15,15 @@ Run `lambdadb init` to start. On a first run, choose account login and terminal
 project setup (recommended), or an existing project API key supplied through an
 environment variable. A valid account login is reused.
 
-Interactive setup has three stages: connection, agent selection, and file review.
+Interactive setup uses a single visual flow for connection, agent selection, and
+file review. Use arrow keys to move and Enter to confirm; Ctrl-C cancels setup.
 A single accessible Org is selected and shown automatically. The project menu
 lists existing projects alongside creation; reaching the project limit does not
 add a separate question when connecting an existing project. New project creation
 and new key issuance still require explicit confirmation.
 If there are no projects and no alternative Org to choose, init proceeds directly
-to creation inputs. Invalid menu numbers and project names can be corrected in
-place without restarting setup.
+to creation inputs. Invalid project names are highlighted and can be corrected
+in place without restarting setup.
 
 Region selection always remains explicit. All public AWS regions returned by the
 server are listed; `is_open=false` means additional regional deployment is needed,
@@ -54,10 +55,9 @@ Use Space to toggle agents and Enter to continue. Detected agents are labeled,
 not preselected; submitting an empty selection skips agent installation. The
 review defaults to project scope and read-only MCP tools. It shows the directory
 and each file to create or update before applying changes. Unchanged files are
-summarized by count; type `details` to display all paths, with changes first.
-Type `settings` at that
-prompt to change scope or explicitly enable write tools, then review the revised
-plan. Cline requires explicit user-scope confirmation. Existing `--agents`,
+summarized by count; choose **Show all files** to display every path, with changes
+first. Choose **Change options** to change scope or explicitly enable write tools,
+then review the revised plan. Cline requires explicit user-scope confirmation. Existing `--agents`,
 `--scope`, and `--write-tools` flags can set these choices in advance.
 Pressing Enter in settings keeps the current write-tool choice, including a
 previous explicit opt-in.
@@ -67,11 +67,13 @@ scope or cancellation before writing files; existing entries stay protected.
 If no agents are selected and the saved CLI settings are unchanged, init proceeds
 directly to connection verification. It omits agent scope, MCP options and the
 apply prompt. New CLI settings still require file review and approval. Selecting
-agents keeps review available, including `settings`, even if their files are
+agents keeps review available, including **Change options**, even if their files are
 already up to date.
 
-Successful ordinary output is a short connection summary with selected-agent
-reload instructions and a next step. Full structured results, including check
+The terminal groups prompts and completed choices along one rail, with a boxed
+file review, connection progress, and a compact completion summary. Color is
+automatic and respects `NO_COLOR`. Successful output includes selected-agent
+reload guidance and a next step. Full structured results, including check
 and file metadata, remain available through `--non-interactive --json`.
 
 ### Project limits and manual Console steps

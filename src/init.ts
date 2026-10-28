@@ -1,9 +1,7 @@
-import checkbox from '@inquirer/checkbox';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { createInterface } from 'node:readline/promises';
+import { dirname, join, sep } from 'node:path';
 import { configPath, fileIdentity, loadSettings, resolveConfig, saveSettings, settings, type Options, type SelectedSettings } from './config.js';
 import { terminalSetup } from './projects.js';
 import { InputError } from './errors.js';
@@ -11,6 +9,7 @@ import type { Output } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
 import { mcpPackage } from './mcp.js';
 import { formatPlan } from './init-output.js';
+import { InitUI } from './init-ui.js';
 import { mcpLaunch } from './agent-config.js';
 import { agentAdapters, agentNames, detectAgents, type Agent, type AgentAdapter, type AgentContext, type AgentScope } from './agents.js';
 
@@ -114,33 +113,16 @@ export async function initialize(options: InitOptions, output: Output) {
   }
   const context = { cwd: process.cwd(), home: homedir(), env: process.env };
   const detected = await detectAgents(context);
-  let prompt = interactive ? createInterface({ input: process.stdin, output: process.stderr }) : undefined;
   let connectionSaved = false;
   let accountSetup = false;
   const canceled = () => new InputError((connectionSaved || accountSetup)
     ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.'
     : 'Init canceled. No files were changed.');
-  const ask = async (label: string, fallback?: string) => {
-    const cancellation = new AbortController();
-    const cancel = () => cancellation.abort();
-    prompt!.once('SIGINT', cancel);
-    prompt!.once('close', cancel);
-    try {
-      // eslint-disable-next-line no-control-regex -- Server names must not inject terminal escapes into prompts.
-      label = label.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, ' ');
-      const answer = (await prompt!.question(`${label}${fallback ? ` [${fallback}]` : ''}: `, { signal: cancellation.signal })).trim();
-      return answer || fallback;
-    } catch (error) {
-      if (cancellation.signal.aborted) throw canceled();
-      throw error;
-    } finally {
-      prompt!.removeListener('SIGINT', cancel);
-      prompt!.removeListener('close', cancel);
-    }
-  };
+  const ui = interactive ? new InitUI(output, canceled) : undefined;
+  if (ui) output = output.withDiagnostics(message => ui.info(message));
   try {
-    if (interactive) {
-      output.diagnostic('\n1/3 Connect to LambdaDB');
+    if (ui) {
+      ui.start();
       let saved = await loadSettings(configPath(options));
       let reuseConnection = false;
       const explicitConnection = options.endpoint || options.project || options.apiKeyEnv || options.credentialId;
@@ -148,68 +130,56 @@ export async function initialize(options: InitOptions, output: Output) {
         const currentEndpoint = process.env.LAMBDADB_ENDPOINT ?? saved.endpoint;
         const currentProject = process.env.LAMBDADB_PROJECT ?? saved.project;
         const reuse = !!currentEndpoint || !!saved.credentialStore;
-        let choice: string | undefined;
         for (;;) {
-          choice = await ask(reuse
-            ? `Current project: ${currentProject ?? '(not set)'} at ${currentEndpoint ?? '(not set)'}\n1. Continue with this connection\n2. Select or create another project through account login\nChoose a number (or cancel)`
-            : '1. Sign in and select or create a project (recommended)\n2. Use an existing project API key from an environment variable\nChoose a number (or cancel)', '1');
-          if (choice === 'cancel') throw new InputError('Init canceled. No files were changed.');
-          if (choice === '1' || choice === '2') break;
-          output.diagnostic('Choose 1 or 2, or cancel.');
+          const choice = await ui.select('Connection', reuse ? [
+            { value: 'reuse', label: 'Use current project', hint: currentProject ?? 'Not set' },
+            { value: 'account', label: 'Choose another project' },
+            { value: 'details', label: 'View connection details' },
+            { value: 'cancel', label: 'Cancel' },
+          ] : [
+            { value: 'account', label: 'Sign in or create an account', hint: 'Recommended' },
+            { value: 'environment', label: 'Use an existing API key', hint: 'From an environment variable' },
+            { value: 'cancel', label: 'Cancel' },
+          ]);
+          if (choice === 'cancel') throw canceled();
+          if (choice === 'details') {
+            ui.note(`Project: ${currentProject ?? 'Not set'}\nEndpoint: ${currentEndpoint ?? 'Not set'}\nSettings: ${configPath(options)}`, 'Current connection');
+            continue;
+          }
+          accountSetup = choice === 'account';
+          reuseConnection = choice === 'reuse' && !!currentEndpoint && !!currentProject;
+          break;
         }
-        accountSetup = reuse ? choice === '2' : choice === '1';
-        reuseConnection = reuse && choice === '1' && !!currentEndpoint && !!currentProject;
       }
       if (accountSetup) {
-        const destination = await fileIdentity(configPath(options));
-        output.diagnostic(`CLI settings: ${destination} (secrets: OS credential store).`);
-        const cancellation = new AbortController();
-        const cancel = () => cancellation.abort();
-        prompt!.once('SIGINT', cancel); prompt!.once('close', cancel);
-        let selected: SelectedSettings;
-        try { selected = await terminalSetup({ ...options, guided: true, signal: cancellation.signal }, output, ask); }
-        finally { prompt!.removeListener('SIGINT', cancel); prompt!.removeListener('close', cancel); }
+        const path = configPath(options), destination = await fileIdentity(path);
+        ui.info(`Settings: ${path.startsWith(context.home + sep) ? '~' + path.slice(context.home.length) : destination}\nKeys: OS credential store`);
+        const selected = await terminalSetup({ ...options, guided: true, signal: ui.signal }, output, ui);
         options = { ...options, ...selected };
         saved = selected;
         connectionSaved = true;
       }
       if (!reuseConnection && (!saved.credentialStore || (options.apiKeyEnv && !options.credentialStore))) {
-        options.endpoint = await ask('Project data API endpoint', options.endpoint ?? process.env.LAMBDADB_ENDPOINT ?? saved.endpoint);
-        options.project = await ask('Existing project name', options.project ?? process.env.LAMBDADB_PROJECT ?? saved.project);
-        options.apiKeyEnv = await ask('Environment variable holding your API key (not its value)', options.apiKeyEnv ?? process.env.LAMBDADB_API_KEY_ENV ?? saved.apiKeyEnv ?? 'LAMBDADB_API_KEY');
+        options.endpoint = await ui.text('Project API endpoint', options.endpoint ?? process.env.LAMBDADB_ENDPOINT ?? saved.endpoint);
+        options.project = await ui.text('Project name', options.project ?? process.env.LAMBDADB_PROJECT ?? saved.project);
+        options.apiKeyEnv = await ui.text('API key environment variable', options.apiKeyEnv ?? process.env.LAMBDADB_API_KEY_ENV ?? saved.apiKeyEnv ?? 'LAMBDADB_API_KEY');
         output.protect(options.apiKeyEnv ? process.env[options.apiKeyEnv] : undefined);
       }
-      output.diagnostic('\n2/3 Choose coding agents');
       if (options.agents === undefined) {
-        // Only one readline interface may own stdin at a time.
-        prompt?.close();
-        try {
-          const agents = await checkbox<Agent>({
-            message: 'Select agents (Space to toggle; Enter with none selected to skip)',
-            pageSize: agentAdapters.length,
-            choices: agentAdapters.map(adapter => ({ value: adapter.id, name: `${adapter.id}${detected.includes(adapter.id) ? ' (detected)' : ''}`, checked: false })),
-          }, { output: process.stderr });
-          options.agents = agents.join(',') || 'none';
-        } catch (error) {
-          if (error instanceof Error && ['ExitPromptError', 'AbortPromptError'].includes(error.name)) {
-            throw canceled();
-          }
-          throw error;
-        }
-        prompt = createInterface({ input: process.stdin, output: process.stderr });
+        const agents = await ui.agents(agentAdapters.map(adapter => ({ value: adapter.id, label: adapter.name,
+          ...(detected.includes(adapter.id) ? { hint: 'Detected' } : {}),
+        })));
+        options.agents = agents.join(',') || 'none';
       }
       const scopes = availableScopes(selectedAgents(options.agents));
       if (options.scope === undefined) {
         if (scopes.includes('project')) options.scope = 'project';
-        else for (;;) {
-          const scope = await ask('Selected agents require user scope. Type user to install for your OS user, or cancel', 'cancel');
-          if (scope === 'cancel') throw canceled();
-          if (scope === 'user') { options.scope = scope; break; }
-          output.diagnostic('Choose user or cancel.');
+        else {
+          if (!(await ui.confirm('Install agent settings for your OS user?'))) throw canceled();
+          options.scope = 'user';
         }
       }
       options.writeTools ??= false;
-
     }
     const chosen = selectedAgents(options.agents);
     if (!['project', 'user'].includes(options.scope ?? '')) throw new InputError('Specify --scope project or --scope user. CLI settings still use --config or the normal user configuration path.');
@@ -231,12 +201,12 @@ export async function initialize(options: InitOptions, output: Output) {
           const scopes = availableScopes(chosen);
           if (!interactive || !chosen.length || scopes.length < 2 || !(error instanceof InputError)) throw error;
           output.diagnostic(`Cannot prepare ${options.scope} scope: ${error.message}`);
-          for (;;) {
-            const scope = await ask(`Choose a different agent scope: ${scopes.join(' or ')}, or cancel`, 'cancel');
-            if (scope === 'cancel') throw canceled();
-            if (scopes.includes(scope as AgentScope)) { options.scope = scope; break; }
-            output.diagnostic(`Choose scope ${scopes.join(' or ')}, or cancel.`);
-          }
+          const scope = await ui!.select('Configuration scope', [
+            ...scopes.map(value => ({ value, label: value === 'project' ? 'This repository' : 'Your OS user' })),
+            { value: 'cancel', label: 'Cancel' },
+          ], 'cancel');
+          if (scope === 'cancel') throw canceled();
+          options.scope = scope;
         }
       }
     };
@@ -244,25 +214,25 @@ export async function initialize(options: InitOptions, output: Output) {
     const describe = () => changes.map(change => ({ path: change.path, ...(change.aliases.length ? { aliases: change.aliases } : {}), ...(change.destination !== change.path ? { destination: change.destination } : {}), kind: change.kind,
       action: change.before === change.after ? 'unchanged' : change.before === undefined ? 'create' : 'update' }));
     let files = describe();
-    if (interactive) {
+    if (ui) {
       const review = chosen.length > 0 || files.some(file => file.action !== 'unchanged');
-      output.diagnostic(review ? '\n3/3 Review setup' : '\n3/3 Verify connection');
       let details = false;
       while (review) {
-        output.diagnostic(formatPlan(files, chosen, options.scope!, !!options.writeTools, context, details));
-        const choices = chosen.length ? 'yes, settings, details, or no' : 'yes, details, or no';
-        const answer = await ask(`Apply these changes after verifying collection-list access? Type ${choices}`, 'no');
-        if (answer === 'yes') break;
+        ui.note(formatPlan(files, chosen, options.scope!, !!options.writeTools, context, details), 'Review changes');
+        const answer = await ui.select('Continue with this setup?', [
+          { value: 'apply', label: 'Apply changes' },
+          ...(chosen.length ? [{ value: 'settings', label: 'Change options' }] : []),
+          { value: 'details', label: 'Show all files' },
+          { value: 'cancel', label: 'Cancel' },
+        ], 'cancel');
+        if (answer === 'apply') break;
         if (answer === 'details') { details = true; continue; }
-        if (answer === 'no') throw canceled();
-        if (answer !== 'settings' || !chosen.length) { output.diagnostic(`Choose ${choices}.`); continue; }
+        if (answer === 'cancel') throw canceled();
         const scopes = availableScopes(chosen);
-        for (;;) {
-          const scope = await ask(`Agent configuration scope: ${scopes.join(' or ')}`, options.scope);
-          if (scopes.includes(scope as AgentScope)) { options.scope = scope; break; }
-          output.diagnostic(`Choose scope ${scopes.join(' or ')}.`);
-        }
-        options.writeTools = (await ask('Enable MCP write tools? Type yes to opt in', options.writeTools ? 'yes' : 'no')) === 'yes';
+        options.scope = await ui.select('Install for', scopes.map(value => ({ value,
+          label: value === 'project' ? 'This repository' : 'Your OS user',
+        })), options.scope);
+        options.writeTools = await ui.confirm('Enable MCP write tools?', !!options.writeTools);
         changes = await planWithScopeRecovery();
         files = describe();
         details = false;
@@ -271,10 +241,13 @@ export async function initialize(options: InitOptions, output: Output) {
       for (const file of files) output.diagnostic(`${file.action}: ${[file.path, ...(file.aliases ?? [])].join(', ')}${file.destination ? ` -> ${file.destination}` : ''} — ${file.kind}`);
       output.diagnostic(`MCP: ${mcpPackage}; write tools ${options.writeTools ? 'enabled (explicit opt-in)' : 'disabled'}. ${selected.credentialStore ? `The bridge reads ${selected.credentialStore} using a non-secret reference.` : `Agents must inherit ${selected.apiKeyEnv}; only its name is stored.`}`);
     }
-    const ctx = runtime(config);
+    const ctx = runtime(config, ui?.signal);
     let connection;
-    try { connection = await checkConnection(ctx); } finally { ctx.close(); }
+    try {
+      connection = ui ? await ui.verify(() => checkConnection(ctx)) : await checkConnection(ctx);
+    } finally { ctx.close(); }
     await apply(changes, options);
+    ui?.finish();
     const nextSteps = [
       selected.credentialStore ? `Restart/reload selected agents as the same OS user with ${selected.credentialStore} accessible and npx on PATH. No shell key export is required.` : `Restart/reload selected agents from an environment containing ${selected.apiKeyEnv} and npx on PATH. GUI launches may not inherit shell exports.`,
       agentAdapters.filter(adapter => chosen.includes(adapter.id)).map(adapter => adapter.instructions).join(' '),
@@ -284,5 +257,8 @@ export async function initialize(options: InitOptions, output: Output) {
     ];
     return { ...connection, settings: selected, detectedAgents: detected, agents: chosen, scope: options.scope,
       writeTools: !!options.writeTools, files, nextSteps };
-  } finally { prompt?.close(); }
+  } catch (error) {
+    ui?.finish('Setup stopped');
+    throw error;
+  } finally { ui?.dispose(); }
 }
