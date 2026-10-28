@@ -52,8 +52,10 @@ optional.
 ### Review agent setup
 
 Use Space to toggle agents and Enter to continue. Detected agents are labeled,
-not preselected; submitting an empty selection skips agent installation. The
-review defaults to project scope and read-only MCP tools. It shows the directory
+not preselected. Enter confirms checked agents; it does not select the focused
+agent. Submitting an empty selection offers **Return to agent selection** (the
+default) or **Skip agent setup**. The review defaults to project scope and
+read-only MCP tools. It shows the directory
 and each file to create or update before applying changes. Unchanged files are
 summarized by count; choose **Show all files** to display every path, with changes
 first. Choose **Change options** to change scope or explicitly enable write tools,

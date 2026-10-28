@@ -31,6 +31,10 @@
 
 ### Maintenance
 
+- Confirm an empty interactive agent selection before skipping installation.
+  Default to returning to selection, and clarify Space versus Enter controls.
+  Explicit `--agents none` and non-interactive behavior stay unchanged.
+
 - Unify interactive init with Clack: arrow-key menus, inline validation, explicit
   confirmations, an optional agent multiselect, boxed file review, progress and
   aligned completion rows. Replace mixed numbered/readline and checkbox styles.

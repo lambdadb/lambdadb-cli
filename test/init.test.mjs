@@ -604,6 +604,7 @@ test('user edits inside an init-owned entry are preserved on rerun', async t => 
 test('agents none saves only non-secret CLI settings and still verifies connection', async t => {
   const f = await fixture(t);
   const result = await f.run(f.init('none'));
+  assert.doesNotMatch(result.stderr, /No agents selected|Return to agent selection/);
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.data.data.files.length, 1);
   assert.equal(f.requests.length, 1);
@@ -738,35 +739,39 @@ test('agent multiselect is explicit, supports toggling, and displays friendly na
   await f.file(join(f.home, '.claude/settings.json'), '{}');
   assert.equal((await f.run(f.init('none'))).code, 0);
   const result = await f.run(['init'], {}, [
-    ['Connection', enter], ['Coding agents (optional)', keys(' ', down, ' ', up, ' ', '\r')],
+    ['Connection', enter], ['Coding agents (Space: select one or more; Enter: confirm)', keys(' ', down, ' ', up, ' ', '\r')],
     ['Continue with this setup?', keys(up, up, up, '\r')],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /Codex|Claude Code/);
   assert.match(result.stdout, /Agents\s+Claude Code/);
   assert.match(result.stdout, /project scope · MCP read-only/);
+  assert.doesNotMatch(result.stderr, /No agents selected/);
   assert.doesNotMatch(result.stdout, /"checks"|credentialId/);
   assert.ok(await readFile(join(f.cwd, '.mcp.json'), 'utf8'));
   await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
   assert.equal(f.requests.length, 2);
 });
 
-test('empty agent selection skips review, remains read-only and supports cancellation', async t => {
+test('explicitly skipping empty agent selection omits review and preserves read-only settings', async t => {
   const f = await fixture(t);
   await f.file(join(f.home, '.codex/config.toml'), '');
   assert.equal((await f.run(f.init('none'))).code, 0);
   const before = await readFile(f.config, 'utf8');
   const result = await f.run(['init'], { NO_COLOR: '1' }, [
-    ['Connection', enter], ['Coding agents (optional)', enter],
+    ['Connection', enter], ['Coding agents (Space: select one or more; Enter: confirm)', enter],
+    ['No agents selected', keys(down, '\r')],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /Agents\s+Skipped/);
   assert.doesNotMatch(result.stderr, /Review changes|Continue with this setup|Scope:|MCP tools:/);
   // eslint-disable-next-line no-control-regex -- NO_COLOR must remove SGR color/style escapes.
   assert.doesNotMatch(result.stdout + result.stderr, /\x1b\[[0-9;]*m/);
-  const canceled = await f.run(['init'], {}, [['Connection', enter], ['Coding agents (optional)', cancel]]);
+  const canceled = await f.run(['init'], {}, [['Connection', enter], ['Coding agents (Space: select one or more; Enter: confirm)', cancel]]);
   assert.equal(canceled.code, 2, canceled.stderr);
   assert.equal(await readFile(f.config, 'utf8'), before);
+  await assert.rejects(readFile(join(f.cwd, '.mcp.json')), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
   assert.equal(f.requests.length, 2);
 });
 
@@ -828,12 +833,14 @@ test('flag-based write opt-in remains selected when settings confirmation uses E
   assert.match(result.stdout, /user scope · MCP read and write/);
 });
 
-for (const step of ['agents', 'user scope']) {
+for (const step of ['agents', 'empty selection', 'user scope']) {
   test(`manual setup canceled at ${step} reports no saved connection`, async t => {
     const f = await fixture(t);
     const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', ...(step === 'user scope' ? ['--agents', 'cline'] : [])], {}, [
       ['Project API endpoint', enter], ['Project name', enter], ['API key environment variable', enter],
-      ...(step === 'agents' ? [['Coding agents (optional)', cancel]] : [['Install agent settings for your OS user?', enter]]),
+      ...(step === 'agents' ? [['Coding agents (Space: select one or more; Enter: confirm)', cancel]]
+        : step === 'empty selection' ? [['Coding agents (Space: select one or more; Enter: confirm)', enter], ['No agents selected', cancel]]
+          : [['Install agent settings for your OS user?', enter]]),
     ]);
     assert.equal(result.code, 2, result.stderr);
     assert.match(result.stderr, /Init canceled. No files were changed/);
@@ -952,3 +959,25 @@ for (const stage of ['first', 'last']) {
     assert.ok(f.requests.every(request => request.method === 'GET'));
   });
 }
+
+
+test('Enter on a focused agent returns to selection by default until agents are checked', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const result = await f.run(['init'], {}, [
+    ['Connection', enter],
+    ['Coding agents (Space: select one or more; Enter: confirm)', keys(down, '\r')],
+    ['No agents selected', enter],
+    ['Coding agents (Space: select one or more; Enter: confirm)', enter],
+    ['No agents selected', enter],
+    ['Coding agents (Space: select one or more; Enter: confirm)', keys(down, ' ', down, ' ', '\r')],
+    ['Continue with this setup?', keys(up, up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Agents\s+Claude Code, Cursor/);
+  assert.ok(await readFile(join(f.cwd, '.mcp.json'), 'utf8'));
+  assert.ok(await readFile(join(f.cwd, '.cursor/mcp.json'), 'utf8'));
+  await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
+  assert.equal(f.requests.length, 2);
+  assert.ok(f.requests.every(request => request.method === 'GET'));
+});

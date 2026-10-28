@@ -259,8 +259,9 @@ setup. Existing manual Console key setup remains supported during rollout.
   browser approval is still required on this or another device when login is needed.
   Automation uses existing credentials with `--non-interactive --agents ... --scope ...`.
 - Interactive init uses a checkbox list with detection labels and no automatic
-  agent selection. A sole Org is displayed without a separate prompt; project
-  selection and creation share one menu. Project scope and read-only MCP tools
+  agent selection. Empty submission offers return-to-selection by default or an
+  explicit skip; focusing an agent does not check it. A sole Org is displayed
+  without a separate prompt; project selection and creation share one menu. Project scope and read-only MCP tools
   are shown in the final file review and can be changed with **Change options**; Cline
   requires explicit user-scope consent. Ordinary output summarizes completion,
   while non-interactive JSON retains the full result.
