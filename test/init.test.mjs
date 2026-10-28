@@ -663,6 +663,8 @@ test('interactive init accepts an existing environment key without account login
   assert.equal(result.code, 0, result.stderr);
   assert.equal(f.requests.length, 1);
   assert.doesNotMatch(result.stderr, /Continue with account login/);
+  assert.doesNotMatch(result.stderr, /Scope:|MCP tools:|Type settings/);
+  assert.match(result.stderr, /create\s+~\/cli.json/);
   assert.equal(JSON.parse(await readFile(f.config, 'utf8')).apiKeyEnv, 'CUSTOM_PROJECT_KEY');
 });
 
@@ -671,7 +673,7 @@ test('interactive reruns show the current project and safely reuse or select ano
   assert.equal((await f.run(f.init('none'))).code, 0);
   const before = await readFile(f.config, 'utf8');
   const reused = await f.run(['init', '--agents', 'none', '--scope', 'project'], {}, [
-    ['Choose a number', '1'], ['Apply these changes', 'yes'],
+    ['Choose a number', '1'],
   ]);
   assert.equal(reused.code, 0, reused.stderr);
   assert.match(reused.stderr, /Current project: existing-project at http:/);
@@ -731,7 +733,7 @@ test('interactive checkbox distinguishes detection from selection and supports t
   assert.match(result.stderr, /claude \(detected\)/);
   assert.match(result.stdout, /Agents: claude \(project scope; MCP read-only\)/);
   assert.match(result.stdout, /Connected to existing-project/);
-  assert.match(result.stdout, /Search readiness has not been checked/);
+  assert.match(result.stdout, /search not yet verified/);
   assert.doesNotMatch(result.stdout, /"checks"|"settings"|"nextSteps"|"files"|credentialId/);
   assert.match(result.stderr, /create\s+\.\/\.mcp.json/);
   assert.doesNotMatch(result.stdout, /\.mcp.json/);
@@ -746,10 +748,11 @@ test('interactive detected agents remain unselected on Enter; checkbox cancellat
   assert.equal((await f.run(f.init('none'))).code, 0);
   const before = await readFile(f.config, 'utf8');
   const result = await f.run(['init'], {}, [
-    ['Choose a number', '1'], ['Select agents (Space to toggle', { keys: ['\r'] }], ['Apply these changes', 'yes'],
+    ['Choose a number', '1'], ['Select agents (Space to toggle', { keys: ['\r'] }],
   ]);
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /Agents: none/);
+  assert.equal(result.stdout.trim(), 'Connected to existing-project\nAuthentication and collection access verified; search not yet verified.\n\nNext: lambdadb collections list --json');
+  assert.doesNotMatch(result.stderr, /Review setup|Scope:|MCP tools:|Apply these changes|Type settings|unchanged/);
   assert.equal(await readFile(f.config, 'utf8'), before);
   await assert.rejects(readFile(join(f.cwd, '.codex', 'config.toml')), { code: 'ENOENT' });
   const canceled = await f.run(['init'], {}, [
@@ -776,6 +779,18 @@ test('interactive review can change scope and explicitly enable write tools befo
   const mcp = toml(await readFile(join(f.home, '.codex', 'config.toml'), 'utf8'));
   assert.ok(mcp.mcp_servers.lambdadb.args.includes('--write-tools'));
   await assert.rejects(readFile(join(f.cwd, '.codex', 'config.toml')), { code: 'ENOENT' });
+});
+
+test('interactive no-change verification still fails on authentication without changing saved settings', async t => {
+  const f = await fixture(t, 403);
+  const before = JSON.stringify({ endpoint: f.endpoint, project: 'existing-project', apiKeyEnv: 'CUSTOM_PROJECT_KEY' }, null, 2) + '\n';
+  await f.file(f.config, before);
+  const result = await f.run(['init', '--agents', 'none'], {}, [['Choose a number', '1']]);
+  assert.equal(result.code, 3, result.stderr);
+  assert.doesNotMatch(result.stderr, /Apply these changes/);
+  assert.doesNotMatch(result.stdout, /Connected to existing-project/);
+  assert.equal(await readFile(f.config, 'utf8'), before);
+  assert.equal(f.requests.length, 1);
 });
 
 for (const enabledBy of ['flag', 'earlier settings']) {

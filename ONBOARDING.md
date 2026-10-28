@@ -269,6 +269,9 @@ setup. Existing manual Console key setup remains supported during rollout.
   first and offers `details` for unchanged paths. Region selection stays explicit;
   public AWS regions needing deployment remain selectable with provisioning
   guidance, and pending regional setup never triggers key issuance or a repeat create.
+  When no agents are selected and CLI settings are unchanged, init skips file
+  approval and irrelevant agent options but still verifies collection-list access.
+  New CLI settings and selected agents retain review; JSON metadata stays complete.
 - Browser setup previews the CLI settings path/store and saves a successfully
   delivered connection before doctor/agent installation. This intentionally lets
   a failed doctor or agent install resume without issuing another key. Agent file

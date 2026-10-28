@@ -24,6 +24,11 @@
 
 ### Maintenance
 
+- Trim interactive init output: skip file review when no agents are selected and
+  no settings need saving, omit irrelevant agent options, summarize account
+  storage in one line, and report connection success once with a short next step.
+  New settings and selected agents retain review; JSON results remain complete.
+
 - Simplify interactive init into connection, agent selection and file review.
   Label detected agents without preselecting them; use a keyboard checkbox list.
   Select a sole Org automatically and combine existing-project/creation choices.

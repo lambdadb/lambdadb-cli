@@ -285,9 +285,7 @@ export async function useProject(
         'CLI settings changed. The connection is cached; rerun projects use without --issue-key.',
       );
     await saveSettings({ ...options, ...selected, config: destination });
-    output.diagnostic(
-      options.guided ? `Connected project: ${project.name}.` : 'CLI project selected. Existing agent entries remain pinned; rerun init to update their connection.',
-    );
+    if (!options.guided) output.diagnostic('CLI project selected. Existing agent entries remain pinned; rerun init to update their connection.');
     return selected;
   });
 }

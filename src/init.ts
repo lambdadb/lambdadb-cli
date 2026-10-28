@@ -162,7 +162,7 @@ export async function initialize(options: InitOptions, output: Output) {
       }
       if (accountSetup) {
         const destination = await fileIdentity(configPath(options));
-        output.diagnostic(`CLI settings: ${destination}\nAccount metadata: ${destination}.account.json\nProject references: ${destination}.connections.json\nSecrets are saved only in your OS credential store.`);
+        output.diagnostic(`CLI settings: ${destination} (secrets: OS credential store).`);
         const cancellation = new AbortController();
         const cancel = () => cancellation.abort();
         prompt!.once('SIGINT', cancel); prompt!.once('close', cancel);
@@ -181,7 +181,6 @@ export async function initialize(options: InitOptions, output: Output) {
       }
       output.diagnostic('\n2/3 Choose coding agents');
       if (options.agents === undefined) {
-        output.diagnostic('Detected means an executable or settings directory was found. Nothing is selected automatically.');
         // Only one readline interface may own stdin at a time.
         prompt?.close();
         try {
@@ -219,7 +218,7 @@ export async function initialize(options: InitOptions, output: Output) {
     }
     // Use the existing precedence and validation for both saved settings and auth.
     const selected = await settings(options, true);
-    if (!selected.credentialStore) output.diagnostic('Manual Console step: obtain an existing project endpoint, name and API key at https://app.lambdadb.ai. Export the key securely; environment setup never saves its value.');
+    if (!interactive && !selected.credentialStore) output.diagnostic('Manual Console step: obtain an existing project endpoint, name and API key at https://app.lambdadb.ai. Export the key securely; environment setup never saves its value.');
     options = { ...options, ...selected };
     output.protect(process.env[selected.apiKeyEnv]);
     if (!selected.credentialStore && !process.env[selected.apiKeyEnv]?.trim()) throw new InputError(`Export ${selected.apiKeyEnv} securely in this shell, then rerun init. Obtain a project API key in the LambdaDB Console; never pass its value as a flag.`);
@@ -246,15 +245,17 @@ export async function initialize(options: InitOptions, output: Output) {
       action: change.before === change.after ? 'unchanged' : change.before === undefined ? 'create' : 'update' }));
     let files = describe();
     if (interactive) {
-      output.diagnostic('\n3/3 Review setup');
+      const review = chosen.length > 0 || files.some(file => file.action !== 'unchanged');
+      output.diagnostic(review ? '\n3/3 Review setup' : '\n3/3 Verify connection');
       let details = false;
-      for (;;) {
+      while (review) {
         output.diagnostic(formatPlan(files, chosen, options.scope!, !!options.writeTools, context, details));
-        const answer = await ask('Apply these changes after verifying collection-list access? Type yes, settings, details, or no', 'no');
+        const choices = chosen.length ? 'yes, settings, details, or no' : 'yes, details, or no';
+        const answer = await ask(`Apply these changes after verifying collection-list access? Type ${choices}`, 'no');
         if (answer === 'yes') break;
         if (answer === 'details') { details = true; continue; }
         if (answer === 'no') throw canceled();
-        if (answer !== 'settings') { output.diagnostic('Choose yes, settings, details, or no.'); continue; }
+        if (answer !== 'settings' || !chosen.length) { output.diagnostic(`Choose ${choices}.`); continue; }
         const scopes = availableScopes(chosen);
         for (;;) {
           const scope = await ask(`Agent configuration scope: ${scopes.join(' or ')}`, options.scope);
@@ -266,7 +267,6 @@ export async function initialize(options: InitOptions, output: Output) {
         files = describe();
         details = false;
       }
-      output.diagnostic('Checking authentication and collection access...');
     } else {
       for (const file of files) output.diagnostic(`${file.action}: ${[file.path, ...(file.aliases ?? [])].join(', ')}${file.destination ? ` -> ${file.destination}` : ''} — ${file.kind}`);
       output.diagnostic(`MCP: ${mcpPackage}; write tools ${options.writeTools ? 'enabled (explicit opt-in)' : 'disabled'}. ${selected.credentialStore ? `The bridge reads ${selected.credentialStore} using a non-secret reference.` : `Agents must inherit ${selected.apiKeyEnv}; only its name is stored.`}`);

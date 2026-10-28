@@ -644,7 +644,7 @@ test('guided init selects an existing project at its limit without a billing det
   }, true);
   const result = await fixture.run(['init', '--agents', 'none', '--no-browser'], {}, [
     ['Choose a number', '1'], ['Project\n1. first (ACTIVE)', '1'],
-    ['Create a key for first', 'yes'], ['Apply these changes', 'yes'],
+    ['Create a key for first', 'yes'],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /Organization: Team/);
@@ -654,9 +654,11 @@ test('guided init selects an existing project at its limit without a billing det
   assert.equal(fixture.calls.filter(c => c.path === '/auth/cli/connect').length, 1);
   assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 1);
   const rerun = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Choose a number', '1'], ['Apply these changes', 'yes'],
+    ['Choose a number', '1'],
   ]);
   assert.equal(rerun.code, 0, rerun.stderr);
+  assert.doesNotMatch(rerun.stderr, /Account metadata|Project references|Connected project:|Scope:|MCP tools:|Apply these changes/);
+  assert.match(rerun.stderr, /3\/3 Verify connection/);
   assert.equal(fixture.calls.filter(c => c.path === '/auth/cli/connect').length, 1);
 });
 

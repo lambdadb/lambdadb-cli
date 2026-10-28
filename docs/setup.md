@@ -64,6 +64,12 @@ previous explicit opt-in.
 If the selected scope has a configuration conflict, init offers another supported
 scope or cancellation before writing files; existing entries stay protected.
 
+If no agents are selected and the saved CLI settings are unchanged, init proceeds
+directly to connection verification. It omits agent scope, MCP options and the
+apply prompt. New CLI settings still require file review and approval. Selecting
+agents keeps review available, including `settings`, even if their files are
+already up to date.
+
 Successful ordinary output is a short connection summary with selected-agent
 reload instructions and a next step. Full structured results, including check
 and file metadata, remain available through `--non-interactive --json`.
@@ -139,7 +145,7 @@ continue with the saved connection to finish setup.
 Before agent installation, init displays exact paths for create/update actions
 (and unchanged paths on request), then uses the same SDK check as `doctor` to verify authentication and
 collection-list access. Manual setup leaves files untouched on failed validation.
-Browser setup first shows the CLI metadata paths and credential-store policy.
+Browser setup first shows the CLI settings path and credential-store policy.
 Browser account approval and explicit new-key confirmation authorize their
 respective steps; a successfully connected project is saved before doctor/agent installation so a
 failed check or interrupted agent setup can resume without issuing another key.
