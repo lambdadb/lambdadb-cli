@@ -124,6 +124,7 @@ export async function accountRequest(
   let response: Response | undefined;
   let value: Record<string, unknown>;
   try {
+    const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)]) : AbortSignal.timeout(requestTimeoutMs);
     response = await fetch(`${account.apiUrl}/auth/cli/${path}`, {
       method,
       redirect: 'error',
@@ -133,22 +134,29 @@ export async function accountRequest(
         ...(org ? { 'X-Organization-ID': org } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)]) : AbortSignal.timeout(requestTimeoutMs),
+      signal: requestSignal,
     });
     if (response.status === 204) return {};
     const reader = response.body?.getReader();
     if (!reader) throw new Error();
+    // Explicitly cancel the body: Node 22 fetch can lose abort propagation after
+    // headers when garbage collection runs, even while our signal stays alive.
+    const abortBody = () => { void reader.cancel().catch(() => {}); };
+    requestSignal.addEventListener('abort', abortBody, { once: true });
     const chunks: Uint8Array[] = [];
     let size = 0;
     try {
+      requestSignal.throwIfAborted();
       for (;;) {
         const next = await reader.read();
+        requestSignal.throwIfAborted();
         if (next.done) break;
         size += next.value.length;
         if (size > 2_000_000) throw new Error();
         chunks.push(next.value);
       }
     } finally {
+      requestSignal.removeEventListener('abort', abortBody);
       await reader.cancel().catch(() => {});
     }
     value = JSON.parse(Buffer.concat(chunks).toString('utf8'));

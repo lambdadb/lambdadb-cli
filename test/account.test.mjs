@@ -383,12 +383,13 @@ async function cliFixture(t, handler, saveAllowed = false) {
     CredentialVault.prototype.remove = async () => {};
     CredentialVault.prototype.save = async () => { ${saveAllowed ? '' : "throw Error('unexpected secret persistence');"} };
     if (process.env.LAMBDADB_TEST_INTERACTIVE) { process.stdin.isTTY = true; process.stderr.isTTY = true; }
+    if (global.gc) setInterval(() => global.gc(), 20).unref();
   `);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')));
   return {
     ...fixture, config,
-    async run(args, extra = {}, answers) {
-      const child = spawn(process.execPath, ['--import', preload, bin, ...args, '--config', config, ...(answers ? [] : ['--json'])], {
+    async run(args, extra = {}, answers, nodeArgs = []) {
+      const child = spawn(process.execPath, [...nodeArgs, '--import', preload, bin, ...args, '--config', config, ...(answers ? [] : ['--json'])], {
         env: { ...env, ...extra, ...(answers ? { LAMBDADB_TEST_INTERACTIVE: 'true' } : {}) }, stdio: [answers ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       });
       let stdout = '', stderr = '';
@@ -468,6 +469,32 @@ for (const mode of ['flag', 'environment', 'flag overrides environment']) {
     const result = await fixture.run(args, mode === 'flag' ? {} : { LAMBDADB_TIMEOUT_MS: '200' });
     assert.equal(result.code, mode === 'flag overrides environment' ? 0 : 3);
     assert.equal(fixture.calls.length, 1);
+  });
+}
+
+for (const scenario of [
+  { name: 'read', issue: false, status: 200, exit: 3 },
+  { name: 'uncertain issuance', issue: true, status: 200, exit: 5 },
+  { name: 'definite issuance rejection', issue: true, status: 403, exit: 3 },
+]) {
+  test(`actual CLI: ${scenario.name} body timeout survives garbage collection`, async t => {
+    const fixture = await cliFixture(t, (call, res) => {
+      if (call.path.endsWith('/projects')) return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+      if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
+      assert.equal(call.path, scenario.issue ? '/auth/cli/connect' : '/auth/cli/regions');
+      res.statusCode = scenario.status;
+      res.write('{'); // Leave the body open until the client's timeout cancels it.
+    });
+    const args = scenario.issue ? ['projects', 'use', '--org-id', org, '--project-id', first, '--issue-key'] : ['projects', 'regions'];
+    const result = await fixture.run(args, { LAMBDADB_TIMEOUT_MS: '500' }, undefined, ['--expose-gc']);
+    assert.equal(result.code, scenario.exit, result.stderr);
+    assert.equal(result.value.data?.state, scenario.exit === 5 ? 'unknown' : undefined);
+    assert.equal(fixture.calls.filter(c => c.path.endsWith(scenario.issue ? '/connect' : '/regions')).length, 1);
+    if (scenario.issue) {
+      const pending = JSON.parse(await readFile(`${fixture.config}.connections.json`, 'utf8'))[0];
+      assert.match(pending.pendingKeyName, /^lambdadb-cli-/);
+      assert.equal(pending.settings, undefined);
+    }
   });
 }
 

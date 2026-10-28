@@ -30,6 +30,8 @@
   Keep explicit key issuance and file approval, with scope/write-tool changes
   available from review. Replace the ordinary JSON dump with a concise result;
   preserve non-interactive flags and the structured JSON contract.
+  Keep account/project response-body timeouts effective after garbage collection
+  on Node.js 22, preserving uncertain issuance and definite rejection semantics.
 
 - Remove the pre-release `init --connect` flag: plain `init` guides account setup
   and offers connection reuse or another project on reruns. Clarify browser approval,
