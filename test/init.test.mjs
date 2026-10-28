@@ -683,7 +683,7 @@ test('interactive reruns show the current project and safely reuse or select ano
   assert.equal(canceled.code, 2);
   assert.equal(await readFile(f.config, 'utf8'), before);
   assert.equal(f.requests.length, 2);
-  const invalid = await f.run(['init'], {}, [['Choose a number', 'browser']]);
+  const invalid = await f.run(['init'], {}, [['Choose a number', 'browser'], ['Choose a number', 'cancel']]);
   assert.equal(invalid.code, 2);
   assert.match(invalid.stderr, /Choose 1 or 2/);
   assert.equal(f.requests.length, 2);
@@ -782,8 +782,56 @@ test('interactive Cline still requires explicit approval of user scope', async t
   const f = await fixture(t);
   assert.equal((await f.run(f.init('none'))).code, 0);
   const result = await f.run(['init', '--agents', 'cline'], {}, [
-    ['Choose a number', '1'], ['Selected agents require user scope', 'cancel'],
+    ['Choose a number', '1'], ['Selected agents require user scope', 'project'], ['Selected agents require user scope', 'cancel'],
   ]);
   assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /Choose user or cancel/);
+  assert.equal(f.requests.length, 1);
+});
+
+test('interactive review summarizes unchanged files, expands details and retains the full JSON plan', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const result = await f.run(['init', '--agents', 'codex'], {}, [
+    ['Choose a number', '1'], ['Apply these changes', 'details'], ['Apply these changes', 'yes'],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  const [summary, detail] = result.stderr.split('All files (. = current directory, ~ = home):');
+  assert.match(summary, /Files to change/);
+  assert.match(summary, /create\s+\.\/\.codex\/config.toml/);
+  assert.match(summary, /1 file unchanged/);
+  assert.doesNotMatch(summary, /unchanged\s+~\/cli.json/);
+  assert.match(detail, /unchanged\s+~\/cli.json/);
+  assert.ok(detail.indexOf('create') < detail.indexOf('unchanged'));
+  const json = await f.run(f.init('codex'));
+  assert.equal(json.code, 0, json.stderr);
+  assert.equal(json.data.data.files.length, 4);
+  assert.ok(json.data.data.files.every(file => file.action === 'unchanged'));
+  const rerun = await f.run(['init', '--agents', 'codex'], {}, [
+    ['Choose a number', '1'], ['Apply these changes', 'no'],
+  ]);
+  assert.equal(rerun.code, 2);
+  assert.match(rerun.stderr, /No file changes\./);
+  assert.match(rerun.stderr, /4 files unchanged/);
+  assert.equal(f.requests.length, 3);
+});
+
+test('interactive review retries invalid actions and scope without applying an unreviewed plan', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const before = await readFile(f.config, 'utf8');
+  const result = await f.run(['init', '--agents', 'codex'], {}, [
+    ['Choose a number', 'oops'], ['Choose a number', '1'],
+    ['Apply these changes', 'oops'], ['Apply these changes', 'settings'],
+    ['Agent configuration scope', 'invalid'], ['Agent configuration scope', 'user'],
+    ['Enable MCP write tools?', 'no'], ['Apply these changes', 'no'],
+  ]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /Choose 1 or 2, or cancel/);
+  assert.match(result.stderr, /Choose yes, settings, details, or no/);
+  assert.match(result.stderr, /Choose scope project or user/);
+  assert.match(result.stderr, /Scope: user/);
+  assert.equal(await readFile(f.config, 'utf8'), before);
+  await assert.rejects(readFile(join(f.home, '.codex/config.toml')), { code: 'ENOENT' });
   assert.equal(f.requests.length, 1);
 });

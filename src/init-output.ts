@@ -7,7 +7,7 @@ type FilePlan = { path: string; aliases?: string[]; destination?: string; kind: 
 // Project names and paths can contain terminal control characters.
 const text = (value: string) => value.replace(/[\x00-\x1f\x7f]/g, ' '); // eslint-disable-line no-control-regex
 
-export function formatPlan(files: FilePlan[], agents: Agent[], scope: string, writeTools: boolean, context: { cwd: string; home: string }) {
+export function formatPlan(files: FilePlan[], agents: Agent[], scope: string, writeTools: boolean, context: { cwd: string; home: string }, details = false) {
   const displayPath = (path: string) => {
     for (const [root, prefix] of [[context.cwd, '.'], [context.home, '~']] as const) {
       const part = relative(root, path);
@@ -15,13 +15,17 @@ export function formatPlan(files: FilePlan[], agents: Agent[], scope: string, wr
     }
     return text(path);
   };
+  const changed = files.filter(file => file.action !== 'unchanged');
+  const unchanged = files.filter(file => file.action === 'unchanged');
+  const visible = details ? [...changed, ...unchanged] : changed;
   return [
     `Agents: ${agents.join(', ') || 'none'}`,
     `Scope: ${scope}${agents.length ? ` (${text(scope === 'project' ? context.cwd : context.home)})` : ' (no agent files)'}`,
     `MCP tools: ${writeTools ? 'read and write (explicit opt-in)' : 'read-only'}`,
     '',
-    'Files (. = current directory, ~ = home):',
-    ...files.map(file => `  ${file.action.padEnd(9)} ${[file.path, ...(file.aliases ?? [])].map(displayPath).join(', ')}${file.destination ? ` -> ${text(file.destination)}` : ''}`),
+    ...(visible.length ? [details ? 'All files (. = current directory, ~ = home):' : 'Files to change (. = current directory, ~ = home):'] : ['No file changes.']),
+    ...visible.map(file => `  ${file.action.padEnd(9)} ${[file.path, ...(file.aliases ?? [])].map(displayPath).join(', ')}${file.destination ? ` -> ${text(file.destination)}` : ''}`),
+    ...(!details && unchanged.length ? [`${unchanged.length} file${unchanged.length === 1 ? '' : 's'} unchanged. Type details below to show all files.`] : []),
     '',
     'Type settings below to change scope or MCP write tools.',
   ].join('\n');

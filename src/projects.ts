@@ -297,13 +297,15 @@ async function choose<T>(items: T[], label: (item: T) => string, ask: Ask, promp
   if (!items.length) throw new InputError('No choices are available.');
   // eslint-disable-next-line no-control-regex -- Keep item names from adding fake choices or terminal escapes.
   const labels = items.map((item, i) => `${i + 1}. ${label(item).replace(/[\x00-\x1f\x7f]/g, ' ')}`);
-  const answer = await ask(`${prompt}\n${labels.join('\n')}\nChoose a number`, '1');
-  const index = Number(answer) - 1;
-  if (!Number.isInteger(index) || index < 0 || index >= items.length)
-    throw new InputError('Choose one of the listed numbers.');
-  const choice = items[index];
-  if (choice === undefined) throw new InputError('Choose one of the listed numbers.');
-  return choice;
+  let hint = '';
+  for (;;) {
+    const answer = await ask(`${hint}${prompt}\n${labels.join('\n')}\nChoose a number (or cancel)`, '1');
+    if (answer === 'cancel') throw new InputError('Setup canceled. Saved login and project connections remain available.');
+    const index = Number(answer) - 1;
+    const choice = Number.isInteger(index) && index >= 0 ? items[index] : undefined;
+    if (choice !== undefined) return choice;
+    hint = 'Choose one of the listed numbers.\n';
+  }
 }
 export async function terminalSetup(options: AccountOptions, output: Output, ask: Ask) {
   if (!(await readOptional(await accountPath(options)))) await login(options, output);
@@ -336,7 +338,9 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
       ...(orgs.length > 1 ? [{ label: 'Choose another Organization', action: 'org', index: -1 }] : []),
       { label: 'Cancel', action: 'cancel', index: -1 },
     ];
-    const choice = await choose(choices, value => value.label, ask, 'Project');
+    const startCreation = !available.length && !atLimit && orgs.length <= 1;
+    if (startCreation) output.diagnostic('No projects yet. Set up your first project.');
+    const choice = startCreation ? { action: 'create', index: -1 } : await choose(choices, value => value.label, ask, 'Project');
     if (choice.action === 'use') {
       project = available[choice.index];
       if (!project) throw new InputError('Choose a listed project.');
@@ -382,12 +386,18 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
     }[];
     if (!Array.isArray(regions)) throw new InputError('Invalid region list.');
     const region = await choose(
-      regions.filter((r) => r.is_open && r.cloud_provider === 'aws'),
-      (r) => `${r.name} (${r.region})`,
+      regions.filter((r) => r.cloud_provider === 'aws'),
+      (r) => `${r.name} (${r.region})${r.is_open ? '' : ' — regional setup required; takes longer'}`,
       ask,
       'Region',
     );
-    const name = await ask('Project name');
+    if (!region.is_open) output.diagnostic('This region needs additional deployment. Provisioning can take longer; you can return later to connect the created project.');
+    let name: string;
+    for (;;) {
+      const answer = await ask('Project name');
+      if (answer && /^[a-zA-Z0-9_-]{3,45}$/.test(answer)) { name = answer; break; }
+      output.diagnostic('Project name must contain 3–45 letters, digits, underscores or hyphens.');
+    }
     output.diagnostic(
       `Create ${name ?? ''} in ${org?.name ?? 'your default Organization'} (${region.region}).`,
     );
@@ -399,6 +409,9 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
       output,
     );
     project = created;
+    if (!region.is_open && project.status !== 'ACTIVE') {
+      throw new InputError(`Project ${project.name} (${project.id}) was created in ${region.region} and is provisioning. Rerun lambdadb init later, choose account-based project setup, and select this existing project. Do not create it again.`);
+    }
     const deadline = Date.now() + 10 * 60_000;
     while (project.status !== 'ACTIVE' && Date.now() < deadline) {
       output.diagnostic(
@@ -417,6 +430,9 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
         'Provisioning is still pending. Rerun init later, choose account-based project setup, and select the existing project.',
       );
     break;
+  }
+  if (project.status !== 'ACTIVE') {
+    throw new InputError(`Project ${project.name} (${project.id}) is ${project.status} and is not ready to connect. Check Console and rerun init to select this existing project once it is ACTIVE. No project key was requested.`);
   }
   const a = await loadAccount(options),
     cache = await connections(options);

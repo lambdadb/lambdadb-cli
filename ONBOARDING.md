@@ -264,6 +264,11 @@ setup. Existing manual Console key setup remains supported during rollout.
   are shown in the final file review and can be changed with `settings`; Cline
   requires explicit user-scope consent. Ordinary output summarizes completion,
   while non-interactive JSON retains the full result.
+  First-project setup skips a redundant create/use menu when there is no other
+  Org to select. Menu input errors are retried in place. File review lists changes
+  first and offers `details` for unchanged paths. Region selection stays explicit;
+  public AWS regions needing deployment remain selectable with provisioning
+  guidance, and pending regional setup never triggers key issuance or a repeat create.
 - Browser setup previews the CLI settings path/store and saves a successfully
   delivered connection before doctor/agent installation. This intentionally lets
   a failed doctor or agent install resume without issuing another key. Agent file

@@ -30,6 +30,10 @@
   Keep explicit key issuance and file approval, with scope/write-tool changes
   available from review. Replace the ordinary JSON dump with a concise result;
   preserve non-interactive flags and the structured JSON contract.
+  Skip the redundant first-project action menu, retry invalid interactive choices,
+  and summarize unchanged files with `details` to expand the full plan. Keep
+  explicit region selection and include public AWS regions requiring deployment,
+  with guidance to resume pending projects without creating them again.
   Keep account/project response-body timeouts effective after garbage collection
   on Node.js 22, preserving uncertain issuance and definite rejection semantics.
 

@@ -145,11 +145,15 @@ export async function initialize(options: InitOptions, output: Output) {
         const currentEndpoint = process.env.LAMBDADB_ENDPOINT ?? saved.endpoint;
         const currentProject = process.env.LAMBDADB_PROJECT ?? saved.project;
         const reuse = !!currentEndpoint || !!saved.credentialStore;
-        const choice = await ask(reuse
-          ? `Current project: ${currentProject ?? '(not set)'} at ${currentEndpoint ?? '(not set)'}\n1. Continue with this connection\n2. Select or create another project through account login\nChoose a number`
-          : '1. Sign in and select or create a project (recommended)\n2. Use an existing project API key from an environment variable\nChoose a number (or cancel)', '1');
-        if (choice === 'cancel') throw new InputError('Init canceled. No files were changed.');
-        if (choice !== '1' && choice !== '2') throw new InputError('Choose 1 or 2. Rerun init to try again.');
+        let choice: string | undefined;
+        for (;;) {
+          choice = await ask(reuse
+            ? `Current project: ${currentProject ?? '(not set)'} at ${currentEndpoint ?? '(not set)'}\n1. Continue with this connection\n2. Select or create another project through account login\nChoose a number (or cancel)`
+            : '1. Sign in and select or create a project (recommended)\n2. Use an existing project API key from an environment variable\nChoose a number (or cancel)', '1');
+          if (choice === 'cancel') throw new InputError('Init canceled. No files were changed.');
+          if (choice === '1' || choice === '2') break;
+          output.diagnostic('Choose 1 or 2, or cancel.');
+        }
         accountSetup = reuse ? choice === '2' : choice === '1';
         reuseConnection = reuse && choice === '1' && !!currentEndpoint && !!currentProject;
       }
@@ -194,8 +198,13 @@ export async function initialize(options: InitOptions, output: Output) {
       }
       const scopes = availableScopes(selectedAgents(options.agents));
       if (options.scope === undefined) {
-        options.scope = scopes.includes('project') ? 'project' : await ask('Selected agents require user scope. Type user to install for your OS user, or cancel', 'cancel');
-        if (options.scope === 'cancel') throw new InputError('Agent setup canceled. Completed connection setup is retained.');
+        if (scopes.includes('project')) options.scope = 'project';
+        else for (;;) {
+          const scope = await ask('Selected agents require user scope. Type user to install for your OS user, or cancel', 'cancel');
+          if (scope === 'cancel') throw new InputError('Agent setup canceled. Completed connection setup is retained.');
+          if (scope === 'user') { options.scope = scope; break; }
+          output.diagnostic('Choose user or cancel.');
+        }
       }
       options.writeTools ??= false;
 
@@ -219,17 +228,24 @@ export async function initialize(options: InitOptions, output: Output) {
     let files = describe();
     if (interactive) {
       output.diagnostic('\n3/3 Review setup');
+      let details = false;
       for (;;) {
-        output.diagnostic(formatPlan(files, chosen, options.scope!, !!options.writeTools, context));
-        const answer = await ask('Apply these changes after verifying collection-list access? Type yes, settings, or no', 'no');
+        output.diagnostic(formatPlan(files, chosen, options.scope!, !!options.writeTools, context, details));
+        const answer = await ask('Apply these changes after verifying collection-list access? Type yes, settings, details, or no', 'no');
         if (answer === 'yes') break;
-        if (answer !== 'settings') throw new InputError((connectionSaved || accountSetup) ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.' : 'Init canceled. No files were changed.');
+        if (answer === 'details') { details = true; continue; }
+        if (answer === 'no') throw new InputError((connectionSaved || accountSetup) ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.' : 'Init canceled. No files were changed.');
+        if (answer !== 'settings') { output.diagnostic('Choose yes, settings, details, or no.'); continue; }
         const scopes = availableScopes(chosen);
-        options.scope = await ask(`Agent configuration scope: ${scopes.join(' or ')}`, options.scope);
-        if (!scopes.includes(options.scope as AgentScope)) throw new InputError(`Choose scope ${scopes.join(' or ')}.`);
+        for (;;) {
+          const scope = await ask(`Agent configuration scope: ${scopes.join(' or ')}`, options.scope);
+          if (scopes.includes(scope as AgentScope)) { options.scope = scope; break; }
+          output.diagnostic(`Choose scope ${scopes.join(' or ')}.`);
+        }
         options.writeTools = (await ask('Enable MCP write tools? Type yes to opt in', 'no')) === 'yes';
         changes = await plan(selected, chosen, options.scope as AgentScope, options, context);
         files = describe();
+        details = false;
       }
       output.diagnostic('Checking authentication and collection access...');
     } else {

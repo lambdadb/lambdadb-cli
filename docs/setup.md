@@ -20,6 +20,16 @@ A single accessible Org is selected and shown automatically. The project menu
 lists existing projects alongside creation; reaching the project limit does not
 add a separate question when connecting an existing project. New project creation
 and new key issuance still require explicit confirmation.
+If there are no projects and no alternative Org to choose, init proceeds directly
+to creation inputs. Invalid menu numbers and project names can be corrected in
+place without restarting setup.
+
+Region selection always remains explicit. All public AWS regions returned by the
+server are listed; `is_open=false` means additional regional deployment is needed,
+not that the region must be hidden. These choices are labeled as taking longer.
+If the created project is still provisioning in such a region, init shows its
+name/ID and how to return later to select it, without issuing a key or creating
+another project. No fixed provisioning duration is promised.
 
 Reruns show the current project and offer to continue with that connection or
 select/create another project through account login. Saved project keys are
@@ -43,7 +53,9 @@ optional.
 Use Space to toggle agents and Enter to continue. Detected agents are labeled,
 not preselected; submitting an empty selection skips agent installation. The
 review defaults to project scope and read-only MCP tools. It shows the directory
-and every destination file before applying changes. Type `settings` at that
+and each file to create or update before applying changes. Unchanged files are
+summarized by count; type `details` to display all paths, with changes first.
+Type `settings` at that
 prompt to change scope or explicitly enable write tools, then review the revised
 plan. Cline requires explicit user-scope confirmation. Existing `--agents`,
 `--scope`, and `--write-tools` flags can set these choices in advance.
@@ -120,8 +132,8 @@ continue with the saved connection to finish setup.
 
 ### Files and safe reruns
 
-Before agent installation, init displays exact paths and create/update/unchanged
-actions, then uses the same SDK check as `doctor` to verify authentication and
+Before agent installation, init displays exact paths for create/update actions
+(and unchanged paths on request), then uses the same SDK check as `doctor` to verify authentication and
 collection-list access. Manual setup leaves files untouched on failed validation.
 Browser setup first shows the CLI metadata paths and credential-store policy.
 Browser account approval and explicit new-key confirmation authorize their
