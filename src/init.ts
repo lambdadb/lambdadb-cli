@@ -8,6 +8,7 @@ import { InputError } from './errors.js';
 import type { Output } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
 import { mcpPackage } from './mcp.js';
+import { cli } from './command.js';
 import { formatPlan } from './init-output.js';
 import { InitUI } from './init-ui.js';
 import { mcpLaunch } from './agent-config.js';
@@ -267,7 +268,7 @@ export async function initialize(options: InitOptions, output: Output) {
       selected.credentialStore ? `Restart/reload selected agents as the same OS user with ${selected.credentialStore} accessible and npx on PATH. No shell key export is required.` : `Restart/reload selected agents from an environment containing ${selected.apiKeyEnv} and npx on PATH. GUI launches may not inherit shell exports.`,
       agentAdapters.filter(adapter => chosen.includes(adapter.id)).map(adapter => adapter.instructions).join(' '),
       `Agent prompt: Prefer LambdaDB CLI with --json and configuration file ${JSON.stringify(configPath(options))}; use the matching MCP connection if terminal execution is unavailable or I request MCP. List collections, inspect the collection I choose, then read a small sample at my selected ref (branch:main if none is intended). Help me search an actual indexed field. Do not create or modify data.`,
-      'CLI reads: run lambdadb collections list --json and lambdadb collections describe --collection NAME --json. Save {"size":5} in first-query.json, then run lambdadb query --collection NAME --ref branch:main --file first-query.json --json. Pass the configuration file above with --config; replace NAME and ref with the chosen target.',
+      `CLI reads: run ${cli} collections list --json and ${cli} collections describe --collection NAME --json. Save {"size":5} in first-query.json, then run ${cli} query --collection NAME --ref branch:main --file first-query.json --json. Pass the configuration file above with --config; replace NAME and ref with the chosen target.`,
       'If the project has no collections/data, populate it deliberately outside init. Connection success does not establish search readiness.',
     ];
     return { ...connection, settings: selected, detectedAgents: detected, agents: chosen, scope: options.scope,

@@ -43,7 +43,7 @@ async function fixture(t, response = free, status = 200, delay = 0) {
     CredentialVault.prototype.read = async (target) => { if (target.project !== 'account') throw Error('project key must not be read'); return ${JSON.stringify(secret)}; };
     CredentialVault.prototype.save = async () => { throw Error('no credential writes allowed'); };
   `);
-  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('LAMBDADB_')));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('LAMBDADB_') && k !== 'npm_command'));
   async function run(args = [], extra = {}) {
     const child = spawn(process.execPath, ['--import', preload, bin, 'usage', '--config', config, ...args], { env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
@@ -118,7 +118,9 @@ test('invalid usage inputs fail before requests and never start interactive auth
   }
   await rm(`${f.config}.account.json`);
   const result = await f.run(['--json']);
-  assert.equal(result.code, 2); assert.match(result.value.error.message, /login first/); assert.equal(f.calls.length, 0);
+  assert.equal(result.code, 2); assert.match(result.value.error.message, /Run lambdadb login first/); assert.equal(f.calls.length, 0);
+  const viaNpx = await f.run(['--json'], { npm_command: 'exec' });
+  assert.match(viaNpx.value.error.message, /Run npx -y @functional-systems\/lambdadb-cli@\S+ login first/); assert.equal(f.calls.length, 0);
 });
 
 test('environment connections and stale saved identities require an explicit Org instead of guessing', async t => {

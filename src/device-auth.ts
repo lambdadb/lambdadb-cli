@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { cli } from './command.js';
 import { endpoint } from './config.js';
 import { InputError } from './errors.js';
 import type { Output } from './output.js';
@@ -133,7 +134,7 @@ async function pollDevice(
       'Account login could not be confirmed. Run login again explicitly; an undelivered session expires within seven days. No project key was requested.',
     );
   }
-  throw new InputError('Login authorization expired. Run lambdadb login again. No project was created.');
+  throw new InputError(`Login authorization expired. Run ${cli} login again. No project was created.`);
 }
 
 export function projectAuthorization(v: Record<string, unknown>, output: Output, fallbackName: string) {

@@ -1,4 +1,5 @@
 import { LambdaDBError, ResponseValidationError, SDKValidationError } from '@functional-systems/lambdadb/models/errors';
+import { cli } from './command.js';
 
 export class InputError extends Error {}
 export class ManagementError extends Error {
@@ -21,7 +22,7 @@ export function describeError(error: unknown): SafeError {
       const organization = error.details.organization as { billing_url: string };
       hint = `Use an existing project, or review ${organization.billing_url}. Only the owner can activate billing. Recheck server limits afterwards.`;
     } else if (error.status === 401) {
-      hint = 'Run lambdadb login again. Project keys are unaffected.';
+      hint = `Run ${cli} login again. Project keys are unaffected.`;
     } else if (error.code === 'usage_request_failed') {
       hint = error.status === 404 ? 'This Backend does not support CLI usage yet; deploy the matching Backend version.'
         : error.status === 403 ? 'Verify Org/project membership. Pay-As-You-Go cost estimates require an owner or admin.'

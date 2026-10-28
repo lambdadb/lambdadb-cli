@@ -1,6 +1,7 @@
 import { relative, isAbsolute, sep } from 'node:path';
 import { styleText } from 'node:util';
 import { agentAdapters, type Agent } from './agents.js';
+import { cli } from './command.js';
 import { defaultConfigPath } from './config.js';
 import { wrapAnsi } from 'fast-wrap-ansi';
 import type { initialize } from './init.js';
@@ -57,7 +58,7 @@ export function formatInit(data: Awaited<ReturnType<typeof initialize>>, config:
           : `Restart/reload with ${settings.apiKeyEnv} in the agent environment and npx on PATH. GUI launches may not inherit shell exports.`),
         ...agentAdapters.filter(adapter => agents.includes(adapter.id)).map(adapter => instruction(adapter.instructions)),
         `    Ask: "${customConfig ? `Use LambdaDB with CLI config ${JSON.stringify(config)}. ` : ''}List my LambdaDB collections and help me search one. Do not modify data."`,
-      ] : [`    lambdadb collections list --json${customConfig ? ' (pass --config with the path above)' : ''}`]),
+      ] : [`    ${cli} collections list --json${customConfig ? ' (pass --config with the path above)' : ''}`]),
       '',
       styleText('dim', '  Run your first query to verify search.'),
     ].join('\n');
@@ -76,6 +77,6 @@ export function formatInit(data: Awaited<ReturnType<typeof initialize>>, config:
         : `  Restart/reload selected agents with ${settings.apiKeyEnv} available in their environment.`,
       ...agentAdapters.filter(adapter => agents.includes(adapter.id)).map(adapter => `  - ${adapter.instructions}`),
       `  Ask: "Use LambdaDB with CLI config ${JSON.stringify(config)}. List collections and help me search one. Do not modify data."`,
-    ] : [`Next: lambdadb collections list --json${customConfig ? ' (pass --config with the path above)' : ''}`]),
+    ] : [`Next: ${cli} collections list --json${customConfig ? ' (pass --config with the path above)' : ''}`]),
   ].map(text).join('\n');
 }

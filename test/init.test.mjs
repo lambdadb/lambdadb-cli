@@ -41,7 +41,7 @@ async function fixture(t, status = 200, onRequest) {
   t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); await rm(root, { recursive: true, force: true }); });
   const config = join(home, 'cli.json');
   const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')
-    && !['XDG_CONFIG_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'GEMINI_CLI_HOME', 'VSCODE_PORTABLE', 'VSCODE_APPDATA', 'COPILOT_HOME', 'APPDATA', 'HOME', 'USERPROFILE', 'NO_COLOR', 'FORCE_COLOR'].includes(key)));
+    && !['XDG_CONFIG_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'GEMINI_CLI_HOME', 'VSCODE_PORTABLE', 'VSCODE_APPDATA', 'COPILOT_HOME', 'APPDATA', 'HOME', 'USERPROFILE', 'NO_COLOR', 'FORCE_COLOR', 'npm_command'].includes(key)));
   async function run(args, env = {}, answers) {
     const preload = join(root, 'interactive.mjs');
     if (answers) await writeFile(preload, 'process.stdin.isTTY = true; process.stdin.setRawMode = () => process.stdin; process.stderr.isTTY = true; process.stderr.columns = 100;\n');
@@ -688,6 +688,20 @@ test('saved connections show optional details and verify without an apply prompt
   assert.match(detail.stderr, /Current connection/);
   assert.ok(detail.stderr.includes(f.endpoint));
   assert.equal(f.requests.length, 2);
+});
+
+test('npx runs suggest CLI commands that work without a global install', async t => {
+  const f = await fixture(t);
+  const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const command = `npx -y @functional-systems/lambdadb-cli@${version}`;
+  const json = await f.run(f.init(), { npm_command: 'exec' });
+  assert.equal(json.code, 0, json.stderr);
+  const reads = JSON.parse(json.stdout).data.nextSteps.find(step => step.startsWith('CLI reads:'));
+  assert.ok(reads.includes(`run ${command} collections list --json`), reads);
+  assert.ok(!/(^|[^-])lambdadb (collections|query)/.test(reads), reads);
+  const result = await f.run(['init', '--agents', 'none'], { npm_command: 'exec' }, [['Connection', enter]]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.ok(result.stdout.includes(`${command} collections list --json`), result.stdout);
 });
 
 test('explicit target flags bypass the connection menu and retain text defaults', async t => {

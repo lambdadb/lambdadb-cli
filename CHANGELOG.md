@@ -22,6 +22,13 @@
 - Resume agent setup with the saved connection, and remove local OS credentials
   with `credentials remove` without revoking server keys.
 
+### Fixed
+
+- Suggest `npx -y @functional-systems/lambdadb-cli@<version>` instead of
+  `lambdadb` in init next steps, agent next steps and login/init hints when the
+  CLI runs through npx/npm exec without a global install. The bundled skill
+  explains the same substitution.
+
 ### Maintenance
 
 - Unify interactive init with Clack: arrow-key menus, inline validation, explicit

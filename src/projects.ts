@@ -13,6 +13,7 @@ import {
   type Account,
   type Organization,
 } from './account.js';
+import { cli } from './command.js';
 import { configPath, endpoint, fileIdentity, saveSettings, settings, type SelectedSettings } from './config.js';
 import { CredentialVault, credentialReference } from './credentials.js';
 import { openBrowser, projectAuthorization } from './device-auth.js';
@@ -400,7 +401,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
     );
     project = created;
     if (!region.is_open && project.status !== 'ACTIVE') {
-      throw new InputError(`Project ${project.name} (${project.id}) was created in ${region.region} and is provisioning. Rerun lambdadb init later, choose account-based project setup, and select this existing project. Do not create it again.`);
+      throw new InputError(`Project ${project.name} (${project.id}) was created in ${region.region} and is provisioning. Rerun ${cli} init later, choose account-based project setup, and select this existing project. Do not create it again.`);
     }
     const deadline = Date.now() + 10 * 60_000;
     while (project.status !== 'ACTIVE' && Date.now() < deadline) {
