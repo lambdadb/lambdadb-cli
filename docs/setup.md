@@ -73,8 +73,12 @@ already up to date.
 The terminal groups prompts and completed choices along one rail, with a boxed
 file review, connection progress, and a compact completion summary. Color is
 automatic and respects `NO_COLOR`. Successful output includes selected-agent
-reload guidance and a next step. Full structured results, including check
-and file metadata, remain available through `--non-interactive --json`.
+reload and credential requirements and a next step. Custom configuration paths,
+including `LAMBDADB_CONFIG`, are included in the suggested agent prompt because
+GUI launches may not inherit shell variables. Cancellation during file saving
+can leave earlier files updated; rerun init to review and finish setup. Full
+structured results, including check and file metadata, remain available through
+`--non-interactive --json`.
 
 ### Project limits and manual Console steps
 

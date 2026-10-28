@@ -30,6 +30,10 @@
   Skip file review when no agents are selected and no settings need saving; keep
   advanced details in menu actions and finish with a short next step. New settings
   and selected agents retain review; non-interactive and JSON contracts stay intact.
+  Preserve whitespace-only defaults, copyable approval URLs, selected-agent reload
+  and credential guidance, and environment-selected config paths. Name the project
+  before key issuance; cancellation during file saves stops further files and
+  reports possible partial setup instead of success.
 
 - Simplify interactive init into connection, agent selection and file review.
   Label detected agents without preselecting them; use a keyboard checkbox list.

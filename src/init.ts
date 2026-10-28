@@ -82,7 +82,12 @@ async function plan(selected: SelectedSettings, chosen: Agent[], scope: AgentSco
   return [...unique.values()];
 }
 
-async function apply(changes: PlannedChange[], options: Options) {
+function checkSaveCanceled(signal?: AbortSignal) {
+  if (signal?.aborted) throw new InputError('Init canceled while saving setup. Some files may already be updated. Rerun init to review and finish setup.');
+}
+
+async function apply(changes: PlannedChange[], options: Options, signal?: AbortSignal) {
+  checkSaveCanceled(signal);
   // Detect concurrent edits before writing anything. Individual writes are atomic;
   // a disk/permission failure can still leave a partial install, safe to rerun.
   for (const change of changes) {
@@ -94,6 +99,7 @@ async function apply(changes: PlannedChange[], options: Options) {
     }
   }
   for (const change of changes.filter(change => change.before !== change.after)) {
+    checkSaveCanceled(signal);
     if (change.path === configPath(options)) { await saveSettings({ ...options, config: change.destination }); continue; }
     const temp = `${change.destination}.${randomUUID()}.tmp`;
     try {
@@ -106,8 +112,14 @@ async function apply(changes: PlannedChange[], options: Options) {
   }
 }
 
+export function interactiveInit(options: Pick<InitOptions, 'nonInteractive' | 'json'>): boolean {
+  return !options.nonInteractive && !options.json && !!process.stdin.isTTY && !!process.stderr.isTTY;
+}
+
+const scopeLabel = (scope: string) => scope === 'project' ? 'This repository' : 'Your OS user';
+
 export async function initialize(options: InitOptions, output: Output) {
-  const interactive = !options.nonInteractive && !options.json && !!process.stdin.isTTY && !!process.stderr.isTTY;
+  const interactive = interactiveInit(options);
   if (!interactive && !options.nonInteractive) {
     throw new InputError(`Init needs a terminal. For automation or --json, pass --non-interactive --agents ${agentNames} (or none) --scope project (or user).`);
   }
@@ -152,14 +164,16 @@ export async function initialize(options: InitOptions, output: Output) {
         }
       }
       if (accountSetup) {
-        const path = configPath(options), destination = await fileIdentity(path);
-        ui.info(`Settings: ${path.startsWith(context.home + sep) ? '~' + path.slice(context.home.length) : destination}\nKeys: OS credential store`);
+        const path = configPath(options);
+        await fileIdentity(path); // Validate symlinks before login or project changes.
+        ui.info(`Settings: ${path.startsWith(context.home + sep) ? '~' + path.slice(context.home.length) : path}\nKeys: OS credential store`);
         const selected = await terminalSetup({ ...options, guided: true, signal: ui.signal }, output, ui);
         options = { ...options, ...selected };
         saved = selected;
         connectionSaved = true;
       }
       if (!reuseConnection && (!saved.credentialStore || (options.apiKeyEnv && !options.credentialStore))) {
+        ui.info('Get the project endpoint, name and API key in Console:\nhttps://app.lambdadb.ai\nExport the key securely; enter only its environment-variable name below.');
         options.endpoint = await ui.text('Project API endpoint', options.endpoint ?? process.env.LAMBDADB_ENDPOINT ?? saved.endpoint);
         options.project = await ui.text('Project name', options.project ?? process.env.LAMBDADB_PROJECT ?? saved.project);
         options.apiKeyEnv = await ui.text('API key environment variable', options.apiKeyEnv ?? process.env.LAMBDADB_API_KEY_ENV ?? saved.apiKeyEnv ?? 'LAMBDADB_API_KEY');
@@ -202,7 +216,7 @@ export async function initialize(options: InitOptions, output: Output) {
           if (!interactive || !chosen.length || scopes.length < 2 || !(error instanceof InputError)) throw error;
           output.diagnostic(`Cannot prepare ${options.scope} scope: ${error.message}`);
           const scope = await ui!.select('Configuration scope', [
-            ...scopes.map(value => ({ value, label: value === 'project' ? 'This repository' : 'Your OS user' })),
+            ...scopes.map(value => ({ value, label: scopeLabel(value) })),
             { value: 'cancel', label: 'Cancel' },
           ], 'cancel');
           if (scope === 'cancel') throw canceled();
@@ -230,7 +244,7 @@ export async function initialize(options: InitOptions, output: Output) {
         if (answer === 'cancel') throw canceled();
         const scopes = availableScopes(chosen);
         options.scope = await ui.select('Install for', scopes.map(value => ({ value,
-          label: value === 'project' ? 'This repository' : 'Your OS user',
+          label: scopeLabel(value),
         })), options.scope);
         options.writeTools = await ui.confirm('Enable MCP write tools?', !!options.writeTools);
         changes = await planWithScopeRecovery();
@@ -246,7 +260,8 @@ export async function initialize(options: InitOptions, output: Output) {
     try {
       connection = ui ? await ui.verify(() => checkConnection(ctx)) : await checkConnection(ctx);
     } finally { ctx.close(); }
-    await apply(changes, options);
+    await apply(changes, options, ui?.signal);
+    checkSaveCanceled(ui?.signal);
     ui?.finish();
     const nextSteps = [
       selected.credentialStore ? `Restart/reload selected agents as the same OS user with ${selected.credentialStore} accessible and npx on PATH. No shell key export is required.` : `Restart/reload selected agents from an environment containing ${selected.apiKeyEnv} and npx on PATH. GUI launches may not inherit shell exports.`,

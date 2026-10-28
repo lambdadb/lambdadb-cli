@@ -661,6 +661,8 @@ test('manual setup reviews new settings without irrelevant agent options', async
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /Review changes/);
+  assert.match(result.stderr, /https:\/\/app\.lambdadb\.ai/);
+  assert.match(result.stderr, /enter only its environment-variable name/);
   assert.match(result.stderr, /create\s+~\/cli.json/);
   assert.doesNotMatch(result.stderr, /Scope:|MCP tools:|Change options/);
   assert.equal(JSON.parse(await readFile(f.config, 'utf8')).apiKeyEnv, 'CUSTOM_PROJECT_KEY');
@@ -865,3 +867,74 @@ test('planning conflicts allow user scope without overwriting a manual project e
   assert.equal(nonInteractive.code, 2);
   assert.doesNotMatch(nonInteractive.stderr, /Configuration scope/);
 });
+
+
+test('whitespace-only interactive input retains endpoint, project and key-variable defaults', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', '--agents', 'none'], {}, [
+    ['Project API endpoint', ' '], ['Project name', ' '], ['API key environment variable', ' '],
+    ['Continue with this setup?', keys(up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(await readFile(f.config, 'utf8')), { endpoint: f.endpoint, project: 'existing-project', apiKeyEnv: 'CUSTOM_PROJECT_KEY' });
+  assert.equal(f.requests.length, 1);
+});
+
+test('interactive agent guidance includes environment requirements, selected-agent steps and environment-selected config', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--agents', 'codex,vscode'], {}, [
+    ['Connection', enter], ['Continue with this setup?', keys(up, up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  const summary = result.stdout.replace(/\s+/g, ' ');
+  assert.match(summary, /CUSTOM_PROJECT_KEY in the agent environment and npx on PATH/);
+  assert.match(summary, /GUI launches may not inherit shell exports/);
+  assert.match(summary, /Codex: trust the project/);
+  assert.match(summary, /VS Code: reload the window, trust the workspace/);
+  assert.doesNotMatch(summary, /Claude Code:|Gemini CLI:/);
+  assert.ok(result.stdout.includes(`Config   ${f.config}`));
+  assert.ok(result.stdout.includes(`CLI config ${JSON.stringify(f.config)}`));
+});
+
+test('the normal XDG config does not add custom-path guidance', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--agents', 'none'], { LAMBDADB_CONFIG: undefined }, [
+    ['Connection', enter], ['Continue with this setup?', keys(up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /Config|pass --config/);
+  assert.ok(await readFile(join(f.home, '.config/lambdadb/config.json'), 'utf8'));
+});
+
+for (const stage of ['first', 'last']) {
+  test(`Ctrl-C during the ${stage} agent file save reports cancellation instead of success`, async t => {
+    const f = await fixture(t);
+    assert.equal((await f.run(f.init('none'))).code, 0);
+    const preload = join(f.root, 'cancel-save.mjs');
+    await f.file(preload, `
+      import fs from 'node:fs/promises';
+      import { syncBuiltinESMExports } from 'node:module';
+      const original = fs.writeFile;
+      fs.writeFile = async (path, ...args) => {
+        const result = await original(path, ...args);
+        if (String(path).includes(${JSON.stringify(stage === 'first' ? 'config.toml.' : 'usage.md.')})) {
+          process.kill(process.pid, 'SIGINT');
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        return result;
+      };
+      syncBuiltinESMExports();
+    `);
+    const result = await f.run(['init', '--agents', 'codex'], { NODE_OPTIONS: `--import=${preload}` }, [
+      ['Connection', enter], ['Continue with this setup?', keys(up, up, up, '\r')],
+    ]);
+    assert.equal(result.code, 2, result.stderr);
+    assert.match(result.stderr, /Init canceled while saving setup/);
+    assert.match(result.stderr, /Some files may already be updated/);
+    assert.doesNotMatch(result.stderr + result.stdout, /Setup complete|No files were changed/);
+    if (stage === 'first') await assert.rejects(readFile(join(f.cwd, '.agents/skills/lambdadb/SKILL.md')), { code: 'ENOENT' });
+    assert.equal((await f.run(f.init('codex'))).code, 0);
+    assert.ok(await readFile(join(f.cwd, '.agents/skills/lambdadb/references/usage.md'), 'utf8'));
+    assert.ok(f.requests.every(request => request.method === 'GET'));
+  });
+}

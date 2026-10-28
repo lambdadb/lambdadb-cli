@@ -383,7 +383,7 @@ async function cliFixture(t, handler, saveAllowed = false) {
     CredentialVault.prototype.read = async () => 'synthetic-account-token';
     CredentialVault.prototype.remove = async () => {};
     CredentialVault.prototype.save = async () => { ${saveAllowed ? '' : "throw Error('unexpected secret persistence');"} };
-    if (process.env.LAMBDADB_TEST_INTERACTIVE) { process.stdin.isTTY = true; process.stdin.setRawMode = () => process.stdin; process.stderr.isTTY = true; process.stderr.columns = 100; }
+    if (process.env.LAMBDADB_TEST_INTERACTIVE) { process.stdin.isTTY = true; process.stdin.setRawMode = () => process.stdin; process.stderr.isTTY = true; process.stderr.columns = Number(process.env.LAMBDADB_TEST_COLUMNS || 100); }
     if (global.gc) setInterval(() => global.gc(), 20).unref();
   `);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')));
@@ -391,6 +391,7 @@ async function cliFixture(t, handler, saveAllowed = false) {
     ...fixture, config,
     async run(args, extra = {}, answers, nodeArgs = [], onSpawn = () => {}) {
       const child = spawn(process.execPath, [...nodeArgs, '--import', preload, bin, ...args, '--config', config, ...(answers ? [] : ['--json'])], {
+        cwd: dir,
         env: { ...env, ...extra, ...(answers ? { LAMBDADB_TEST_INTERACTIVE: 'true', TERM: 'xterm-256color' } : {}) }, stdio: [answers ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       });
       onSpawn(child);
@@ -638,14 +639,19 @@ test('guided init selects an existing project at its limit without a billing det
     assert.equal(call.path, '/projects/first/collections?size=1');
     res.end(JSON.stringify({ collections: [] }));
   }, true);
-  const result = await fixture.run(['init', '--agents', 'none', '--no-browser'], {}, [
+  const result = await fixture.run(['init', '--agents', 'codex', '--no-browser'], {}, [
     ['Connection', enter], ['Project', enter],
-    ['Create a project key with write access?', keys(left, '\r')],
+    ['Create a key for first with write access?', keys(left, '\r')],
+    ['Continue with this setup?', keys(up, up, up, '\r')],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /Organization: Team/);
   assert.doesNotMatch(result.stderr, /Continue with account|Enter use|Project limit reached|rerun init to update|Enable MCP write tools\?/);
   assert.match(result.stdout, /Project\s+first/);
+  const summary = result.stdout.replace(/\s+/g, ' ');
+  assert.match(summary, /same OS user with keychain accessible and npx on PATH/);
+  assert.match(summary, /Codex: trust the project/);
+  assert.doesNotMatch(summary, /GUI launches|export LAMBDADB_API_KEY/);
   assert.doesNotMatch(result.stdout + result.stderr, /synthetic-issued-secret/);
   assert.equal(fixture.calls.filter(c => c.path === '/auth/cli/connect').length, 1);
   assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 1);
@@ -665,7 +671,7 @@ test('guided init still requires explicit new-key approval', async t => {
     res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Connection', enter], ['Project', enter], ['Create a project key with write access?', enter],
+    ['Connection', enter], ['Project', enter], ['Create a key for first with write access?', enter],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 0);
@@ -680,7 +686,7 @@ test('guided cancellation after project connection reports and retains the compl
     res.end(JSON.stringify({ endpoint: fixture.url, project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: { key_id: 'key-id' } } }));
   }, true);
   const result = await fixture.run(['init', '--agents', 'cline'], {}, [
-    ['Connection', enter], ['Project', enter], ['Create a project key with write access?', keys(left, '\r')], ['Install agent settings for your OS user?', enter],
+    ['Connection', enter], ['Project', enter], ['Create a key for first with write access?', keys(left, '\r')], ['Install agent settings for your OS user?', enter],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, /Completed login\/project setup is retained/);
@@ -734,7 +740,7 @@ test('guided Org and project menus navigate without repeating requests', async t
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
     ['Connection', enter], ['Organization', keys(down, up, '\r')],
-    ['Project', enter], ['Create a project key with write access?', enter],
+    ['Project', enter], ['Create a key for first with write access?', enter],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.equal(fixture.calls.length, 2);
@@ -796,11 +802,31 @@ test('guided cancellation during key delivery keeps unknown issuance and never r
     child.kill('SIGINT');
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Connection', enter], ['Project', enter], ['Create a project key with write access?', keys(left, '\r')],
+    ['Connection', enter], ['Project', enter], ['Create a key for first with write access?', keys(left, '\r')],
   ], [], spawned => { child = spawned; });
   assert.equal(result.code, 5, result.stderr);
   assert.match(result.stdout, /"state": "unknown"/);
   assert.match(JSON.parse(await readFile(`${fixture.config}.connections.json`, 'utf8'))[0].pendingKeyName, /^lambdadb-cli-/);
   assert.equal(fixture.calls.filter(call => call.method !== 'GET').length, 1);
   await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
+});
+
+
+test('guided login preserves the complete approval URL in a narrow terminal', async t => {
+  const url = 'https://a-long-custom-console-host.example.com/auth/cli?user_code=ABCDE-FG234';
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path === '/auth/device/login') return res.end(JSON.stringify({ device_code: 'c'.repeat(64), user_code: 'ABCDE-FG234', verification_uri: url.split('?')[0], expires_in: 15, interval: 1 }));
+    if (call.path === '/auth/device/token') return res.end(JSON.stringify({ account: { session_token: 'b'.repeat(64), member_id: first, email: 'synthetic@example.com', expires_at: new Date(Date.now() + 3600000).toISOString(), console_url: 'https://a-long-custom-console-host.example.com' } }));
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [] }));
+    assert.equal(call.path, '/auth/cli/regions');
+    res.end(JSON.stringify({ regions: [{ region: 'ap-northeast-2', name: 'Seoul', is_open: true, cloud_provider: 'aws' }] }));
+  }, true);
+  await rm(`${fixture.config}.account.json`);
+  const result = await fixture.run(['init', '--no-browser', '--api-url', fixture.url], { LAMBDADB_TEST_COLUMNS: '34' }, [
+    ['Connection', enter], ['Region', cancel],
+  ]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.ok(result.stderr.includes(url), 'the copyable URL must remain one unbroken token');
+  assert.ok(!result.stderr.includes('b'.repeat(64)));
+  assert.equal(fixture.calls.filter(call => call.path.endsWith('/connect')).length, 0);
 });

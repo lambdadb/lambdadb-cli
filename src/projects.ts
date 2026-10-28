@@ -456,7 +456,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
         `Inspect/revoke ${saved.pendingKeyName} in Console before replacing the uncertain connection.`,
       );
     if (
-      !(await prompts.confirm('Create a project key with write access?'))
+      !(await prompts.confirm(`Create a key for ${project.name} with write access?`))
     )
       throw new InputError('No project key was requested.');
   }

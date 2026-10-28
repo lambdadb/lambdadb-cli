@@ -8,7 +8,7 @@ import { definitelyRejected, describeError, InputError, ManagementError, isInput
 import { Output, type Envelope } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
 import { CredentialVault, credentialReference } from './credentials.js';
-import { initialize } from './init.js';
+import { initialize, interactiveInit } from './init.js';
 import { formatInit } from './init-output.js';
 import { serveMcp } from './mcp.js';
 import { agentNames } from './agents.js';
@@ -90,7 +90,7 @@ program.command('init')
   .addHelpText('after', '\nGet started: lambdadb init\nSSH: lambdadb init --no-browser (browser approval is still required on another device).\nReruns offer to reuse the current connection or select another project.\nAccount setup reuses a valid login, or guides signup/login and CLI approval in a browser. Select or create a project in the terminal; secrets are saved only in the OS credential store.\nManual/CI setup: obtain a project key in Console and export it securely; init saves only the environment-variable name.\nAutomation example (export LAMBDADB_API_KEY first):\n  lambdadb init --non-interactive --agents codex,claude,cursor --scope project --endpoint https://api.lambdadb.ai --project my-project --json')
   .action(async (_opts, cmd: Command) => {
     const options = cmd.optsWithGlobals();
-    const interactive = !options.nonInteractive && !options.json && !!process.stdin.isTTY && !!process.stderr.isTTY;
+    const interactive = interactiveInit(options);
     const data = await initialize(options, output);
     target = { endpoint: data.settings.endpoint, project: data.settings.project };
     output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data }, formatInit(data, configPath(options), interactive), false);

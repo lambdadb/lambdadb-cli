@@ -42,7 +42,11 @@ export class InitUI {
   }
 
   info(message: string) {
-    log.info(wrapAnsi(this.safe(message), Math.max(20, (process.stderr.columns || 80) - 3), { hard: true }), this.options);
+    const width = Math.max(20, (process.stderr.columns || 80) - 3);
+    // Preserve URL tokens for copying; the terminal can soft-wrap long links.
+    const lines = this.safe(message).split('\n').map(line => /https?:\/\/\S+/.test(line)
+      ? line : wrapAnsi(line, width, { hard: true }));
+    log.info(lines.join('\n'), this.options);
   }
   note(message: string, title: string) { note(this.safe(message), title, this.options); }
 
@@ -57,9 +61,10 @@ export class InitUI {
   }
 
   async text(message: string, defaultValue?: string, validate?: (value: string) => string | undefined): Promise<string> {
-    return this.value<string>(await text({ ...this.options, message: this.label(message), defaultValue, placeholder: defaultValue,
+    const value = this.value<string>(await text({ ...this.options, message: this.label(message), defaultValue, placeholder: defaultValue,
       validate: validate ? value => validate(value ?? '') : undefined,
     })).trim();
+    return value || defaultValue || '';
   }
 
   async agents(choices: Choice[]): Promise<string[]> {

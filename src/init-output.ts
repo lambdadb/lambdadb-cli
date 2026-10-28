@@ -1,8 +1,11 @@
 import { relative, isAbsolute, sep } from 'node:path';
 import { styleText } from 'node:util';
 import { agentAdapters, type Agent } from './agents.js';
-import { configPath } from './config.js';
+import { defaultConfigPath } from './config.js';
+import { wrapAnsi } from 'fast-wrap-ansi';
 import type { initialize } from './init.js';
+
+const agentName = (agent: Agent) => agentAdapters.find(adapter => adapter.id === agent)!.name;
 
 type FilePlan = { path: string; aliases?: string[]; destination?: string; kind: string; action: string };
 
@@ -22,7 +25,7 @@ export function formatPlan(files: FilePlan[], agents: Agent[], scope: string, wr
   const visible = details ? [...changed, ...unchanged] : changed;
   return [
     ...(agents.length ? [
-      `Agents: ${agents.map(agent => agentAdapters.find(adapter => adapter.id === agent)!.name).join(', ')}`,
+      `Agents: ${agents.map(agentName).join(', ')}`,
       `Scope: ${scope} (${text(scope === 'project' ? context.cwd : context.home)})`,
       `MCP tools: ${writeTools ? 'read and write (explicit opt-in)' : 'read-only'}`,
       '',
@@ -36,18 +39,23 @@ export function formatPlan(files: FilePlan[], agents: Agent[], scope: string, wr
 export function formatInit(data: Awaited<ReturnType<typeof initialize>>, config: string, interactive = false) {
   const { settings, agents } = data;
   const count = data.files.filter(file => file.action !== 'unchanged').length;
-  const customConfig = config !== configPath({});
+  const customConfig = config !== defaultConfigPath();
   if (interactive) {
+    const instruction = (value: string) => wrapAnsi(text(value), Math.max(20, (process.stderr.columns || 80) - 4), { hard: true })
+      .split('\n').map(line => `    ${line}`).join('\n');
     const row = (label: string, value: string) => `  ${styleText('dim', label.padEnd(8))} ${text(value)}`;
     return [
       row('Project', settings.project),
-      row('Agents', agents.length ? agents.map(agent => agentAdapters.find(adapter => adapter.id === agent)!.name).join(', ') : 'Skipped'),
+      row('Agents', agents.length ? agents.map(agentName).join(', ') : 'Skipped'),
       ...(agents.length ? [row('Install', `${data.scope} scope · MCP ${data.writeTools ? 'read and write' : 'read-only'}`)] : []),
       ...(customConfig ? [row('Config', config)] : []),
       '',
       `  ${styleText('bold', 'Next')}`,
       ...(agents.length ? [
-        '    Restart your selected agents to load LambdaDB.',
+        instruction(settings.credentialStore
+          ? `Restart/reload as the same OS user with ${settings.credentialStore} accessible and npx on PATH.`
+          : `Restart/reload with ${settings.apiKeyEnv} in the agent environment and npx on PATH. GUI launches may not inherit shell exports.`),
+        ...agentAdapters.filter(adapter => agents.includes(adapter.id)).map(adapter => instruction(adapter.instructions)),
         `    Ask: "${customConfig ? `Use LambdaDB with CLI config ${JSON.stringify(config)}. ` : ''}List my LambdaDB collections and help me search one. Do not modify data."`,
       ] : [`    lambdadb collections list --json${customConfig ? ' (pass --config with the path above)' : ''}`]),
       '',
