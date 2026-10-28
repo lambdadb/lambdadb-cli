@@ -7,9 +7,12 @@ description: Inspect and search an existing LambdaDB project through LambdaDB MC
 
 Prefer the LambdaDB CLI when terminal execution and an authenticated connection
 are available. Use `--json`, preserve any supplied `--config` path, and consult
-the relevant command's `--help` when needed. Use the configured LambdaDB MCP
-server when the CLI cannot be used in the environment or the user requests MCP.
-Do not switch transports to bypass authentication or permission errors.
+the relevant command's `--help` when needed. If `lambdadb` is not on PATH (for
+example, setup ran through npx), run the same commands with
+`npx -y @functional-systems/lambdadb-cli@latest` in place of `lambdadb`; do not
+install packages globally. Use the configured LambdaDB MCP server when the CLI
+cannot be used in the environment or the user requests MCP. Do not switch
+transports to bypass authentication or permission errors.
 
 Reuse the existing connection. CLI defaults and a pinned MCP server can target
 different projects: verify the endpoint, project, collection and read ref before

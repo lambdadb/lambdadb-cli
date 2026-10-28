@@ -5,6 +5,8 @@
 Prefer an available, authenticated CLI; use MCP when terminal execution is
 unavailable or blocked, or when explicitly requested. Preserve the user's
 choice. A failed request is not permission to change accounts, projects or keys.
+The examples use `lambdadb`; when it is not on PATH, substitute
+`npx -y @functional-systems/lambdadb-cli@latest` with the same arguments.
 
 Use `lambdadb doctor --json` to verify the selected connection and inspect its
 non-secret `target`; this checks authentication and collection-list access, not

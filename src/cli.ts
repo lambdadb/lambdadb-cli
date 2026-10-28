@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command, CommanderError, Option } from 'commander';
 import { readFileSync } from 'node:fs';
+import { cli } from './command.js';
 import { configPath, integer, name, resolveConfig, saveSettings, settings, type Options } from './config.js';
 import { createInput, parseRef, queryInput, readJson, readJsonl, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
@@ -100,7 +101,7 @@ program.command('login').description('Authorize account management in a browser 
   .option('--no-browser', 'Skip automatic browser opening; sign in and approve at the printed URL on this or another device')
   .action(async (_opts, cmd: Command) => {
     const account = await login(cmd.optsWithGlobals(), output);
-    output.diagnostic('Next: run lambdadb init for guided project and agent setup, or lambdadb orgs list to manage projects with explicit commands. Keep the same --config path if you supplied one.');
+    output.diagnostic(`Next: run ${cli} init for guided project and agent setup, or ${cli} orgs list to manage projects with explicit commands. Keep the same --config path if you supplied one.`);
     result(account, 'Account login saved. Project connections and agent settings are unchanged.');
   });
 program.command('logout').description('Revoke the saved account session and remove it locally; keep project connections')
