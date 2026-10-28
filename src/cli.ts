@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command, CommanderError, Option } from 'commander';
 import { readFileSync } from 'node:fs';
-import { integer, name, resolveConfig, saveSettings, settings, type Options } from './config.js';
+import { configPath, integer, name, resolveConfig, saveSettings, settings, type Options } from './config.js';
 import { createInput, parseRef, queryInput, readJson, readJsonl, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
 import { definitelyRejected, describeError, InputError, ManagementError, isInputError } from './errors.js';
@@ -9,6 +9,7 @@ import { Output, type Envelope } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
 import { CredentialVault, credentialReference } from './credentials.js';
 import { initialize } from './init.js';
+import { formatInit } from './init-output.js';
 import { serveMcp } from './mcp.js';
 import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
@@ -90,7 +91,7 @@ program.command('init')
   .action(async (_opts, cmd: Command) => {
     const data = await initialize(cmd.optsWithGlobals(), output);
     target = { endpoint: data.settings.endpoint, project: data.settings.project };
-    result(data, 'Initialization complete. Authentication and collection-list access verified; search readiness is not verified.');
+    output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data }, formatInit(data, configPath(cmd.optsWithGlobals())), false);
   });
 
 program.command('login').description('Authorize account management in a browser and save a separate OS session')

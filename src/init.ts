@@ -1,3 +1,4 @@
+import checkbox from '@inquirer/checkbox';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -9,6 +10,7 @@ import { InputError } from './errors.js';
 import type { Output } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
 import { mcpPackage } from './mcp.js';
+import { formatPlan } from './init-output.js';
 import { mcpLaunch } from './agent-config.js';
 import { agentAdapters, agentNames, detectAgents, type Agent, type AgentAdapter, type AgentContext, type AgentScope } from './agents.js';
 
@@ -112,9 +114,12 @@ export async function initialize(options: InitOptions, output: Output) {
   }
   const context = { cwd: process.cwd(), home: homedir(), env: process.env };
   const detected = await detectAgents(context);
-  const prompt = interactive ? createInterface({ input: process.stdin, output: process.stderr }) : undefined;
+  let prompt = interactive ? createInterface({ input: process.stdin, output: process.stderr }) : undefined;
   let connectionSaved = false;
   let accountSetup = false;
+  const canceled = () => new InputError((connectionSaved || accountSetup)
+    ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.'
+    : 'Init canceled. No files were changed.');
   const ask = async (label: string, fallback?: string) => {
     const cancellation = new AbortController();
     const cancel = () => cancellation.abort();
@@ -126,7 +131,7 @@ export async function initialize(options: InitOptions, output: Output) {
       const answer = (await prompt!.question(`${label}${fallback ? ` [${fallback}]` : ''}: `, { signal: cancellation.signal })).trim();
       return answer || fallback;
     } catch (error) {
-      if (cancellation.signal.aborted) throw new InputError((connectionSaved || accountSetup) ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.' : 'Init canceled. No files were changed.');
+      if (cancellation.signal.aborted) throw canceled();
       throw error;
     } finally {
       prompt!.removeListener('SIGINT', cancel);
@@ -135,6 +140,7 @@ export async function initialize(options: InitOptions, output: Output) {
   };
   try {
     if (interactive) {
+      output.diagnostic('\n1/3 Connect to LambdaDB');
       let saved = await loadSettings(configPath(options));
       let reuseConnection = false;
       const explicitConnection = options.endpoint || options.project || options.apiKeyEnv || options.credentialId;
@@ -142,22 +148,26 @@ export async function initialize(options: InitOptions, output: Output) {
         const currentEndpoint = process.env.LAMBDADB_ENDPOINT ?? saved.endpoint;
         const currentProject = process.env.LAMBDADB_PROJECT ?? saved.project;
         const reuse = !!currentEndpoint || !!saved.credentialStore;
-        const choice = await ask(reuse
-          ? `Current project: ${currentProject ?? '(not set)'} at ${currentEndpoint ?? '(not set)'}\n1. Continue with this connection\n2. Select or create another project through account login\nChoose a number`
-          : '1. Sign in and select or create a project (recommended)\n2. Use an existing project API key from an environment variable\nChoose a number', '1');
-        if (choice !== '1' && choice !== '2') throw new InputError('Choose 1 or 2. Rerun init to try again.');
+        let choice: string | undefined;
+        for (;;) {
+          choice = await ask(reuse
+            ? `Current project: ${currentProject ?? '(not set)'} at ${currentEndpoint ?? '(not set)'}\n1. Continue with this connection\n2. Select or create another project through account login\nChoose a number (or cancel)`
+            : '1. Sign in and select or create a project (recommended)\n2. Use an existing project API key from an environment variable\nChoose a number (or cancel)', '1');
+          if (choice === 'cancel') throw new InputError('Init canceled. No files were changed.');
+          if (choice === '1' || choice === '2') break;
+          output.diagnostic('Choose 1 or 2, or cancel.');
+        }
         accountSetup = reuse ? choice === '2' : choice === '1';
         reuseConnection = reuse && choice === '1' && !!currentEndpoint && !!currentProject;
       }
       if (accountSetup) {
         const destination = await fileIdentity(configPath(options));
-        output.diagnostic(`Will update ${destination}, ${destination}.account.json and ${destination}.connections.json. Secrets go only to the OS credential store. Agent settings are reviewed afterwards.`);
-        if ((await ask('Continue with account login and terminal project setup? Type yes', 'no')) !== 'yes') throw new InputError('Init canceled.');
+        output.diagnostic(`CLI settings: ${destination}\nAccount metadata: ${destination}.account.json\nProject references: ${destination}.connections.json\nSecrets are saved only in your OS credential store.`);
         const cancellation = new AbortController();
         const cancel = () => cancellation.abort();
         prompt!.once('SIGINT', cancel); prompt!.once('close', cancel);
         let selected: SelectedSettings;
-        try { selected = await terminalSetup({ ...options, signal: cancellation.signal }, output, ask); }
+        try { selected = await terminalSetup({ ...options, guided: true, signal: cancellation.signal }, output, ask); }
         finally { prompt!.removeListener('SIGINT', cancel); prompt!.removeListener('close', cancel); }
         options = { ...options, ...selected };
         saved = selected;
@@ -169,11 +179,38 @@ export async function initialize(options: InitOptions, output: Output) {
         options.apiKeyEnv = await ask('Environment variable holding your API key (not its value)', options.apiKeyEnv ?? process.env.LAMBDADB_API_KEY_ENV ?? saved.apiKeyEnv ?? 'LAMBDADB_API_KEY');
         output.protect(options.apiKeyEnv ? process.env[options.apiKeyEnv] : undefined);
       }
-      output.diagnostic(`Detected agents (heuristic): ${detected.join(', ') || 'none'}. You may also select an undetected agent.`);
-      options.agents ??= await ask(`Agents: ${agentNames} (comma-separated), or none`, detected.join(',') || 'none');
+      output.diagnostic('\n2/3 Choose coding agents');
+      if (options.agents === undefined) {
+        output.diagnostic('Detected means an executable or settings directory was found. Nothing is selected automatically.');
+        // Only one readline interface may own stdin at a time.
+        prompt?.close();
+        try {
+          const agents = await checkbox<Agent>({
+            message: 'Select agents (Space to toggle; Enter with none selected to skip)',
+            pageSize: agentAdapters.length,
+            choices: agentAdapters.map(adapter => ({ value: adapter.id, name: `${adapter.id}${detected.includes(adapter.id) ? ' (detected)' : ''}`, checked: false })),
+          }, { output: process.stderr });
+          options.agents = agents.join(',') || 'none';
+        } catch (error) {
+          if (error instanceof Error && ['ExitPromptError', 'AbortPromptError'].includes(error.name)) {
+            throw canceled();
+          }
+          throw error;
+        }
+        prompt = createInterface({ input: process.stdin, output: process.stderr });
+      }
       const scopes = availableScopes(selectedAgents(options.agents));
-      options.scope ??= await ask(`Agent configuration scope: ${scopes.join(' or ')}`, scopes[0]);
-      if (options.writeTools === undefined) options.writeTools = (await ask('Enable MCP write tools? Type yes to opt in', 'no')) === 'yes';
+      if (options.scope === undefined) {
+        if (scopes.includes('project')) options.scope = 'project';
+        else for (;;) {
+          const scope = await ask('Selected agents require user scope. Type user to install for your OS user, or cancel', 'cancel');
+          if (scope === 'cancel') throw canceled();
+          if (scope === 'user') { options.scope = scope; break; }
+          output.diagnostic('Choose user or cancel.');
+        }
+      }
+      options.writeTools ??= false;
+
     }
     const chosen = selectedAgents(options.agents);
     if (!['project', 'user'].includes(options.scope ?? '')) throw new InputError('Specify --scope project or --scope user. CLI settings still use --config or the normal user configuration path.');
@@ -188,13 +225,51 @@ export async function initialize(options: InitOptions, output: Output) {
     if (!selected.credentialStore && !process.env[selected.apiKeyEnv]?.trim()) throw new InputError(`Export ${selected.apiKeyEnv} securely in this shell, then rerun init. Obtain a project API key in the LambdaDB Console; never pass its value as a flag.`);
     const config = await resolveConfig(options, true);
     output.protect(config.apiKey);
-    const changes = await plan(selected, chosen, options.scope as AgentScope, options, context);
-    const files = changes.map(change => ({ path: change.path, ...(change.aliases.length ? { aliases: change.aliases } : {}), ...(change.destination !== change.path ? { destination: change.destination } : {}), kind: change.kind,
+    const planWithScopeRecovery = async () => {
+      for (;;) {
+        try { return await plan(selected, chosen, options.scope as AgentScope, options, context); }
+        catch (error) {
+          const scopes = availableScopes(chosen);
+          if (!interactive || !chosen.length || scopes.length < 2 || !(error instanceof InputError)) throw error;
+          output.diagnostic(`Cannot prepare ${options.scope} scope: ${error.message}`);
+          for (;;) {
+            const scope = await ask(`Choose a different agent scope: ${scopes.join(' or ')}, or cancel`, 'cancel');
+            if (scope === 'cancel') throw canceled();
+            if (scopes.includes(scope as AgentScope)) { options.scope = scope; break; }
+            output.diagnostic(`Choose scope ${scopes.join(' or ')}, or cancel.`);
+          }
+        }
+      }
+    };
+    let changes = await planWithScopeRecovery();
+    const describe = () => changes.map(change => ({ path: change.path, ...(change.aliases.length ? { aliases: change.aliases } : {}), ...(change.destination !== change.path ? { destination: change.destination } : {}), kind: change.kind,
       action: change.before === change.after ? 'unchanged' : change.before === undefined ? 'create' : 'update' }));
-    for (const file of files) output.diagnostic(`${file.action}: ${[file.path, ...(file.aliases ?? [])].join(', ')}${file.destination ? ` -> ${file.destination}` : ''} — ${file.kind}`);
-    output.diagnostic(`MCP: ${mcpPackage}; write tools ${options.writeTools ? 'enabled (explicit opt-in)' : 'disabled'}. ${selected.credentialStore ? `The bridge reads ${selected.credentialStore} using a non-secret reference.` : `Agents must inherit ${selected.apiKeyEnv}; only its name is stored.`}`);
-    if (interactive && (await ask('Apply these changes after verifying collection-list access? Type yes', 'no')) !== 'yes') {
-      throw new InputError((connectionSaved || accountSetup) ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.' : 'Init canceled. No files were changed.');
+    let files = describe();
+    if (interactive) {
+      output.diagnostic('\n3/3 Review setup');
+      let details = false;
+      for (;;) {
+        output.diagnostic(formatPlan(files, chosen, options.scope!, !!options.writeTools, context, details));
+        const answer = await ask('Apply these changes after verifying collection-list access? Type yes, settings, details, or no', 'no');
+        if (answer === 'yes') break;
+        if (answer === 'details') { details = true; continue; }
+        if (answer === 'no') throw canceled();
+        if (answer !== 'settings') { output.diagnostic('Choose yes, settings, details, or no.'); continue; }
+        const scopes = availableScopes(chosen);
+        for (;;) {
+          const scope = await ask(`Agent configuration scope: ${scopes.join(' or ')}`, options.scope);
+          if (scopes.includes(scope as AgentScope)) { options.scope = scope; break; }
+          output.diagnostic(`Choose scope ${scopes.join(' or ')}.`);
+        }
+        options.writeTools = (await ask('Enable MCP write tools? Type yes to opt in', options.writeTools ? 'yes' : 'no')) === 'yes';
+        changes = await planWithScopeRecovery();
+        files = describe();
+        details = false;
+      }
+      output.diagnostic('Checking authentication and collection access...');
+    } else {
+      for (const file of files) output.diagnostic(`${file.action}: ${[file.path, ...(file.aliases ?? [])].join(', ')}${file.destination ? ` -> ${file.destination}` : ''} — ${file.kind}`);
+      output.diagnostic(`MCP: ${mcpPackage}; write tools ${options.writeTools ? 'enabled (explicit opt-in)' : 'disabled'}. ${selected.credentialStore ? `The bridge reads ${selected.credentialStore} using a non-secret reference.` : `Agents must inherit ${selected.apiKeyEnv}; only its name is stored.`}`);
     }
     const ctx = runtime(config);
     let connection;
