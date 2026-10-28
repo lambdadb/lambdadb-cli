@@ -206,7 +206,7 @@ export async function useProject(
     const original = configPath(options),
       destination = await fileIdentity(original),
       before = await readOptional(destination);
-    output.diagnostic(`CLI settings: ${destination}; saved project references: ${cache.path}.`);
+    if (!options.guided) output.diagnostic(`CLI settings: ${destination}; saved project references: ${cache.path}.`);
     if (item?.pendingKeyName)
       output.diagnostic(
         `Previous delivery was uncertain: inspect/revoke ${item.pendingKeyName} in Console before replacing it.`,
@@ -223,7 +223,7 @@ export async function useProject(
         );
       const store = await vault.select(options.credentialStore ?? api.account.credentialStore);
       output.diagnostic(
-        `Project credential store: ${store}. The key retains existing API permissions, including writes; MCP write-tool visibility is configured separately.`,
+        options.guided ? `Saving the project key in ${store}.` : `Project credential store: ${store}. The key retains existing API permissions, including writes; MCP write-tool visibility is configured separately.`,
       );
       if (store === 'keyutils')
         output.diagnostic(
@@ -232,7 +232,7 @@ export async function useProject(
       const requestId = randomUUID(),
         keyName = `lambdadb-cli-${requestId}`;
       output.diagnostic(
-        `Issuing ${keyName}. If delivery fails, inspect it in Console; no request will be retried automatically.`,
+        options.guided ? `Creating key ${keyName}. Keep this name for recovery if setup fails.` : `Issuing ${keyName}. If delivery fails, inspect it in Console; no request will be retried automatically.`,
       );
       if (!item) {
         item = { account, org, projectId };
@@ -286,7 +286,7 @@ export async function useProject(
       );
     await saveSettings({ ...options, ...selected, config: destination });
     output.diagnostic(
-      'CLI project selected. Existing agent entries remain pinned; rerun init to update their connection.',
+      options.guided ? `Connected project: ${project.name}.` : 'CLI project selected. Existing agent entries remain pinned; rerun init to update their connection.',
     );
     return selected;
   });
@@ -317,7 +317,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
     }
   }
   let orgs = await organizations(options, output);
-  let org = orgs.length
+  let org = orgs.length === 1 ? orgs[0] : orgs.length
     ? await choose(
         orgs,
         (o) => `${o.name} (${o.role}, ${o.plan}, projects ${o.projects_count}/${o.max_projects})`,
@@ -325,16 +325,29 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
         'Organization',
       )
     : undefined;
+  if (org) output.diagnostic(`Organization: ${org.name} (${org.role}, ${org.plan}).`);
   let available = org ? await projects(options, org.id, output) : [];
   let project: Project | undefined;
   for (;;) {
     const atLimit = org && org.projects_count >= org.max_projects;
-    const action = await ask(
-      atLimit && org
-        ? `Project limit reached (${org.projects_count}/${org.max_projects}). Enter use, billing, or cancel`
-        : `Enter use for an existing project${available.length ? '' : ' (none yet)'}, create, or cancel`,
-      available.length ? 'use' : atLimit ? 'billing' : 'create',
-    );
+    const choices = [
+      ...available.map((p, index) => ({ label: `${p.name} (${p.status})`, action: 'use', index })),
+      { label: atLimit && org ? `Create a new project — limit ${org.projects_count}/${org.max_projects}; review billing` : 'Create a new project', action: atLimit ? 'billing' : 'create', index: -1 },
+      ...(orgs.length > 1 ? [{ label: 'Choose another Organization', action: 'org', index: -1 }] : []),
+      { label: 'Cancel', action: 'cancel', index: -1 },
+    ];
+    const choice = await choose(choices, value => value.label, ask, 'Project');
+    if (choice.action === 'use') {
+      project = available[choice.index];
+      if (!project) throw new InputError('Choose a listed project.');
+      break;
+    }
+    if (choice.action === 'org') {
+      org = await choose(orgs, o => `${o.name} (${o.role}, ${o.plan})`, ask, 'Organization');
+      available = await projects(options, org.id, output);
+      continue;
+    }
+    const action = choice.action;
     if (action === 'cancel')
       throw new InputError('Setup canceled. Saved login and project connections remain available.');
     if (action === 'billing' && org) {
@@ -355,11 +368,6 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
       available = await projects(options, org.id, output);
       continue;
     }
-    if (action === 'use') {
-      project = await choose(available, (p) => `${p.name} (${p.status})`, ask, 'Project');
-      break;
-    }
-    if (action !== 'create' || atLimit) throw new InputError('Choose one of the displayed actions.');
     if (org?.role === 'member')
       throw new InputError(
         'An owner or admin must connect the new project. Choose an existing saved connection or ask your admin for a project key.',
@@ -442,7 +450,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, ask
         `Inspect/revoke ${saved.pendingKeyName} in Console before replacing the uncertain connection.`,
       );
     if (
-      (await ask('Issue a new project key and store it in your OS credential store? Type yes', 'no')) !==
+      (await ask(`Create a key for ${project.name} and save it in your OS credential store? The key includes write access. Type yes`, 'no')) !==
       'yes'
     )
       throw new InputError('No project key was requested.');

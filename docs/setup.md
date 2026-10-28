@@ -15,6 +15,12 @@ Run `lambdadb init` to start. On a first run, choose account login and terminal
 project setup (recommended), or an existing project API key supplied through an
 environment variable. A valid account login is reused.
 
+Interactive setup has three stages: connection, agent selection, and file review.
+A single accessible Org is selected and shown automatically. The project menu
+lists existing projects alongside creation; reaching the project limit does not
+add a separate question when connecting an existing project. New project creation
+and new key issuance still require explicit confirmation.
+
 Reruns show the current project and offer to continue with that connection or
 select/create another project through account login. Saved project keys are
 reused; selecting another project does not silently replace a key.
@@ -31,6 +37,20 @@ Compare the displayed code before approval. Project selection and creation
 continue in the terminal. A default Org is created only on first project
 submission. Pending invitations require a Console decision first; the survey is
 optional.
+
+### Review agent setup
+
+Use Space to toggle agents and Enter to continue. Detected agents are labeled,
+not preselected; submitting an empty selection skips agent installation. The
+review defaults to project scope and read-only MCP tools. It shows the directory
+and every destination file before applying changes. Type `settings` at that
+prompt to change scope or explicitly enable write tools, then review the revised
+plan. Cline requires explicit user-scope confirmation. Existing `--agents`,
+`--scope`, and `--write-tools` flags can set these choices in advance.
+
+Successful ordinary output is a short connection summary with selected-agent
+reload instructions and a next step. Full structured results, including check
+and file metadata, remain available through `--non-interactive --json`.
 
 ### Project limits and manual Console steps
 
@@ -103,8 +123,9 @@ continue with the saved connection to finish setup.
 Before agent installation, init displays exact paths and create/update/unchanged
 actions, then uses the same SDK check as `doctor` to verify authentication and
 collection-list access. Manual setup leaves files untouched on failed validation.
-Browser setup first shows and confirms the CLI settings path and credential store;
-once approved, it saves that connection before doctor/agent installation so a
+Browser setup first shows the CLI metadata paths and credential-store policy.
+Browser account approval and explicit new-key confirmation authorize their
+respective steps; a successfully connected project is saved before doctor/agent installation so a
 failed check or interrupted agent setup can resume without issuing another key.
 Agent files are still untouched until the reviewed plan and check succeed. The CLI's
 non-secret settings always use its usual configuration path (or `--config`),

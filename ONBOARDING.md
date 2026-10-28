@@ -258,6 +258,12 @@ setup. Existing manual Console key setup remains supported during rollout.
   flags use the supplied configuration without the picker. SSH uses `--no-browser`;
   browser approval is still required on this or another device when login is needed.
   Automation uses existing credentials with `--non-interactive --agents ... --scope ...`.
+- Interactive init uses a checkbox list with detection labels and no automatic
+  agent selection. A sole Org is displayed without a separate prompt; project
+  selection and creation share one menu. Project scope and read-only MCP tools
+  are shown in the final file review and can be changed with `settings`; Cline
+  requires explicit user-scope consent. Ordinary output summarizes completion,
+  while non-interactive JSON retains the full result.
 - Browser setup previews the CLI settings path/store and saves a successfully
   delivered connection before doctor/agent installation. This intentionally lets
   a failed doctor or agent install resume without issuing another key. Agent file

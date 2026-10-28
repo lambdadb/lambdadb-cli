@@ -24,6 +24,13 @@
 
 ### Maintenance
 
+- Simplify interactive init into connection, agent selection and file review.
+  Label detected agents without preselecting them; use a keyboard checkbox list.
+  Select a sole Org automatically and combine existing-project/creation choices.
+  Keep explicit key issuance and file approval, with scope/write-tool changes
+  available from review. Replace the ordinary JSON dump with a concise result;
+  preserve non-interactive flags and the structured JSON contract.
+
 - Remove the pre-release `init --connect` flag: plain `init` guides account setup
   and offers connection reuse or another project on reruns. Clarify browser approval,
   login next steps, agent scope and advanced connection options in help.

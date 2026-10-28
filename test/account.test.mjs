@@ -393,10 +393,13 @@ async function cliFixture(t, handler, saveAllowed = false) {
       });
       let stdout = '', stderr = '';
       child.stdout.on('data', (c) => (stdout += c));
-      let answered = 0;
+      let answered = 0, cursor = 0;
       child.stderr.on('data', (c) => {
         stderr += c;
-        if (answers && answered < answers.length && stderr.includes(answers[answered][0])) child.stdin.write(answers[answered++][1] + '\n');
+        if (answers && answered < answers.length && stderr.slice(cursor).includes(answers[answered][0])) {
+          cursor = stderr.length;
+          child.stdin.write(answers[answered++][1] + '\n');
+        }
       });
       const timer = setTimeout(() => child.kill(), 5000);
       try {
@@ -407,7 +410,7 @@ async function cliFixture(t, handler, saveAllowed = false) {
         assert.ok(!stdout.includes('synthetic-account-token'));
         assert.ok(!stderr.includes('synthetic-account-token'));
         if (answers) assert.equal(answered, answers.length, stderr);
-        return { code, value: answers ? undefined : JSON.parse(stdout), stderr };
+        return { code, stdout, value: answers ? undefined : JSON.parse(stdout), stderr };
       } finally { clearTimeout(timer); }
     },
   };
@@ -556,8 +559,7 @@ test('actual CLI: plain init enters account project setup and reuses a valid log
     res.end(JSON.stringify({ projects: [] }));
   });
   const result = await fixture.run(['init', '--no-browser'], {}, [
-    ['Choose a number', '1'], ['Continue with account login', 'yes'],
-    ['Organization', '1'], ['Enter use for an existing project', 'cancel'],
+    ['Choose a number', '1'], ['Project\n1. Create a new project', '2'],
   ]);
   assert.equal(result.code, 2);
   assert.deepEqual(fixture.calls.map(c => c.path), ['/auth/cli/organizations', '/auth/cli/projects']);
@@ -597,4 +599,76 @@ test('actual CLI: Org UUID selectors use --org-id for project listing and creati
     ['projects', 'create', '--org-id', org, '--default-org', '--name', 'demo', '--region', 'ap-northeast-2'],
   ]) assert.equal((await fixture.run(flags)).code, 2);
   assert.equal(fixture.calls.length, 2);
+});
+
+test('guided init selects an existing project at its limit without a billing detour or duplicate questions', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
+    if (call.path.endsWith('/projects')) return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+    if (call.path === '/auth/cli/connect') return res.end(JSON.stringify({ endpoint: fixture.url, project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: { key_id: 'key-id' } } }));
+    assert.equal(call.path, '/projects/first/collections?size=1');
+    res.end(JSON.stringify({ collections: [] }));
+  }, true);
+  const result = await fixture.run(['init', '--agents', 'none', '--no-browser'], {}, [
+    ['Choose a number', '1'], ['Project\n1. first (ACTIVE)', '1'],
+    ['Create a key for first', 'yes'], ['Apply these changes', 'yes'],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /Organization: Team/);
+  assert.doesNotMatch(result.stderr, /Continue with account|Enter use|Project limit reached|rerun init to update|Enable MCP write tools\?/);
+  assert.match(result.stdout, /Connected to first/);
+  assert.doesNotMatch(result.stdout + result.stderr, /synthetic-issued-secret/);
+  assert.equal(fixture.calls.filter(c => c.path === '/auth/cli/connect').length, 1);
+  assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 1);
+  const rerun = await fixture.run(['init', '--agents', 'none'], {}, [
+    ['Choose a number', '1'], ['Apply these changes', 'yes'],
+  ]);
+  assert.equal(rerun.code, 0, rerun.stderr);
+  assert.equal(fixture.calls.filter(c => c.path === '/auth/cli/connect').length, 1);
+});
+
+test('guided init still requires explicit new-key approval', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
+    assert.ok(call.path.endsWith('/projects'));
+    res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+  });
+  const result = await fixture.run(['init', '--agents', 'none'], {}, [
+    ['Choose a number', '1'], ['Project\n1. first (ACTIVE)', '1'], ['Create a key for first', ''],
+  ]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 0);
+  await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
+});
+
+test('guided creation at the project limit offers billing without creating a project or key', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [{ id: org, name: 'Team', role: 'owner', plan: 'Free', max_projects: 1, projects_count: 1 }] }));
+    assert.ok(call.path.endsWith('/projects'));
+    res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+  });
+  const result = await fixture.run(['init', '--agents', 'none', '--no-browser'], {}, [
+    ['Choose a number', '1'], ['Project\n1. first (ACTIVE)', '2'],
+    ['Open billing in your browser?', 'no'], ['After billing is updated', 'cancel'],
+  ]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, new RegExp(`/organization/billing/open\\?org_id=${org}`));
+  assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 0);
+  await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
+});
+
+test('guided project creation from the combined menu still requires explicit approval', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [] }));
+    assert.equal(call.path, '/auth/cli/regions');
+    res.end(JSON.stringify({ regions: [{ region: 'ap-northeast-2', name: 'Seoul', is_open: true, cloud_provider: 'aws' }] }));
+  });
+  const result = await fixture.run(['init', '--agents', 'none'], {}, [
+    ['Choose a number', '1'], ['Project\n1. Create a new project', '1'],
+    ['Region\n1. Seoul', '1'], ['Project name', 'example'], ['Create this project?', 'no'],
+  ]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /No project was requested/);
+  assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 0);
+  await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
 });

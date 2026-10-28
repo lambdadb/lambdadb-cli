@@ -3,8 +3,9 @@
 [CLI overview](../README.md) · [Setup](setup.md) · [Agents](agents.md) · [Account and usage](account.md) · [Data commands](data.md)
 
 Init detects agents using PATH and configuration directories, then lets you choose
-any subset or `none`. Detection is a hint, not proof that an agent is installed or
-connected. `--scope project` installs files in the current working directory; run from your
+agents with a checkbox list (Space to toggle, Enter to continue). Nothing is
+preselected; an empty selection skips installation. Detection is a hint, not
+proof that an agent is installed or connected. `--scope project` installs files in the current working directory; run from your
 repository root. `--scope user` installs files in the agent's user configuration.
 These locations do not select a LambdaDB project or change the CLI configuration
 path. Cline supports user installation only.

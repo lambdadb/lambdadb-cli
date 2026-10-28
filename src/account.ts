@@ -7,7 +7,7 @@ import { authorizeAccount } from './device-auth.js';
 import { InputError, ManagementError } from './errors.js';
 import type { Output } from './output.js';
 
-export type AccountOptions = Options & { apiUrl?: string; browser?: boolean; signal?: AbortSignal };
+export type AccountOptions = Options & { apiUrl?: string; browser?: boolean; signal?: AbortSignal; guided?: boolean };
 export type Account = CredentialReference & {
   apiUrl: string;
   consoleUrl: string;
@@ -263,7 +263,7 @@ export async function login(options: AccountOptions, output: Output, vault = acc
     const apiUrl = endpoint(options.apiUrl ?? previousOrigin ?? 'https://api.lambdadb.ai');
     const store = await vault.select(options.credentialStore ?? 'auto');
     output.diagnostic(
-      `Account session: ${store}; non-secret metadata: ${path}. Login lasts up to seven days. Project credentials are separate.`,
+      options.guided ? `Account login: ${store}, expires within seven days.` : `Account session: ${store}; non-secret metadata: ${path}. Login lasts up to seven days. Project credentials are separate.`,
     );
     if (store === 'keyutils')
       output.diagnostic(
