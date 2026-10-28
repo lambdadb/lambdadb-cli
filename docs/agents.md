@@ -4,8 +4,9 @@
 
 Init detects agents using PATH and configuration directories, then lets you choose
 agents with a checkbox list (Space to toggle, Enter to continue). Nothing is
-preselected; an empty selection skips installation. Detection is a hint, not
-proof that an agent is installed or connected. `--scope project` installs files in the current working directory; run from your
+preselected. Enter confirms checked agents, not the focused item. An empty
+selection offers **Return to agent selection** (default) or **Skip agent setup**.
+Detection is a hint, not proof that an agent is installed or connected. `--scope project` installs files in the current working directory; run from your
 repository root. `--scope user` installs files in the agent's user configuration.
 These locations do not select a LambdaDB project or change the CLI configuration
 path. Cline supports user installation only.

@@ -68,9 +68,18 @@ export class InitUI {
   }
 
   async agents(choices: Choice[]): Promise<string[]> {
-    return this.value<string[]>(await multiselect({ ...this.options, message: 'Coding agents (optional)',
-      options: choices, initialValues: [], required: false, maxItems: choices.length,
-    }));
+    for (;;) {
+      const selected = this.value<string[]>(await multiselect({ ...this.options,
+        message: 'Coding agents (Space: select one or more; Enter: confirm)',
+        options: choices, initialValues: [], required: false, maxItems: choices.length,
+      }));
+      if (selected.length) return selected;
+      const action = await this.select('No agents selected', [
+        { value: 'back', label: 'Return to agent selection' },
+        { value: 'skip', label: 'Skip agent setup' },
+      ], 'back');
+      if (action === 'skip') return [];
+    }
   }
 
   async verify<T>(action: () => Promise<T>): Promise<T> {
