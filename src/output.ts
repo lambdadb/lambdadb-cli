@@ -26,17 +26,32 @@ const freeFormMaps = new Set(['doc', 'indexConfigs', 'tags']);
 export class Output {
   json = false;
   private secrets = new Set<string>();
+  private diagnosticWriter?: (message: string) => void;
 
   protect(secret: string | undefined) { if (secret) this.secrets.add(secret); }
+
+  withDiagnostics(writer: (message: string) => void): Output {
+    const scoped = new Output();
+    scoped.secrets = this.secrets;
+    scoped.json = this.json;
+    scoped.diagnosticWriter = writer;
+    return scoped;
+  }
 
   private redact(text: string): string {
     for (const secret of this.secrets) text = text.split(secret).join('[REDACTED]');
     return text;
   }
 
-  diagnostic(message: string) {
+  safeDiagnostic(message: string) {
     // eslint-disable-next-line no-control-regex -- Strip terminal control bytes from diagnostics.
-    process.stderr.write(`${this.redact(message).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')}\n`);
+    return this.redact(message).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
+  }
+
+  diagnostic(message: string) {
+    const safe = this.safeDiagnostic(message);
+    if (this.diagnosticWriter) this.diagnosticWriter(safe);
+    else process.stderr.write(`${safe}\n`);
   }
 
   emit(envelope: Envelope, summary: string, includeHumanDetails = true) {

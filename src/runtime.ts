@@ -1,12 +1,14 @@
 import { HTTPClient, LambdaDBClient, type ClientRequestOptions, type Fetcher } from '@functional-systems/lambdadb';
 import type { Config } from './config.js';
 
-export function runtime(config: Config) {
+export function runtime(config: Config, signal?: AbortSignal) {
   // A no-op logger still makes SDK 0.5.1 clone and drain request/response bodies.
   // Disable its environment-controlled logger before construction instead.
   delete process.env.LAMBDADB_DEBUG;
   const controller = new AbortController();
   const interrupt = () => controller.abort();
+  if (signal?.aborted) interrupt();
+  signal?.addEventListener('abort', interrupt, { once: true });
   // Keep the command deadline alive across sequential SDK requests and transfers.
   const deadline = setTimeout(() => controller.abort(new DOMException('Command deadline exceeded', 'TimeoutError')), config.timeoutMs);
   deadline.unref();
@@ -33,6 +35,7 @@ export function runtime(config: Config) {
     client, options,
     close() {
       clearTimeout(deadline);
+      signal?.removeEventListener('abort', interrupt);
       process.removeListener('SIGINT', interrupt);
       process.removeListener('SIGTERM', interrupt);
     },

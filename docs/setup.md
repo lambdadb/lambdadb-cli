@@ -15,14 +15,15 @@ Run `lambdadb init` to start. On a first run, choose account login and terminal
 project setup (recommended), or an existing project API key supplied through an
 environment variable. A valid account login is reused.
 
-Interactive setup has three stages: connection, agent selection, and file review.
+Interactive setup uses a single visual flow for connection, agent selection, and
+file review. Use arrow keys to move and Enter to confirm; Ctrl-C cancels setup.
 A single accessible Org is selected and shown automatically. The project menu
 lists existing projects alongside creation; reaching the project limit does not
 add a separate question when connecting an existing project. New project creation
 and new key issuance still require explicit confirmation.
 If there are no projects and no alternative Org to choose, init proceeds directly
-to creation inputs. Invalid menu numbers and project names can be corrected in
-place without restarting setup.
+to creation inputs. Invalid project names are highlighted and can be corrected
+in place without restarting setup.
 
 Region selection always remains explicit. All public AWS regions returned by the
 server are listed; `is_open=false` means additional regional deployment is needed,
@@ -54,19 +55,30 @@ Use Space to toggle agents and Enter to continue. Detected agents are labeled,
 not preselected; submitting an empty selection skips agent installation. The
 review defaults to project scope and read-only MCP tools. It shows the directory
 and each file to create or update before applying changes. Unchanged files are
-summarized by count; type `details` to display all paths, with changes first.
-Type `settings` at that
-prompt to change scope or explicitly enable write tools, then review the revised
-plan. Cline requires explicit user-scope confirmation. Existing `--agents`,
+summarized by count; choose **Show all files** to display every path, with changes
+first. Choose **Change options** to change scope or explicitly enable write tools,
+then review the revised plan. Cline requires explicit user-scope confirmation. Existing `--agents`,
 `--scope`, and `--write-tools` flags can set these choices in advance.
 Pressing Enter in settings keeps the current write-tool choice, including a
 previous explicit opt-in.
 If the selected scope has a configuration conflict, init offers another supported
 scope or cancellation before writing files; existing entries stay protected.
 
-Successful ordinary output is a short connection summary with selected-agent
-reload instructions and a next step. Full structured results, including check
-and file metadata, remain available through `--non-interactive --json`.
+If no agents are selected and the saved CLI settings are unchanged, init proceeds
+directly to connection verification. It omits agent scope, MCP options and the
+apply prompt. New CLI settings still require file review and approval. Selecting
+agents keeps review available, including **Change options**, even if their files are
+already up to date.
+
+The terminal groups prompts and completed choices along one rail, with a boxed
+file review, connection progress, and a compact completion summary. Color is
+automatic and respects `NO_COLOR`. Successful output includes selected-agent
+reload and credential requirements and a next step. Custom configuration paths,
+including `LAMBDADB_CONFIG`, are included in the suggested agent prompt because
+GUI launches may not inherit shell variables. Cancellation during file saving
+can leave earlier files updated; rerun init to review and finish setup. Full
+structured results, including check and file metadata, remain available through
+`--non-interactive --json`.
 
 ### Project limits and manual Console steps
 
@@ -139,7 +151,7 @@ continue with the saved connection to finish setup.
 Before agent installation, init displays exact paths for create/update actions
 (and unchanged paths on request), then uses the same SDK check as `doctor` to verify authentication and
 collection-list access. Manual setup leaves files untouched on failed validation.
-Browser setup first shows the CLI metadata paths and credential-store policy.
+Browser setup first shows the CLI settings path and credential-store policy.
 Browser account approval and explicit new-key confirmation authorize their
 respective steps; a successfully connected project is saved before doctor/agent installation so a
 failed check or interrupted agent setup can resume without issuing another key.

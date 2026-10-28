@@ -14,9 +14,12 @@ export function timeoutMs(options: Options): number {
   return integer(options.timeoutMs ?? process.env.LAMBDADB_TIMEOUT_MS ?? '30000', 'Timeout', 1, 3600000);
 }
 
+export function defaultConfigPath(): string {
+  return resolve(join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'lambdadb', 'config.json'));
+}
+
 export function configPath(options: Options): string {
-  return resolve(options.config ?? process.env.LAMBDADB_CONFIG
-    ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'lambdadb', 'config.json'));
+  return resolve(options.config ?? process.env.LAMBDADB_CONFIG ?? defaultConfigPath());
 }
 
 export function endpoint(value: string): string {

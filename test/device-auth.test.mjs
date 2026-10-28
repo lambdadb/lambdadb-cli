@@ -61,7 +61,7 @@ test('account authorization displays another-device URL and protects the session
   );
   assert.equal(result.token, 'b'.repeat(64));
   assert.deepEqual(protectedValues, ['a'.repeat(64), result.token]);
-  assert.match(messages.join('\n'), /any device/);
+  assert.match(messages.join('\n'), /any device:\nhttps?:\/\/[^\n]+\nConfirm code ABCDE-FG234/);
   assert.ok(!messages.join('\n').includes(result.token));
   assert.deepEqual(
     fixture.calls.map((call) => call.path),

@@ -99,7 +99,7 @@ async function pollDevice(
   }
   url.searchParams.set('user_code', s.user_code);
   output.diagnostic(
-    `Open ${url.href} on any device. Confirm code ${s.user_code} and approve the CLI request. Only approve a request you started.`,
+    `Open this link on any device:\n${url.href}\nConfirm code ${s.user_code} and approve the CLI request.\nOnly approve a request you started.`,
   );
   if (browser) openBrowser(url.href, output);
   const deadline = Date.now() + Number(s.expires_in) * 1000;
