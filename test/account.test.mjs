@@ -456,8 +456,12 @@ for (const mode of ['flag', 'environment', 'flag overrides environment']) {
   test(`actual CLI: management timeout from ${mode} covers response bodies`, async (t) => {
     const fixture = await cliFixture(t, async (_call, res) => {
       res.write('{"regions":');
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      res.end('[]}');
+      // Timeout cases keep the body open so response completion cannot race the
+      // abort timer on a busy runner. Only the override case must finish in time.
+      if (mode === 'flag overrides environment') {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        res.end('[]}');
+      }
     });
     const args = ['projects', 'regions'];
     if (mode !== 'environment') args.push('--timeout-ms', mode === 'flag' ? '200' : '2000');
