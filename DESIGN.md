@@ -136,6 +136,36 @@ Feature descriptions use native embedding and native reranking. The legacy
 `managedEmbedding` wire field and existing CLI behavior remain unchanged.
 The versioned contracts above retain their original source paths.
 
+## SDK 0.11.0 contract update (2026-10-30)
+
+The runtime and lockfile pin stable `@functional-systems/lambdadb@0.11.0`, reviewed
+across the [0.9.0](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.9.0),
+[0.10.0](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.10.0)
+and [0.11.0](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.11.0)
+changelogs and the `v0.8.1..v0.11.0` source diff. The CLI compiles unchanged
+against the new types; it builds index maps and query files from JSON and casts
+them to SDK inputs, so the `RerankConfig` union and optional `sourceField` need
+no code change.
+
+SDK serializers still own index and rerank validation. Create/update therefore
+accept Cohere and ordered `sources`, and reject dimensions outside 64–4096,
+`dot_product`/`max_inner_product`, and `sourceField` with `sources`, before HTTP
+(exit 2). Describe/list responses with removed similarity values now fail SDK
+response validation (`INVALID_RESPONSE`, exit 3); the CLI does not loosen it.
+The server-managed `id: {type: "keyword"}` passes through describe and is sent
+back unchanged on update.
+
+The CLI's own query `size` bound and `docs fetch` ID count move from 100 to 1000,
+matching the SDK and server contract (facet bucket `size` stays 1–100). Output
+redaction exempts the exact Cohere rerank provider, model and criteria-version
+tokens at their response paths, as for TypeSafe; other values remain redacted.
+
+No effect: List null handling and the List limit (no document-list command),
+retry semantics (mutations already disable retries; reads keep the CLI's bounded
+backoff), Qdrant compatibility, and free-form `knn.queryInputs`/direct vectors
+(forwarded unchanged). The MCP mode runs a separately pinned
+`@functional-systems/lambdadb-mcp` package, whose SDK upgrade is separate.
+
 ## Architecture
 
 ```text

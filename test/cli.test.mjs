@@ -188,7 +188,7 @@ test('input errors reject the complete JSONL/query before any network call', asy
   const invalidQuery = await f.file('bad-query.json', { query: {}, typo: true });
   const conflicting = await f.file('ref.json', { query: {}, ref: { kind: 'tag', name: 'other' } });
   const consistent = await f.file('consistent.json', { query: {}, consistentRead: true });
-  const invalidSize = await f.file('size.json', { query: {}, size: 101 });
+  const invalidSize = await f.file('size.json', { query: {}, size: 1001 });
   const cases = [
     ['docs', 'import', '--file', invalidJsonl, '--branch', 'main', '--collection', 'demo-docs'],
     ['docs', 'import', '--file', await f.file('empty.jsonl', '\n'), '--branch', 'main', '--collection', 'demo-docs'],
@@ -473,7 +473,7 @@ test('facets survive SDK docsUrl download and redact arbitrary facet names witho
 test('invalid facets, sizes, queries and conflicting or inconsistent refs fail before HTTP', async t => {
   const f = await fixture(t, (_r, send) => send(500, {}));
   const bodies = [
-    { size: 0 }, { size: 0, facets: {} }, { size: -1 }, { size: 101 }, { size: 1.5 }, { size: '0', facets: { category: {} } },
+    { size: 0 }, { size: 0, facets: {} }, { size: -1 }, { size: 1001 }, { size: 1.5 }, { size: '0', facets: { category: {} } },
     { query: null }, { query: [] }, { facets: null }, { facets: [] }, { facets: { category: null } },
     ...[0, 101, 1.5, '10'].map(size => ({ facets: { category: { size } } })),
     { facets: { category: { typo: true } } },
@@ -609,6 +609,11 @@ test('rerank requests preserve omission, nulls, custom criteria and independent 
       rerank: { ...config, candidateSize: 50, onFailure: 'returnOriginal', criteria: [' Unrelated. ', 'Answers directly.'] } },
     { query: { queryString: { query: 'serverless' } }, size: null,
       rerank: { ...config, candidateSize: null, onFailure: null, criteria: null } },
+    { query: { queryString: { query: 'serverless' } }, size: 1000, rerank: { ...config, candidateSize: 1000 } },
+    ...['rerank-v5.0-pro', 'rerank-v5.0-fast'].map(model => ({ query: { queryString: { query: 'serverless' } }, size: 3,
+      rerank: { ...config, provider: 'cohere', model } })),
+    { query: { queryString: { query: 'serverless' } }, size: 3,
+      rerank: { ...config, provider: 'cohere', model: 'rerank-v5.0-fast', candidateSize: 1000, onFailure: 'returnOriginal', criteria: null } },
   ];
   for (const [i, body] of bodies.entries()) {
     const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file(`rerank-${i}.json`, body), '--json']);
@@ -627,19 +632,22 @@ test('invalid rerank configurations fail before HTTP', async t => {
     { provider: 'other' }, { model: 'other' }, { queryText: undefined }, { queryText: '  ' },
     { queryText: '\u20ac'.repeat(2731) }, { fields: undefined }, { fields: [] }, { fields: ['text', 'text'] },
     { fields: Array.from({ length: 9 }, (_, i) => `field${i}`) },
-    { candidateSize: 9 }, { candidateSize: 101 }, { candidateSize: 50.5 }, { onFailure: 'ignore' },
+    { candidateSize: 9 }, { candidateSize: 1001 }, { candidateSize: 50.5 }, { onFailure: 'ignore' },
     { criteria: ['Only one'] }, { criteria: ['same', 'same'] }, { criteria: [' ', 'good'] },
     { criteria: ['\u20ac'.repeat(683), 'good'] },
     { criteria: Array.from({ length: 5 }, (_, i) => `${i}${'x'.repeat(1700)}`) },
     { criteria: Array.from({ length: 11 }, (_, i) => `criterion ${i}`) },
     { weights: [1, 2] }, { thresholds: [0.5] }, { rubricVersion: 'v1' },
+    // Provider/model pairs are exact, and Cohere rejects criteria, including an empty list.
+    { provider: 'cohere' }, { model: 'rerank-v5.0-fast' }, { provider: 'cohere', model: 'rerank-v4.0' },
+    ...[[], ['Unrelated.', 'Answers directly.']].map(criteria => ({ provider: 'cohere', model: 'rerank-v5.0-pro', criteria })),
   ];
   const bodies = [
     ...invalidConfigs.map(settings => ({ ...base, rerank: { ...rerank, ...settings } })),
     { ...base, query: undefined }, { ...base, query: {} },
     { ...base, query: { bool: [{ occur: 'FILTER', queryString: { query: 'serverless' } }] } },
     { ...base, sort: [] }, { ...base, size: 0, facets: { category: {} } },
-    { ...base, size: 101 }, { ...base, size: -1 },
+    { ...base, size: 1001 }, { ...base, size: -1 },
   ];
   for (const [i, body] of bodies.entries()) {
     const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file(`invalid-rerank-${i}.json`, body), '--json']);
@@ -706,13 +714,14 @@ test('colliding credentials preserve fixed rerank tokens while redacting arbitra
   const cases = [
     ['status', 'applied'], ['status', 'skipped'], ['status', 'fallback'],
     ['provider', 'typesafe'], ['model', 'jev-1.13.0'],
-    ['criteriaVersion', 'custom'], ['criteriaVersion', 'default-relevance-v1'],
+    ['provider', 'cohere'], ['model', 'rerank-v5.0-pro'], ['model', 'rerank-v5.0-fast'],
+    ['criteriaVersion', 'custom'], ['criteriaVersion', 'default-relevance-v1'], ['criteriaVersion', 'cohere-relevance-v1'],
     ...['noCandidates', 'timeout', 'rateLimit', 'unavailable', 'invalidResponse', 'credentials'].map(reason => ['reason', reason]),
     ['provider', 'a'],
   ];
   for (const [field, key] of cases) {
     const status = field === 'status' ? key : field === 'reason' ? (key === 'noCandidates' ? 'skipped' : 'fallback') : 'applied';
-    const rerank = { status, provider: 'typesafe', model: 'jev-1.13.0', resolvedModel: `server-${key}`,
+    const rerank = { status, provider: field === 'provider' ? key : 'typesafe', model: field === 'model' ? key : 'jev-1.13.0', resolvedModel: `server-${key}`,
       candidateCount: status === 'skipped' ? 0 : 1, scoredCount: status === 'applied' ? 1 : 0, took: 0,
       ...(status === 'applied' ? { criteriaVersion: field === 'criteriaVersion' ? key : 'custom' } : {}),
       ...(field === 'reason' ? { reason: key } : status === 'skipped' ? { reason: 'noCandidates' } : status === 'fallback' ? { reason: 'timeout' } : {}),
@@ -767,7 +776,7 @@ test('Bayesian JSON mapping preserves budgets, nulls, defaults, Boolean signals 
     JSON.parse(await readFile('examples/query-bayesian.json', 'utf8')),
     JSON.parse(await readFile('examples/query-bayesian-rerank.json', 'utf8')),
     { query, size: 1, candidateSize: 1 }, { query, size: 100, candidateSize: 100 },
-    { query, size: 3, candidateSize: 101 }, { query, size: 3, candidateSize: 1000 },
+    { query, size: 3, candidateSize: 101 }, { query, size: 3, candidateSize: 1000 }, { query, size: 1000, candidateSize: 1000 },
     { query, candidateSize: 30 }, { query, size: null, candidateSize: 30, rerank: null },
     { query, size: 3, rerank: bayesianRerank },
     { query, size: 3, rerank: { ...bayesianRerank, candidateSize: 30 } },
@@ -817,7 +826,7 @@ test('Bayesian local type, ref and file errors retain input precedence and make 
   const query = { bayesian: bayesianSignals };
   for (const body of [
     { query, candidateSize: '30' }, { query, candidateSize: 1.5 }, { query, candidateSize: null },
-    { query, size: 101, candidateSize: 100 }, { query, size: 2, rerank: { ...bayesianRerank, candidateSize: 1 } },
+    { query, size: 1001, candidateSize: 1000 }, { query, size: 2, rerank: { ...bayesianRerank, candidateSize: 1 } },
     { query, size: 0, candidateSize: 30 }, { query, consistentRead: true, candidateSize: 30 },
     { query, ref: { kind: 'branch', name: 'main' }, candidateSize: 30 },
     { query, ref: { kind: 'tag', name: 'release', extra: true }, candidateSize: 30 },
@@ -851,7 +860,17 @@ test('native and legacy embedding create/update mapping preserves explicit value
     ...[undefined, true].flatMap(flag => [embedding, { ...embedding, dimensions: 256, similarity: 'cosine' }].map(value => ({
       text: { type: 'text' }, vector: { type: 'vector', embedding: value, ...(flag ? { managedEmbedding: flag } : {}) },
     }))),
-    { vector: { type: 'vector', dimensions: 2, similarity: 'cosine', managedEmbedding: false } },
+    { vector: { type: 'vector', dimensions: 64, similarity: 'cosine', managedEmbedding: false } },
+    { vector: { type: 'vector', dimensions: 4096, similarity: 'euclidean' } },
+    // Ordered sources and Cohere; provider/model/dimension combinations stay server validations.
+    { vector: { type: 'vector', embedding: { provider: 'openai', model: 'text-embedding-3-small', sources: [{ field: 'article.body', type: 'text' }] } } },
+    { vector: { type: 'vector', embedding: { provider: 'cohere', model: 'embed-v5.0-pro', dimensions: 1024, similarity: 'euclidean',
+      sources: [{ field: 'product.description', type: 'text' }, { field: 'product.images', type: 'image' }] } } },
+    { vector: { type: 'vector', embedding: { provider: 'cohere', model: 'embed-v5.0-fast', sourceField: 'text', sources: null } } },
+    { vector: { type: 'vector', embedding: { provider: 'openai', model: 'text-embedding-3-small', sourceField: null,
+      sources: [{ field: 'text', type: 'text' }] } } },
+    { vector: { type: 'vector', embedding: { provider: 'cohere', model: 'embed-v5.0-fast',
+      sources: Array.from({ length: 16 }, (_, i) => ({ field: `part${i}`, type: i % 2 ? 'image' : 'text' })) } } },
   ];
   for (const command of ['create', 'update']) {
     for (const config of configs) {
@@ -864,7 +883,8 @@ test('native and legacy embedding create/update mapping preserves explicit value
       if (command === 'update') {
         assert.deepEqual(f.requests.at(-1).body, { indexConfigs: config });
         assert.equal(f.requests.at(-1).url.pathname, '/projects/dev-project/collections/demo-docs');
-        assert.deepEqual(r.json.data.collection.indexConfigs, config);
+        // The SDK normalizes response nulls to omission; requests keep explicit nulls.
+        assert.deepEqual(r.json.data.collection.indexConfigs, JSON.parse(JSON.stringify(config, (_key, value) => value ?? undefined)));
       }
     }
     const help = await f.run(['collections', command, '--help']);
@@ -881,6 +901,17 @@ test('contradictory or incomplete embedding configurations reject consistently f
     { type: 'vector', embedding, managedEmbedding: true, dimensions: 1536 },
     { type: 'vector', managedEmbedding: true }, { type: 'vector' },
     ...Object.keys(embedding).map(key => ({ type: 'vector', embedding: Object.fromEntries(Object.entries(embedding).filter(([k]) => k !== key)) })),
+    // Exactly one non-null sourceField or 1–16 strict sources.
+    { type: 'vector', embedding: { ...embedding, sources: [{ field: 'text', type: 'text' }] } },
+    { type: 'vector', embedding: { ...embedding, sourceField: null } },
+    { type: 'vector', embedding: { ...embedding, sourceField: null, sources: null } },
+    ...[[], Array.from({ length: 17 }, (_, i) => ({ field: `part${i}`, type: 'text' })), [{ field: 'text', type: 'audio' }],
+      [{ field: 'text' }], [{ field: 'text', type: 'text', weight: 1 }]].map(sources => ({ type: 'vector', embedding: { ...embedding, sourceField: undefined, sources } })),
+    { type: 'vector', embedding: { ...embedding, provider: 'voyage' } },
+    // Dimensions are integers from 64 to 4096; dot product and max inner product are removed.
+    ...[63, 4097, 64.5].flatMap(dimensions => [{ type: 'vector', dimensions }, { type: 'vector', embedding: { ...embedding, dimensions } }]),
+    ...['dot_product', 'max_inner_product'].flatMap(similarity => [
+      { type: 'vector', dimensions: 256, similarity }, { type: 'vector', embedding: { ...embedding, similarity } }]),
   ];
   for (const command of ['create', 'update']) {
     for (const config of [{}, ...vectors.map(vector => ({ vector }))]) {
@@ -927,4 +958,51 @@ test('Bayesian rerank retains complete documents and metadata in inline/download
     }
     for (const request of f.requests.filter(req => req.url.pathname === '/transfer')) assert.equal(request.headers['x-api-key'], undefined);
   }
+});
+
+test('describe output keeps the server-managed id field, and update sends it back unchanged', async t => {
+  const indexConfigs = { id: { type: 'keyword' }, text: { type: 'text', analyzers: ['english'] },
+    vector: { type: 'vector', managedEmbedding: true, embedding: { provider: 'cohere', model: 'embed-v5.0-fast',
+      sources: [{ field: 'text', type: 'text' }], dimensions: 2048, similarity: 'cosine' } } };
+  const f = await fixture(t, (req, send) => send(200, { collection: { ...metadata, indexConfigs: req.body?.indexConfigs ?? indexConfigs } }));
+  const described = await f.run(['collections', 'describe', '--collection', 'demo-docs', '--json']);
+  assert.equal(described.code, 0, described.stderr);
+  assert.deepEqual(described.json.data.collection.indexConfigs, indexConfigs);
+  for (const config of [described.json.data.collection.indexConfigs, { id: { type: 'keyword' } }]) {
+    const updated = await f.run(['collections', 'update', '--collection', 'demo-docs', '--index-config', await f.file('round-trip.json', config), '--json']);
+    assert.equal(updated.code, 0, updated.stderr);
+    assert.deepEqual(f.requests.at(-1).body, { indexConfigs: config });
+  }
+  const help = await f.run(['collections', 'update', '--help']);
+  assert.match(help.stdout, /server-managed id keyword field/);
+});
+
+test('describe and list reject removed similarity values and out-of-range dimensions as invalid responses', async t => {
+  for (const vector of [
+    { type: 'vector', dimensions: 256, similarity: 'dot_product' },
+    { type: 'vector', dimensions: 256, similarity: 'max_inner_product' },
+    { type: 'vector', dimensions: 32, similarity: 'cosine' },
+  ]) {
+    const collection = { ...metadata, indexConfigs: { vector } };
+    const f = await fixture(t, (req, send) => send(200, req.url.pathname.endsWith('/collections') ? { collections: [collection] } : { collection }));
+    for (const args of [['collections', 'describe', '--collection', 'demo-docs'], ['collections', 'list']]) {
+      const r = await f.run([...args, '--json']);
+      assert.equal(r.code, 3, r.stdout);
+      assert.equal(r.json.error.code, 'INVALID_RESPONSE');
+    }
+  }
+});
+
+test('fetch forwards up to 1000 IDs and rejects more before HTTP', async t => {
+  const f = await fixture(t, (_r, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [] }));
+  const ids = Array.from({ length: 1000 }, (_, i) => `doc-${i}`);
+  const r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', ...ids, '--json']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(f.requests.at(-1).body.ids, ids);
+  assert.deepEqual(r.json.data.missingIds, ids);
+  const rejected = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', ...ids, 'doc-1000', '--json']);
+  assert.equal(rejected.code, 2);
+  assert.equal(rejected.json.error.message, 'Fetch requires 1–1000 nonempty IDs.');
+  assert.equal(f.requests.length, 1);
+  assert.match((await f.run(['docs', 'fetch', '--help'])).stdout, /up to 1000 IDs/);
 });

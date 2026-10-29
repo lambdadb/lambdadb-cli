@@ -196,7 +196,7 @@ collections.command('describe')
 collections.command('create')
   .description('Create a collection from a JSON field-to-index map')
   .requiredOption('--collection <name>', 'New collection name')
-  .requiredOption('--index-config <path>', 'JSON field-to-index map; native embedding or legacy managedEmbedding:true supported')
+  .requiredOption('--index-config <path>', 'JSON field-to-index map; native embedding (sourceField or ordered sources) or legacy managedEmbedding:true supported')
   .addHelpText('after', '\nExamples:\n  lambdadb collections create --collection demo-docs --index-config examples/index-config.json\n  lambdadb collections create --collection native-docs --index-config examples/index-config-native.json')
   .action(async (opts, cmd: Command) => {
     const input = createInput(name(opts.collection, 'Collection name'), await readJson(opts.indexConfig));
@@ -212,7 +212,7 @@ collections.command('update')
   .description('Update collection index configuration from a JSON field-to-index map')
   .requiredOption('--collection <name>', 'Existing collection name')
   .requiredOption('--index-config <path>', 'JSON field-to-index map; native dimensions/similarity go inside embedding')
-  .addHelpText('after', '\nExample:\n  lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json\n\nThe server validates permitted index changes. Older servers require managedEmbedding:true.')
+  .addHelpText('after', '\nExample:\n  lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json\n\nThe server validates permitted index changes. Older servers require managedEmbedding:true.\nDescribe output includes the server-managed id keyword field; send it back unchanged or omit it.')
   .action(async (opts, cmd: Command) => {
     name(opts.collection, 'Collection name');
     const input = updateInput(await readJson(opts.indexConfig));
@@ -255,7 +255,7 @@ docs.command('import')
   });
 
 docs.command('fetch')
-  .description('Fetch up to 100 IDs at an explicit ref; missing IDs are a successful empty/partial result')
+  .description('Fetch up to 1000 IDs at an explicit ref; missing IDs are a successful empty/partial result')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--ref <kind:name>', 'branch:NAME, tag:NAME or alias:NAME')
   .requiredOption('--ids <id...>', 'One or more IDs (separate with spaces)')
@@ -263,7 +263,7 @@ docs.command('fetch')
   .option('--include-vectors', 'Include vector fields in returned documents')
   .action(async (opts, cmd: Command) => {
     const ref = parseRef(opts.ref);
-    if (opts.ids.length > 100 || opts.ids.some((id: string) => !id)) throw new InputError('Fetch requires 1–100 nonempty IDs.');
+    if (opts.ids.length > 1000 || opts.ids.some((id: string) => !id)) throw new InputError('Fetch requires 1–1000 nonempty IDs.');
     if (opts.consistentRead && ref.kind !== 'branch') throw new InputError('Consistent reads require a direct branch ref.');
     await connected(cmd, async ({ client, options }) => {
       const collection = scoped(cmd);
@@ -282,8 +282,8 @@ program.command('query')
   .description('Submit a supported query request JSON file; empty matches are a successful result')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--ref <kind:name>', 'branch:NAME, tag:NAME or alias:NAME; must match any ref in the file')
-  .requiredOption('--file <path>', 'JSON request body; omit query for match-all, use size:0 with facets for counts only; optional rerank is per query')
-  .addHelpText('after', '\nBayesian: exactly two unboosted subqueries, including Boolean descendants; no nested fusion.\nWithout rerank, set candidateSize with 1 <= size <= candidateSize <= 100.\nWith rerank, omit top-level candidateSize and use rerank.candidateSize (server default preserved).\n  lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian.json --json\n  lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian-rerank.json --json')
+  .requiredOption('--file <path>', 'JSON request body; omit query for match-all, use size:0 with facets for counts only; optional rerank (typesafe or cohere) is per query')
+  .addHelpText('after', '\nBayesian: exactly two unboosted subqueries, including Boolean descendants; no nested fusion.\nWithout rerank, set candidateSize with 1 <= size <= candidateSize <= 1000.\nWith rerank, omit top-level candidateSize and use rerank.candidateSize (server default preserved).\n  lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian.json --json\n  lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian-rerank.json --json')
   .addHelpText('after', '\nExamples:\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-facets-only.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-with-facets.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-rerank.json --json')
   .action(async (opts, cmd: Command) => {
     const ref = parseRef(opts.ref);
