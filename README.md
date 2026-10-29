@@ -14,15 +14,19 @@ through the CLI or MCP.
 
 ## Quick start
 
-Requires Node.js 22.14 or newer and npm. Run from your repository root:
+Requires Node.js 22.14 or newer and npm. Install the CLI, then initialize from
+your repository root:
 
 ```sh
-npx @functional-systems/lambdadb-cli@latest init
+npm install --global @functional-systems/lambdadb-cli
+lambdadb init
 ```
 
-If already installed, run `lambdadb init`. Both use the same package and
-executable. In the examples below, you can replace `lambdadb` with
-`npx @functional-systems/lambdadb-cli@latest`.
+If already installed, run `lambdadb init`. The examples below use the installed
+`lambdadb` command. To try the CLI without a global install, use
+[npx](#run-without-a-global-install); for a bundled Node runtime on macOS or Linux,
+use [Homebrew](#homebrew). For development testing, use
+`@functional-systems/lambdadb-cli@dev` instead.
 
 1. Sign up or sign in through Console, compare the terminal code, and approve
    **CLI Login**. You can also connect an existing project using an API-key
@@ -66,7 +70,7 @@ and [non-interactive init](docs/setup.md#non-interactive-setup).
 
 Requires Node.js 22.14 or newer and npm.
 
-Install the stable channel:
+Install the CLI and check that `lambdadb` is available:
 
 ```sh
 npm install --global @functional-systems/lambdadb-cli
@@ -74,12 +78,30 @@ lambdadb --version
 lambdadb --help
 ```
 
+npm links the executable into its global bin directory, which must be on your
+`PATH` to use `lambdadb` directly.
+
 For reproducible CI runs, pin an exact published version such as
 `@functional-systems/lambdadb-cli@0.1.3`. To try development builds, explicitly use
-`@functional-systems/lambdadb-cli@dev`; this moving channel contains prereleases.
+`@functional-systems/lambdadb-cli@dev` in the installation or npx command; this
+moving channel contains prereleases.
 Installed CLIs do not update themselves. See
 [GitHub Releases](https://github.com/lambdadb/lambdadb-cli/releases) and
 [CHANGELOG.md](CHANGELOG.md) for published changes and compatibility notes.
+
+### Run without a global install
+
+Use npx to initialize and run subsequent commands without installing globally:
+
+```sh
+npx @functional-systems/lambdadb-cli init
+npx @functional-systems/lambdadb-cli collections list --json
+```
+
+This runs the same CLI package and executable, but does not add a persistent
+`lambdadb` command to your shell. In every example in this guide, replace
+`lambdadb` with `npx @functional-systems/lambdadb-cli`. Init's next steps
+also use an npx command when setup runs through npx.
 
 ### Homebrew
 

@@ -4,6 +4,10 @@
 
 ## First-use setup with `init`
 
+[Install the CLI](../README.md#install-and-run) before using the `lambdadb` commands
+below. Alternatively, [run with npx](../README.md#run-without-a-global-install)
+and use the npx prefix for every command.
+
 Browser setup requires matching Backend and Console support and an accessible
 OS credential store. If either is unavailable, use
 [environment-variable setup](#environment-variable-setup). For CI or a
