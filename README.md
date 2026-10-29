@@ -78,7 +78,6 @@ lambdadb --version
 lambdadb --help
 ```
 
-The default npm tag is `latest`, so it can be omitted from installation commands.
 npm links the executable into its global bin directory, which must be on your
 `PATH` to use `lambdadb` directly.
 
@@ -95,13 +94,13 @@ Installed CLIs do not update themselves. See
 Use npx to initialize and run subsequent commands without installing globally:
 
 ```sh
-npx @functional-systems/lambdadb-cli@latest init
-npx @functional-systems/lambdadb-cli@latest collections list --json
+npx @functional-systems/lambdadb-cli init
+npx @functional-systems/lambdadb-cli collections list --json
 ```
 
 This runs the same CLI package and executable, but does not add a persistent
 `lambdadb` command to your shell. In every example in this guide, replace
-`lambdadb` with `npx @functional-systems/lambdadb-cli@latest`. Init's next steps
+`lambdadb` with `npx @functional-systems/lambdadb-cli`. Init's next steps
 also use an npx command when setup runs through npx.
 
 ### Homebrew
