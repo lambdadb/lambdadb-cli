@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const core = String.raw`(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)`;
-/** Versions that may be committed: the dev placeholder between releases, or an rc/stable release. */
-export const COMMITTED_VERSION = new RegExp(`^${core}(?:-dev\\.0|-rc\\.([1-9]\\d*))?$`);
+/** Versions that may be committed: the last released rc/stable version or the next one set by a release PR. */
+export const COMMITTED_VERSION = new RegExp(`^${core}(?:-rc\\.([1-9]\\d*))?$`);
 /** Versions that may be published: automatic dev builds, rc and stable releases. */
 export const PUBLISHED_VERSION = new RegExp(`^${core}(?:-(dev|rc)\\.([1-9]\\d*))?$`);
 const STABLE_TAG = new RegExp(`^v${core}$`);
@@ -61,21 +61,12 @@ export function latestStableTag(tags) {
     .sort((a, b) => compareCores(parseVersion(a.slice(1)).core, parseVersion(b.slice(1)).core)).at(-1);
 }
 
-/** The committed dev placeholder that follows a published rc (same version) or stable release (next patch). */
-export function nextDevVersion(released) {
-  if (/-rc\.[1-9]\d*$/.test(released)) return `${parseVersion(released).text}-dev.0`;
-  if (!/^\d+\.\d+\.\d+$/.test(released)) throw new Error(`Expected an rc or stable version, got ${released}.`);
-  const [major, minor, patch] = parseVersion(released).core;
-  return `${major}.${minor}.${patch + 1}-dev.0`;
-}
-
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const [command, value, ...rest] = process.argv.slice(2);
     if (command === 'get' && value === undefined) console.log(readVersion(process.cwd()));
     else if (command === 'set' && value && !rest.length) console.log(setVersion(process.cwd(), value));
-    else if (command === 'next-dev' && value && !rest.length) console.log(nextDevVersion(value));
-    else throw new Error('Usage: node scripts/version.mjs get | set <version> | next-dev <released-version>');
+    else throw new Error('Usage: node scripts/version.mjs get | set <version>');
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

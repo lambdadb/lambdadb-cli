@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { checkMetadata } from '../scripts/check-release.mjs';
-import { latestStableTag, nextDevVersion, readVersion, setVersion } from '../scripts/version.mjs';
+import { latestStableTag, readVersion, setVersion } from '../scripts/version.mjs';
 
 function fixture(version) {
   const pkg = { name: '@functional-systems/lambdadb-cli', version, private: false, license: 'MIT', repository: { url: 'git+https://github.com/lambdadb/lambdadb-cli.git' } };
@@ -57,17 +57,18 @@ function sources(t, version) {
   return { root, read };
 }
 
-test('the version script sets every source at once, preserving formatting and accepting only committed forms', t => {
-  const f = sources(t, '0.1.7-dev.0');
+test('the version script sets every source at once, preserving formatting and accepting only rc/stable forms', t => {
+  const f = sources(t, '0.1.6');
   const [pkgBefore, lockBefore] = f.read();
   assert.equal(setVersion(f.root, '0.1.7-rc.1'), '0.1.7-rc.1');
   const [pkg, lock] = f.read();
-  assert.equal(pkg, pkgBefore.replace('"version": "0.1.7-dev.0"', '"version": "0.1.7-rc.1"'));
-  assert.equal(lock, lockBefore.replace('"version": "0.1.7-dev.0"', '"version": "0.1.7-rc.1"')
-    .replace('"version": "0.1.7-dev.0"', '"version": "0.1.7-rc.1"'), 'Only the two root lock entries change.');
+  assert.equal(pkg, pkgBefore.replace('"version": "0.1.6"', '"version": "0.1.7-rc.1"'));
+  assert.equal(lock, lockBefore.replace('"version": "0.1.6"', '"version": "0.1.7-rc.1"')
+    .replace('"version": "0.1.6"', '"version": "0.1.7-rc.1"'), 'Only the two root lock entries change.');
   assert.equal(readVersion(f.root), '0.1.7-rc.1');
   assert.equal(setVersion(f.root, '1.0.0'), '1.0.0');
-  for (const version of ['0.1.7-dev.3', '0.1.7-dev', '0.1.7-beta.1', 'v0.1.7', '0.1.7-rc.0', '01.1.7']) {
+  // Development versions are derived in CI and are never committed.
+  for (const version of ['0.1.7-dev.0', '0.1.7-dev.3', '0.1.7-dev', '0.1.7-beta.1', 'v0.1.7', '0.1.7-rc.0', '01.1.7']) {
     assert.throws(() => setVersion(f.root, version), /Unsupported version/);
   }
   assert.equal(readVersion(f.root), '1.0.0');
@@ -77,12 +78,9 @@ test('the version script sets every source at once, preserving formatting and ac
 
   const script = resolve('scripts/version.mjs');
   const cli = (...args) => spawnSync(process.execPath, [script, ...args], { cwd: f.root, encoding: 'utf8' });
-  assert.equal(cli('next-dev', '0.1.7-rc.2').stdout.trim(), '0.1.7-dev.0');
-  assert.equal(cli('next-dev', '0.1.7').stdout.trim(), '0.1.8-dev.0');
-  assert.equal(cli('next-dev', '0.1.7-dev.4').status, 1);
+  assert.equal(cli('next-dev', '0.1.7').status, 1, 'The placeholder command is gone.');
   assert.equal(cli('get').status, 1, 'Disagreeing sources fail the CLI.');
   assert.equal(cli('unknown').status, 1);
-  assert.equal(nextDevVersion('1.9.9'), '1.9.10-dev.0');
   assert.equal(latestStableTag(['v0.1.10', 'v0.1.9', 'v0.2.0-rc.1', 'v0.1.11-dev.1', 'latest']), 'v0.1.10');
   assert.equal(latestStableTag(['v0.1.0-rc.1']), undefined);
 });
@@ -94,12 +92,12 @@ test('the metadata check accepts only committed forms and verifies rc/stable com
       env: { ...process.env, GITHUB_OUTPUT: '', ...env } });
     return { root: f.root, status: result.status, stderr: result.stderr.trim() };
   };
-  for (const version of ['0.1.7-dev.0', '0.1.7-rc.1', '0.1.7']) assert.equal(run(version).status, 0, version);
-  assert.match(run('0.1.7-dev.3').stderr, /Committed version must be/);
+  for (const version of ['0.1.7-rc.1', '0.1.7']) assert.equal(run(version).status, 0, version);
+  for (const version of ['0.1.7-dev.0', '0.1.7-dev.3']) assert.match(run(version).stderr, /Committed version must be X\.Y\.Z-rc\.N or X\.Y\.Z/);
 
   // Verification and Release runs require a dated changelog entry and reject dev versions.
   assert.match(run('0.1.7', ['--verify']).stderr, /dated changelog entry/);
-  assert.match(run('0.1.7-dev.0', ['--verify']).stderr, /publish automatically from main pushes/);
+  assert.match(run('0.1.7-dev.0', ['--verify']).stderr, /Committed version must be/);
   const dated = version => {
     const f = sources(t, version);
     writeFileSync(join(f.root, 'CHANGELOG.md'), `# Changelog\n\n## [${version}] - 2026-10-29\n`);

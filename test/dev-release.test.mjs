@@ -14,16 +14,19 @@ const artifact = { name, version, sha, integrity, tarball: '/tmp/tested-package.
 const manifest = { name, version, gitHead: sha, dist: { integrity } };
 const state = { version, sha, integrity, branchHead: sha, taggedVersion: '0.1.0-dev.11' };
 
-test('development numbering replaces the dev.0 placeholder, guards regressions and compares numerically', () => {
-  assert.equal(developmentVersion('0.1.0-dev.0', { count: '12' }), version);
-  assert.equal(developmentVersion('0.1.1-dev.0', { count: 3, stableTag: 'v0.1.0' }), '0.1.1-dev.3');
-  assert.equal(developmentVersion('0.2.0-dev.0', { count: '1', stableTag: 'v0.1.9' }), '0.2.0-dev.1');
-  for (const bad of ['0.1.0', '0.1.0-rc.1', '0.1.0-dev.1', '0.1.0-dev.01', '0.1.0-dev']) {
-    assert.throws(() => developmentVersion(bad, { count: 12 }), /committed X\.Y\.Z-dev\.0/);
+test('development versions derive from the committed rc/stable version, guard regressions and compare numerically', () => {
+  // A stable version continues on the next patch; an rc continues on its own core, below the rc.
+  assert.equal(developmentVersion('0.1.0-rc.2', { count: '12' }), version);
+  assert.equal(developmentVersion('0.1.0', { count: 3, stableTag: 'v0.1.0' }), '0.1.1-dev.3');
+  assert.equal(developmentVersion('0.11.0', { count: 7, stableTag: 'v0.11.0' }), '0.11.1-dev.7');
+  assert.equal(developmentVersion('0.12.0-rc.1', { count: '1', stableTag: 'v0.11.0' }), '0.12.0-dev.1');
+  assert.equal(developmentVersion('1.9.9', { count: 2 }), '1.9.10-dev.2');
+  for (const bad of ['0.1.0-dev.0', '0.1.0-dev.1', '0.1.0-dev.01', '0.1.0-dev', '0.1.0-rc.0', '01.1.0']) {
+    assert.throws(() => developmentVersion(bad, { count: 12 }), /committed X\.Y\.Z or X\.Y\.Z-rc\.N/);
   }
-  for (const bad of ['0', '-1', '01', '1.5', 'NaN', '']) assert.throws(() => developmentVersion('0.1.0-dev.0', { count: bad }), /positive/);
-  for (const tag of ['v0.1.0', 'v0.2.0']) {
-    assert.throws(() => developmentVersion('0.1.0-dev.0', { count: 1, stableTag: tag }), /must be newer than the latest stable release/);
+  for (const bad of ['0', '-1', '01', '1.5', 'NaN', '']) assert.throws(() => developmentVersion('0.1.0', { count: bad }), /positive/);
+  for (const [committed, tag] of [['0.1.0', 'v0.1.1'], ['0.1.0-rc.1', 'v0.1.0'], ['0.1.0-rc.1', 'v0.2.0']]) {
+    assert.throws(() => developmentVersion(committed, { count: 1, stableTag: tag }), /must be newer than the latest stable release/);
   }
   assert.equal(compareDevelopmentVersions('0.1.0-dev.10', '0.1.0-dev.2'), 1);
   assert.equal(compareDevelopmentVersions('0.2.0-dev.1', '0.1.0-dev.999'), 1);
@@ -54,6 +57,21 @@ test('stale jobs cannot publish or move dev backward, and reruns verify commit a
   }
   assert.throws(() => publicationPlan({ ...state, taggedVersion: version }), /disagreement/);
   assert.throws(() => publicationPlan({ ...state, existing: manifest }), /points elsewhere/);
+});
+
+test('a development version below the current dev tag is skipped with a notice and never published', async () => {
+  const calls = [], notices = [];
+  const run = args => {
+    calls.push(args);
+    if (args[2] === 'dist-tags') return { status: 0, stdout: JSON.stringify({ dev: '0.1.7-dev.37', latest: '0.1.6' }) };
+    return { status: 1, stdout: JSON.stringify({ error: { code: 'E404' } }) };
+  };
+  const lower = { ...artifact, version: '0.1.7-dev.3' };
+  assert.equal(await publishDevelopment(lower, { run, head: () => sha, notice: message => notices.push(message) }), 'superseded');
+  assert.deepEqual(notices, ['0.1.7-dev.3 is lower than the current dev dist-tag 0.1.7-dev.37; dev is not moved backwards.']);
+  assert.equal(calls.filter(args => args[0] === 'publish').length, 0);
+  // A higher line publishes even when its N is smaller.
+  assert.equal(publicationPlan({ ...state, version: '0.1.8-dev.1', taggedVersion: '0.1.7-dev.37' }), 'publish');
 });
 
 function registry({ publishFailure = false, lag = false, manifestDelayMs = 0, tagDelayMs = 0 } = {}) {
@@ -256,13 +274,14 @@ test('preparation uses real Git history, updates both lock versions, and rejects
   runGit(repo, 'config', 'user.name', 'Release test');
   runGit(repo, 'config', 'user.email', 'test@example.invalid');
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-  pkg.version = '0.1.0-dev.0';
+  pkg.version = '0.1.0';
   const lock = { name: pkg.name, version: pkg.version, packages: { '': { name: pkg.name, version: pkg.version } } };
   writeFileSync(join(repo, 'package.json'), JSON.stringify(pkg));
   writeFileSync(join(repo, 'package-lock.json'), JSON.stringify(lock));
   runGit(repo, 'add', '.');
   runGit(repo, 'commit', '-m', 'initial');
   runGit(repo, 'commit', '--allow-empty', '-m', 'next');
+  runGit(repo, 'tag', 'v0.1.0', 'HEAD~1');
   runGit(repo, 'push', 'origin', 'main');
   const head = runGit(repo, 'rev-parse', 'HEAD');
   const script = resolve('scripts/dev-release.mjs');
@@ -274,7 +293,7 @@ test('preparation uses real Git history, updates both lock versions, and rejects
   assert.match(prepare(), /ready=true/);
   const prepared = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
   const preparedLock = JSON.parse(readFileSync(join(repo, 'package-lock.json'), 'utf8'));
-  assert.equal(prepared.version, '0.1.0-dev.2');
+  assert.equal(prepared.version, '0.1.1-dev.1');
   assert.equal(prepared.gitHead, head);
   assert.equal(preparedLock.version, prepared.version);
   assert.equal(preparedLock.packages[''].version, prepared.version);
@@ -290,7 +309,7 @@ if (args[0] === 'publish') {
   fs.appendFileSync(process.env.TEST_WRITES, 'publish\\n');
   process.exit(process.env.TEST_PUBLISH_FAIL === '1' ? 1 : 0);
 }
-if (args[2] === 'dist-tags') console.log(JSON.stringify({dev:'0.1.0-dev.1'}));
+if (args[2] === 'dist-tags') console.log(JSON.stringify({dev:process.env.TEST_DEV_TAG || '0.1.0-dev.1'}));
 else { console.log(JSON.stringify({error:{code:'E404'}})); process.exitCode = 1; }
 `, { mode: 0o755 });
   const clock = join(temp, 'clock.mjs');
@@ -312,6 +331,12 @@ else { console.log(JSON.stringify({error:{code:'E404'}})); process.exitCode = 1;
   assert.equal(failed.status, 1);
   assert.doesNotMatch(failed.stdout, /published-verification-pending/);
   assert.match(failed.stderr, /npm publish did not confirm success/);
+  assert.equal(readFileSync(writes, 'utf8'), 'publish\npublish\n');
+  // A dev tag above the computed version skips publication with an Actions notice, not a failure.
+  const skipped = publish({ TEST_DEV_TAG: '0.1.1-dev.37' });
+  assert.equal(skipped.status, 0, skipped.stderr);
+  assert.match(skipped.stdout, /::notice title=Development publication skipped::0\.1\.1-dev\.1 is lower than the current dev dist-tag 0\.1\.1-dev\.37/);
+  assert.match(skipped.stdout, /result=superseded/);
   assert.equal(readFileSync(writes, 'utf8'), 'publish\npublish\n');
   runGit(repo, 'commit', '--allow-empty', '-m', 'newer remote head');
   runGit(repo, 'push', 'origin', 'main');
@@ -349,9 +374,11 @@ test('preparation counts first-parent commits since the newest reachable stable 
   const prepare = sha => {
     const result = spawnSync(process.execPath, [script, 'prepare'], { cwd: repo, encoding: 'utf8', env: { ...process.env,
       GITHUB_REPOSITORY: 'lambdadb/lambdadb-cli', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_SHA: sha, GITHUB_OUTPUT: '' } });
-    const prepared = result.status === 0 ? JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')) : undefined;
-    const lock = result.status === 0 ? JSON.parse(readFileSync(join(repo, 'package-lock.json'), 'utf8')) : undefined;
+    const ready = result.status === 0 && /ready=true/.test(result.stdout);
+    const prepared = ready ? JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')) : undefined;
+    const lock = ready ? JSON.parse(readFileSync(join(repo, 'package-lock.json'), 'utf8')) : undefined;
     runGit(repo, 'checkout', '--', '.');
+    if (result.status === 0 && !ready) return { skipped: result.stdout.trim() };
     if (!prepared) return { error: result.stderr.trim() };
     assert.equal(prepared.gitHead, sha);
     assert.equal(lock.version, prepared.version);
@@ -367,7 +394,7 @@ test('preparation counts first-parent commits since the newest reachable stable 
   runGit(repo, 'commit', '--allow-empty', '-m', 'Unmerged');
   runGit(repo, 'tag', 'v9.9.9');
   runGit(repo, 'checkout', 'main');
-  commit('Next development version', '0.1.1-dev.0');
+  commit('Fix');
   runGit(repo, 'checkout', '-b', 'feature');
   runGit(repo, 'commit', '--allow-empty', '-m', 'Feature A');
   runGit(repo, 'commit', '--allow-empty', '-m', 'Feature B');
@@ -375,27 +402,43 @@ test('preparation counts first-parent commits since the newest reachable stable 
   runGit(repo, 'merge', '--no-ff', '-m', 'Merge feature', 'feature');
   runGit(repo, 'push', 'origin', 'main');
   let sha = runGit(repo, 'rev-parse', 'HEAD');
-  assert.equal(prepare(sha), '0.1.1-dev.2', 'A merged branch counts once on the first-parent line.');
+  assert.equal(prepare(sha), '0.1.1-dev.2', 'A stable version continues on the next patch; a merged branch counts once.');
   assert.equal(prepare(sha), '0.1.1-dev.2', 'A rerun of the same commit computes the same version.');
 
-  // Release candidates keep the count; release commits are verified, never prepared as dev builds.
-  sha = commit('Release 0.1.1-rc.1', '0.1.1-rc.1');
-  runGit(repo, 'tag', 'v0.1.1-rc.1');
-  let before = files();
-  assert.match(prepare(sha).error, /committed X\.Y\.Z-dev\.0/);
-  assert.deepEqual(files(), before);
-  sha = commit('Back to development', '0.1.1-dev.0');
-  assert.equal(prepare(sha), '0.1.1-dev.4');
+  // A tagged rc continues on its own core below the rc, and the count keeps increasing across rcs.
+  commit('Release 0.2.0-rc.1', '0.2.0-rc.1');
+  runGit(repo, 'tag', 'v0.2.0-rc.1');
+  sha = commit('Feature after rc');
+  assert.equal(prepare(sha), '0.2.0-dev.4');
 
-  // A stable tag restarts the count, and a missed next-version change cannot publish a lower version.
-  commit('Release 0.1.1', '0.1.1');
-  runGit(repo, 'tag', 'v0.1.1');
-  sha = commit('Forgot the next version', '0.1.1-dev.0');
-  before = files();
-  assert.match(prepare(sha).error, /must be newer than the latest stable release v0\.1\.1/);
+  // A stable tag restarts the count; its own commit has no development version to build.
+  sha = commit('Release 0.2.0', '0.2.0');
+  runGit(repo, 'tag', 'v0.2.0');
+  let before = files();
+  // Only a rerun after tagging reaches this; the push itself ran in verify mode.
+  assert.match(prepare(sha).skipped, /HEAD is the stable release v0\.2\.0[\s\S]*ready=false/);
+  assert.deepEqual(files(), before, 'The release commit itself is skipped without mutation.');
+  // A tag pushed after the checkout exists only on origin; mode selection saw it, so numbering must
+  // fetch it instead of counting from v0.1.0 and publishing the release commit as a dev build.
+  runGit(repo, 'push', 'origin', 'v0.2.0');
+  runGit(repo, 'tag', '-d', 'v0.2.0');
+  assert.match(prepare(sha).skipped, /HEAD is the stable release v0\.2\.0[\s\S]*ready=false/);
+  assert.equal(runGit(repo, 'rev-parse', 'v0.2.0^{commit}'), sha);
   assert.deepEqual(files(), before);
-  sha = commit('Next development version', '0.2.0-dev.0');
-  assert.equal(prepare(sha), '0.2.0-dev.2');
-  sha = commit('Unsupported committed dev number', '0.2.0-dev.3');
-  assert.match(prepare(sha).error, /committed X\.Y\.Z-dev\.0/);
+  sha = commit('Fix after stable');
+  assert.equal(prepare(sha), '0.2.1-dev.1');
+
+  // A committed version behind the newest stable tag or a committed development version fails without mutation.
+  sha = commit('Reverted version', '0.1.1');
+  runGit(repo, 'tag', 'v0.1.1');
+  before = files();
+  assert.match(prepare(sha).error, /must be newer than the latest stable release v0\.2\.0/);
+  assert.deepEqual(files(), before);
+  sha = commit('Committed development version', '0.2.1-dev.3');
+  assert.match(prepare(sha).error, /committed X\.Y\.Z or X\.Y\.Z-rc\.N/);
+  // A committed version whose tag exists neither locally nor on origin fails closed.
+  sha = commit('Untagged release candidate', '0.3.0-rc.1');
+  before = files();
+  assert.match(prepare(sha).error, /v0\.3\.0-rc\.1 is not tagged locally or on origin/);
+  assert.deepEqual(files(), before);
 });

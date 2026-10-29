@@ -35,8 +35,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       // A main push that commits an rc/stable version is checked as the release it will become.
       release = { tag: `v${pkg.version}`, prerelease: !/^\d+\.\d+\.\d+$/.test(pkg.version) };
     }
-    // Repository sources hold only committed forms; CI assigns development numbers in its checkout.
-    if (!COMMITTED_VERSION.test(pkg.version)) throw new Error('Committed version must be X.Y.Z-dev.0, X.Y.Z-rc.N or X.Y.Z.');
+    // Repository sources hold only rc/stable versions; CI derives development versions in its checkout.
+    if (!COMMITTED_VERSION.test(pkg.version)) throw new Error('Committed version must be X.Y.Z-rc.N or X.Y.Z.');
     const result = checkMetadata(pkg, lock, release);
     if (release && result.channel === 'dev') throw new Error('Development versions publish automatically from main pushes, not GitHub Releases.');
     if (release && !readFileSync('CHANGELOG.md', 'utf8').includes(`## [${result.version}] - `)) throw new Error('Add a dated changelog entry for the release version.');

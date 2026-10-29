@@ -32,9 +32,9 @@ types, build, run the mock/local contract suite, and repeat the CLI contract
 tests against a separately installed tarball. Use Node.js 22.14 or newer locally.
 Validation jobs use a read-only GitHub token and no LambdaDB credentials. They
 do not publish packages or contact a LambdaDB service. After both jobs succeed,
-a main push with a committed `X.Y.Z-dev.0` version can publish a dev package
-using a separate OIDC-enabled job; a main push with an rc/stable version is
-verified without publication. That job first runs the deployed live smoke on the
+a main push whose committed version is already tagged can publish a dev package
+using a separate OIDC-enabled job; a main push with an rc/stable version that is
+not tagged yet is verified without publication. That job first runs the deployed live smoke on the
 packed tarball: against the dev environment for dev builds and against production
 for release verification and Releases (see
 [RELEASING.md](RELEASING.md#deployed-live-smoke)). A failed smoke prevents
@@ -52,11 +52,12 @@ permission to update `main`. Repository rules do not weaken organization rules.
 
 ## Releases
 
-Development builds do not require manual version increments. `main` carries the
-next version as `X.Y.Z-dev.0`, and CI publishes `X.Y.Z-dev.N`, where N counts
-first-parent commits since the newest stable release tag. Generated build
-versions are not committed back. Stale queued builds can be skipped as newer
-work arrives.
+Development builds do not require version changes. `main` keeps the last
+released version, and CI derives the development version from it: the next
+patch `X.Y.(Z+1)-dev.N` after a stable release, or `X.Y.Z-dev.N` after an rc,
+where N counts first-parent commits since the newest stable release tag.
+Development versions are never committed. Stale queued builds can be skipped as
+newer work arrives.
 
 For an rc/stable release, open a release PR into `main` that sets the version
 with `node scripts/version.mjs set VERSION` and dates the changelog entry. Record
@@ -66,9 +67,9 @@ Maintenance releases and urgent fixes are also cut from `main`: anything merged
 into `main` ships in the next release.
 
 The first npm bootstrap, rc/stable tags and GitHub Releases remain explicit
-release actions. Subsequent dev publication is automatic once enabled. After an
-rc/stable publication, a workflow opens the next development version PR. Follow
-[RELEASING.md](RELEASING.md) for package preparation, version/channel rules,
+release actions. Subsequent dev publication is automatic once enabled. Only a
+release PR changes the committed version; nothing changes it after publication.
+Follow [RELEASING.md](RELEASING.md) for package preparation, version/channel rules,
 credentialed live evidence, initial npm bootstrap and Trusted Publishing.
 Local tests and PR validation alone never trigger publication.
 
