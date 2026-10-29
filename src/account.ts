@@ -175,7 +175,7 @@ export async function accountRequest(
     throw new ManagementError(
       method === 'GET' ? 'management_unavailable' : 'write_outcome_unknown',
       status,
-      { request },
+      { request, response: response ? 'incomplete' : 'none' },
     );
   }
   if (!response.ok) {

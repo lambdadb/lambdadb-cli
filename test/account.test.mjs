@@ -416,12 +416,18 @@ async function cliFixture(t, handler, saveAllowed = false) {
 }
 
 for (const scenario of [
-  { name: 'missing issued key identity', status: 200, body: { endpoint: 'https://api.example.com', project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: {} } }, exit: 5 },
-  { name: 'invalid issued endpoint', status: 200, body: { endpoint: 'https://invalid.example/path', project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: { key_id: 'key-id' } } }, exit: 5 },
-  { name: 'HTTP 408', status: 408, body: { error: 'project_request_rejected' }, exit: 5 },
-  { name: 'claimed issuance', status: 409, body: { error: 'issuance_unconfirmed' }, exit: 5 },
-  { name: 'definite forbidden rejection', status: 403, body: { error: 'project_not_ready_or_forbidden' }, exit: 3 },
-  { name: 'definite rate-limit rejection', status: 429, body: { error: 'rate_limited' }, exit: 3 },
+  { name: 'missing issued key identity', status: 200, body: { endpoint: 'https://api.example.com', project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: {} } }, exit: 5,
+    message: 'Account management request failed: issuance_unconfirmed (the response did not match the expected contract) during POST connect.' },
+  { name: 'invalid issued endpoint', status: 200, body: { endpoint: 'https://invalid.example/path', project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: { key_id: 'key-id' } } }, exit: 5,
+    message: 'Account management request failed: issuance_unconfirmed (the response did not match the expected contract) during POST connect.' },
+  { name: 'HTTP 408', status: 408, body: { error: 'project_request_rejected' }, exit: 5,
+    message: 'Account management request failed: write_outcome_unknown (HTTP 408) during POST connect.' },
+  { name: 'claimed issuance', status: 409, body: { error: 'issuance_unconfirmed' }, exit: 5,
+    message: 'Account management request failed: issuance_unconfirmed (HTTP 409) during POST connect.' },
+  { name: 'definite forbidden rejection', status: 403, body: { error: 'project_not_ready_or_forbidden' }, exit: 3,
+    message: 'Account management request failed: project_not_ready_or_forbidden (HTTP 403) during POST connect.' },
+  { name: 'definite rate-limit rejection', status: 429, body: { error: 'rate_limited' }, exit: 3,
+    message: 'Account management request failed: management_request_failed (HTTP 429) during POST connect.' },
 ]) {
   test(`actual CLI: ${scenario.name} preserves pending identity without automatic reissuance`, async (t) => {
     const fixture = await cliFixture(t, (call, res) => {
@@ -436,6 +442,7 @@ for (const scenario of [
     assert.equal(result.code, scenario.exit);
     assert.equal(result.value.data?.state, scenario.exit === 5 ? 'unknown' : undefined);
     assert.notEqual(result.value.error.code, 'INPUT_ERROR');
+    assert.equal(result.value.error.message, scenario.message);
     assert.ok(!JSON.stringify(result).includes('synthetic-issued-secret'));
     const path = `${fixture.config}.connections.json`;
     const before = await readFile(path, 'utf8');
@@ -555,6 +562,9 @@ for (const scenario of [
     assert.equal(result.code, scenario.exit);
     if (scenario.exit) {
       assert.equal(result.value.error.httpStatus, scenario.status);
+      assert.equal(result.value.error.message, scenario.exit === 5
+        ? `Account management request failed: write_outcome_unknown (HTTP ${scenario.status}, but the response body could not be read or parsed) during POST logout.`
+        : `Account management request failed: management_request_failed (HTTP ${scenario.status}) during POST logout.`);
       assert.equal(result.value.data?.state, scenario.exit === 5 ? 'unknown' : undefined);
       assert.ok(await readFile(`${fixture.config}.account.json`, 'utf8'));
     } else {
