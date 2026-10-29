@@ -51,18 +51,25 @@ jobs:
           fi
           NEXT=$(node scripts/version.mjs next-dev "$RELEASED")
           BRANCH="chore/next-dev-$NEXT"
+          # Each part is idempotent, so a rerun completes a partially finished setup.
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
-            echo "$BRANCH already exists"
+            echo "$BRANCH already exists; reusing it"
+          else
+            node scripts/version.mjs set "$NEXT"
+            git switch -c "$BRANCH"
+            git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -am "chore: start $NEXT development"
+            git push origin "$BRANCH"
+          fi
+          STATE=$(gh pr list --head "$BRANCH" --base main --state all --json state --jq '.[0].state // ""')
+          if [ -z "$STATE" ]; then
+            gh pr create --base main --head "$BRANCH" --title "chore: start $NEXT development" --body \
+              "$RELEASE_TAG is published. This restores the development placeholder so dev builds resume as \`${NEXT%.0}.N\`, above the released version. Change the version with \`node scripts/version.mjs set X.Y.Z-dev.0\` if the next release is a minor or major version."
+          elif [ "$STATE" != "OPEN" ]; then
+            echo "The $BRANCH pull request is $STATE; nothing to do"
             exit 0
           fi
-          node scripts/version.mjs set "$NEXT"
-          git switch -c "$BRANCH"
-          git -c user.name="github-actions[bot]" \
-            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -am "chore: start $NEXT development"
-          git push origin "$BRANCH"
-          gh pr create --base main --head "$BRANCH" --title "chore: start $NEXT development" --body \
-            "$RELEASE_TAG is published. This restores the development placeholder so dev builds resume as \`${NEXT%.0}.N\`, above the released version. Change the version with \`node scripts/version.mjs set X.Y.Z-dev.0\` if the next release is a minor or major version."
           # Pull requests opened with GITHUB_TOKEN do not trigger pull_request workflows;
           # a dispatched CI run reports the required Node.js checks on the branch head.
           gh workflow run publish.yaml --ref "$BRANCH"

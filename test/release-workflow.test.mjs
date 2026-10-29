@@ -10,6 +10,19 @@ const homebrew = readFileSync(new URL('../.github/workflows/homebrew.yaml', impo
 const nextDev = readFileSync(new URL('../.github/workflows/next-dev-version.yaml', import.meta.url), 'utf8');
 const step = name => workflow.match(new RegExp(`- name: ${name}\\n([\\s\\S]*?)\\n {6}- name:`))?.[1] ?? '';
 const modeScript = step('Select the run mode').match(/run: \|\n([\s\S]*)$/)[1].replace(/^ {10}/gm, '');
+const nextDevScript = nextDev.match(/run: \|\n([\s\S]*)$/)[1].replace(/^ {10}/gm, '');
+
+function stubs(t, scripts) {
+  const directory = mkdtempSync(join(tmpdir(), 'cli-release-stub-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const bin = join(directory, 'bin');
+  mkdirSync(bin);
+  for (const [name, body] of Object.entries(scripts)) {
+    writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
+    chmodSync(join(bin, name), 0o755);
+  }
+  return { directory, bin };
+}
 
 test('CI and publication run for main only; Homebrew checks run for PRs into main', () => {
   assert.match(workflow, /on:\n {2}pull_request:\n {4}branches: \[main\]\n {2}push:\n {4}branches: \[main\]\n {2}workflow_dispatch:\n {2}release:\n {4}types: \[published\]\n/);
@@ -20,12 +33,7 @@ test('CI and publication run for main only; Homebrew checks run for PRs into mai
 });
 
 test('the run mode follows the committed version on main pushes', t => {
-  const directory = mkdtempSync(join(tmpdir(), 'cli-release-mode-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const bin = join(directory, 'bin');
-  mkdirSync(bin);
-  writeFileSync(join(bin, 'node'), '#!/bin/sh\necho "$COMMITTED_VERSION"\n');
-  chmodSync(join(bin, 'node'), 0o755);
+  const { directory, bin } = stubs(t, { node: 'echo "$COMMITTED_VERSION"' });
   const run = (event, version) => {
     const output = join(directory, 'output');
     rmSync(output, { force: true });
@@ -64,4 +72,29 @@ test('the next development version workflow runs only after a successful Release
   assert.match(nextDev, /gh pr create --base main/);
   assert.match(nextDev, /gh workflow run publish\.yaml --ref "\$BRANCH"/);
   assert.match(workflow, /^name: CI$/m);
+});
+
+test('the next development version workflow completes a partial setup on rerun', t => {
+  const { directory, bin } = stubs(t, {
+    node: 'case "$2" in get) echo "$CURRENT";; next-dev) echo 0.1.8-dev.0;; set) echo "set $3" >> "$CALLS";; esac',
+    git: 'if [ "$1" = ls-remote ]; then [ "$BRANCH_EXISTS" = 1 ]; exit; fi\necho "git $*" | sed "s/ -c [^ ]*//g" >> "$CALLS"',
+    gh: 'if [ "$2" = list ]; then echo "$PR_STATE"; exit 0; fi\necho "gh $1 $2" >> "$CALLS"',
+  });
+  const calls = join(directory, 'calls');
+  const run = ({ current = '0.1.7', branch = 0, pr = '' } = {}) => {
+    rmSync(calls, { force: true });
+    const result = spawnSync('bash', ['-e', '-c', nextDevScript], { encoding: 'utf8', env: {
+      ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, RELEASE_TAG: 'v0.1.7', CURRENT: current,
+      BRANCH_EXISTS: String(branch), PR_STATE: pr,
+    } });
+    assert.equal(result.status, 0, result.stderr);
+    let log = '';
+    try { log = readFileSync(calls, 'utf8'); } catch { /* no calls */ }
+    return log.trim().split('\n').filter(Boolean).map(line => line.split(' ').slice(0, 2).join(' '));
+  };
+  assert.deepEqual(run(), ['set 0.1.8-dev.0', 'git switch', 'git commit', 'git push', 'gh pr', 'gh workflow']);
+  assert.deepEqual(run({ branch: 1 }), ['gh pr', 'gh workflow'], 'An existing branch without a PR gets one.');
+  assert.deepEqual(run({ branch: 1, pr: 'OPEN' }), ['gh workflow'], 'An open PR gets its CI dispatched again.');
+  assert.deepEqual(run({ branch: 1, pr: 'MERGED' }), []);
+  assert.deepEqual(run({ current: '0.1.8-dev.0' }), [], 'Nothing happens once main has moved on.');
 });
