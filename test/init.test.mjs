@@ -843,7 +843,8 @@ for (const step of ['agents', 'empty selection', 'user scope']) {
           : [['Install agent settings for your OS user?', enter]]),
     ]);
     assert.equal(result.code, 2, result.stderr);
-    assert.match(result.stderr, /Init canceled. No files were changed/);
+    assert.match(result.stderr, /Init canceled\. No files were changed\. Rerun lambdadb init when ready\.\n$/);
+    assert.ok(!result.stderr.includes('Check --help'));
     await assert.rejects(readFile(f.config), { code: 'ENOENT' });
     assert.equal(f.requests.length, 0);
   });

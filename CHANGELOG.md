@@ -24,6 +24,16 @@
 
 ### Fixed
 
+- Report the exact command-line problem instead of a generic message: the
+  missing required option, missing option argument, invalid choice, or unknown
+  command/option with a close-match suggestion. An unknown `--flag=value` never
+  echoes its value.
+- Print help when `lambdadb` runs without a command, and print the group help
+  with exit 2 when a command group such as `collections` lacks a subcommand.
+- Omit the generic `Check --help` hint from cancellation and login-required
+  messages that already state the next step; `error.hint` may then be empty.
+- Stop redacting values shorter than eight characters, which no issued key uses,
+  so a placeholder key no longer rewrites ordinary words in output.
 - Suggest `npx -y @functional-systems/lambdadb-cli@<version>` instead of
   `lambdadb` in init next steps, agent next steps and login/init hints when the
   CLI runs through npx/npm exec without a global install. The bundled skill

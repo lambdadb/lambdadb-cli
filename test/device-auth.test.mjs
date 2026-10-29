@@ -103,5 +103,5 @@ test('removed init --connect is rejected instead of starting authorization', asy
   child.stderr.resume();
   const code = await new Promise((resolve) => child.on('close', resolve));
   assert.equal(code, 2);
-  assert.match(JSON.parse(stdout).error.message, /Invalid or incomplete command/);
+  assert.match(JSON.parse(stdout).error.message, /^Unknown option '--connect'\./);
 });

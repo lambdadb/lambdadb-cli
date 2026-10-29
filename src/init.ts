@@ -84,7 +84,7 @@ async function plan(selected: SelectedSettings, chosen: Agent[], scope: AgentSco
 }
 
 function checkSaveCanceled(signal?: AbortSignal) {
-  if (signal?.aborted) throw new InputError('Init canceled while saving setup. Some files may already be updated. Rerun init to review and finish setup.');
+  if (signal?.aborted) throw new InputError('Init canceled while saving setup. Some files may already be updated. Rerun init to review and finish setup.', '');
 }
 
 async function apply(changes: PlannedChange[], options: Options, signal?: AbortSignal) {
@@ -122,15 +122,15 @@ const scopeLabel = (scope: string) => scope === 'project' ? 'This repository' : 
 export async function initialize(options: InitOptions, output: Output) {
   const interactive = interactiveInit(options);
   if (!interactive && !options.nonInteractive) {
-    throw new InputError(`Init needs a terminal. For automation or --json, pass --non-interactive --agents ${agentNames} (or none) --scope project (or user).`);
+    throw new InputError(`Init needs a terminal. For automation or --json, pass --non-interactive --agents ${agentNames} (or none) --scope project (or user).`, '');
   }
   const context = { cwd: process.cwd(), home: homedir(), env: process.env };
   const detected = await detectAgents(context);
   let connectionSaved = false;
   let accountSetup = false;
-  const canceled = () => new InputError((connectionSaved || accountSetup)
-    ? 'Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.'
-    : 'Init canceled. No files were changed.');
+  const canceled = () => (connectionSaved || accountSetup)
+    ? new InputError('Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.', '')
+    : new InputError('Init canceled. No files were changed.', `Rerun ${cli} init when ready.`);
   const ui = interactive ? new InitUI(output, canceled) : undefined;
   if (ui) output = output.withDiagnostics(message => ui.info(message));
   try {

@@ -312,9 +312,19 @@ is used. Only `init` prompts on a terminal; `init --non-interactive` and all
 existing commands never prompt. `mcp` reserves stdout for MCP JSON-RPC and sends
 startup failures to stderr rather than emitting the CLI JSON envelope.
 
+Invalid command lines fail with `INPUT_ERROR` naming the missing required option,
+the missing option argument, the invalid choice, or the unknown command or option
+with a close-match suggestion. An unknown option written as `--flag=value` is
+reported without its value. `lambdadb` alone prints help on stdout; a command
+group such as `collections` without a subcommand prints its help on stderr and
+exits 2. `error.hint` is empty when the message already states the next step,
+such as a cancellation or a required login.
+
 Credential redaction preserves fixed protocol field names and command, status,
-ref-kind and error-code tokens, even when a short credential coincides with one
-of them. It redacts variable string values and arbitrary document, index-config
+ref-kind and error-code tokens, even when a credential coincides with one of
+them. Values shorter than eight characters are not treated as credentials: no
+issued key is that short, and redacting a placeholder such as `test` would
+rewrite ordinary words. It redacts variable string values and arbitrary document, index-config
 and tag-map keys. Returned data can therefore differ from the stored data when
 it contains the selected credential; public protocol tokens remain unchanged.
 If redacted map keys collide, unchanged keys keep their names and renamed keys

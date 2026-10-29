@@ -181,7 +181,7 @@ helpers own presigned response downloads and authentication isolation.
 | 64 MiB / 100,000-document input caps, 4 MB ordinary batches, configurable bulk batches | Bound file size and retained row overhead without building streaming/checkpoint infrastructure; scan lines without a full split array. |
 | SDK request serializers for validation | Keep create/query shapes aligned; query DSL semantics remain server-owned. |
 | Versioned JSON envelope and documented exits | Stable automation contract with explicit target and partial progress. |
-| Preserve fixed output keys/tokens during redaction | Short credentials must not corrupt the CLI protocol; redact variable values and arbitrary document/index/tag map keys. |
+| Preserve fixed output keys/tokens during redaction | Credentials coinciding with protocol tokens must not corrupt the CLI protocol; redact variable values and arbitrary document/index/tag map keys. Values under eight characters are placeholders, not keys, and stay readable. |
 | Conservative unknown state for untyped bulk helper failures | Error strings are not a reliable upload/finalization stage contract. |
 | No readiness wait or version-management commands | First use works through main; reads can target existing refs, without assuming lifecycle or indexing guarantees. |
 
