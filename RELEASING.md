@@ -307,8 +307,11 @@ repo:lambdadb@209344672/lambdadb-cli@1375598438:ref:refs/heads/main
 repo:lambdadb@209344672/lambdadb-cli@1375598438:ref:refs/tags/v*
 ```
 
-Renaming or transferring the repository or organization keeps these IDs; a role
-written with the plain `repo:lambdadb/lambdadb-cli:...` form would not match.
+Renaming the repository or organization keeps these IDs, and a recreated
+repository with the same name gets a new ID, so it cannot assume the roles.
+Transferring the repository changes the owner ID and requires updating the trust
+policies. A role written with the plain `repo:lambdadb/lambdadb-cli:...` form
+does not match this repository's tokens.
 Each permission policy needs `secretsmanager:GetSecretValue` on the exact smoke
 secret ARN of its own environment (plus `kms:Decrypt` on the exact key only for a
 customer-managed KMS key). Provisioning the roles, projects, keys and Variables is
