@@ -76,25 +76,33 @@ test('the next development version workflow runs only after a successful Release
 
 test('the next development version workflow completes a partial setup on rerun', t => {
   const { directory, bin } = stubs(t, {
-    node: 'case "$2" in get) echo "$CURRENT";; next-dev) echo 0.1.8-dev.0;; set) echo "set $3" >> "$CALLS";; esac',
-    git: 'if [ "$1" = ls-remote ]; then [ "$BRANCH_EXISTS" = 1 ]; exit; fi\necho "git $*" | sed "s/ -c [^ ]*//g" >> "$CALLS"',
-    gh: 'if [ "$2" = list ]; then echo "$PR_STATE"; exit 0; fi\necho "gh $1 $2" >> "$CALLS"',
+    node: 'case "$2" in get) echo "$CURRENT";; next-dev) echo "$NEXT_VERSION";; set) echo "set $3" >> "$CALLS";; esac',
+    git: 'if [ "$1" = ls-remote ]; then [ "$5" = "$EXISTING_BRANCH" ]; exit; fi\necho "git $*" | sed "s/ -c [^ ]*//g" >> "$CALLS"',
+    gh: 'if [ "$2" = list ]; then [ "$4" = "$PR_BRANCH" ] && echo "$PR_STATE"; exit 0; fi\necho "gh $1 $2" >> "$CALLS"',
   });
   const calls = join(directory, 'calls');
-  const run = ({ current = '0.1.7', branch = 0, pr = '' } = {}) => {
+  const run = ({ tag = 'v0.1.7', current = tag.slice(1), next = '0.1.8-dev.0', branch = '', pr = '', prBranch = branch } = {}) => {
     rmSync(calls, { force: true });
     const result = spawnSync('bash', ['-e', '-c', nextDevScript], { encoding: 'utf8', env: {
-      ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, RELEASE_TAG: 'v0.1.7', CURRENT: current,
-      BRANCH_EXISTS: String(branch), PR_STATE: pr,
+      ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, RELEASE_TAG: tag, CURRENT: current, NEXT_VERSION: next,
+      EXISTING_BRANCH: branch, PR_BRANCH: prBranch, PR_STATE: pr,
     } });
     assert.equal(result.status, 0, result.stderr);
     let log = '';
     try { log = readFileSync(calls, 'utf8'); } catch { /* no calls */ }
-    return log.trim().split('\n').filter(Boolean).map(line => line.split(' ').slice(0, 2).join(' '));
+    return log.trim().split('\n').filter(Boolean).map(line => line.split(' ').slice(0, 2).join(' ') +
+      (line.startsWith('git push') ? ` ${line.split(' ').at(-1)}` : ''));
   };
-  assert.deepEqual(run(), ['set 0.1.8-dev.0', 'git switch', 'git commit', 'git push', 'gh pr', 'gh workflow']);
-  assert.deepEqual(run({ branch: 1 }), ['gh pr', 'gh workflow'], 'An existing branch without a PR gets one.');
-  assert.deepEqual(run({ branch: 1, pr: 'OPEN' }), ['gh workflow'], 'An open PR gets its CI dispatched again.');
-  assert.deepEqual(run({ branch: 1, pr: 'MERGED' }), []);
+  const branch = 'chore/next-dev-after-v0.1.7';
+  assert.deepEqual(run(), ['set 0.1.8-dev.0', 'git switch', 'git commit', `git push ${branch}`, 'gh pr', 'gh workflow']);
+  assert.deepEqual(run({ branch }), ['gh pr', 'gh workflow'], 'An existing branch without a PR gets one.');
+  assert.deepEqual(run({ branch, pr: 'OPEN' }), ['gh workflow'], 'An open PR gets its CI dispatched again.');
+  assert.deepEqual(run({ branch, pr: 'MERGED' }), []);
   assert.deepEqual(run({ current: '0.1.8-dev.0' }), [], 'Nothing happens once main has moved on.');
+
+  // Consecutive RCs restore the same version; the earlier RC's merged PR must not stop the next one.
+  const rc2 = run({ tag: 'v0.2.0-rc.2', next: '0.2.0-dev.0', branch: 'chore/next-dev-after-v0.2.0-rc.1',
+    pr: 'MERGED' });
+  assert.deepEqual(rc2, ['set 0.2.0-dev.0', 'git switch', 'git commit', 'git push chore/next-dev-after-v0.2.0-rc.2', 'gh pr', 'gh workflow']);
+  assert.match(nextDev, /BRANCH="chore\/next-dev-after-\$RELEASE_TAG"/);
 });
