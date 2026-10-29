@@ -98,7 +98,7 @@ export async function loadAccount(options: AccountOptions): Promise<Account> {
   const text = await readOptional(await accountPath(options));
   if (!text)
     throw new InputError(
-      `Run ${cli} login first. Project-key environment setup remains available without account login.`,
+      `Run ${cli} login first. Project-key environment setup remains available without account login.`, '',
     );
   const a = parseAccount(text);
   if (options.apiUrl && endpoint(options.apiUrl) !== a.apiUrl)
@@ -107,7 +107,7 @@ export async function loadAccount(options: AccountOptions): Promise<Account> {
     );
   if (Date.parse(a.expiresAt) <= Date.now())
     throw new InputError(
-      `CLI login expired. Run ${cli} login again; existing project connections are preserved.`,
+      `CLI login expired. Run ${cli} login again; existing project connections are preserved.`, '',
     );
   return a;
 }

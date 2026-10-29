@@ -22,13 +22,15 @@ const rerankProtocolValues = new Map<string, Set<string>>([
 ]);
 // These response maps carry user-defined field names.
 const freeFormMaps = new Set(['doc', 'indexConfigs', 'tags']);
+const minimumSecretLength = 8;
 
 export class Output {
   json = false;
   private secrets = new Set<string>();
   private diagnosticWriter?: (message: string) => void;
 
-  protect(secret: string | undefined) { if (secret) this.secrets.add(secret); }
+  // Issued keys are far longer; a short placeholder would otherwise rewrite ordinary words.
+  protect(secret: string | undefined) { if (secret && secret.length >= minimumSecretLength) this.secrets.add(secret); }
 
   withDiagnostics(writer: (message: string) => void): Output {
     const scoped = new Output();
@@ -93,6 +95,6 @@ export class Output {
       if (includeHumanDetails && safe.target) process.stdout.write(`${JSON.stringify(safe.target)}\n`);
       if (includeHumanDetails && safe.data !== undefined) process.stdout.write(`${JSON.stringify(safe.data, null, 2)}\n`);
     }
-    if (envelope.error) this.diagnostic(`${envelope.error.message} ${envelope.error.hint}`);
+    if (envelope.error) this.diagnostic([envelope.error.message, envelope.error.hint].filter(Boolean).join(' '));
   }
 }

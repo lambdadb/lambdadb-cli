@@ -298,7 +298,7 @@ async function choose<T>(items: T[], label: (item: T) => string, prompts: SetupP
     ...items.map((item, index) => ({ value: String(index), label: label(item), ...(hint ? { hint: hint(item) } : {}) })),
     { value: 'cancel', label: 'Cancel' },
   ]);
-  if (answer === 'cancel') throw new InputError('Setup canceled. Saved login and project connections remain available.');
+  if (answer === 'cancel') throw new InputError('Setup canceled. Saved login and project connections remain available.', `Rerun ${cli} init when ready.`);
   const selected = items[Number(answer)];
   if (selected === undefined) throw new InputError('Choose a listed option.');
   return selected;
@@ -310,7 +310,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
       await loadAccount(options);
     } catch {
       if (!(await prompts.confirm('Sign in again? Your saved login has expired.')))
-        throw new InputError('Run login to renew account access.');
+        throw new InputError(`Run ${cli} login to renew account access.`, '');
       await login(options, output);
     }
   }
@@ -357,7 +357,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
       if (
         (await prompts.select('After updating billing', [{ value: 'retry', label: 'Recheck project limits' }, { value: 'cancel', label: 'Cancel' }], 'cancel')) !== 'retry'
       )
-        throw new InputError('Rerun init and choose account-based project setup when ready. No project was created.');
+        throw new InputError('Rerun init and choose account-based project setup when ready. No project was created.', '');
       const id = org.id;
       orgs = await organizations(options, output);
       org = orgs.find((o) => o.id === id);
@@ -393,7 +393,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
       `Create ${name ?? ''} in ${org?.name ?? 'your default Organization'} (${region.region}).`,
     );
     if (!(await prompts.confirm('Create this project?')))
-      throw new InputError('No project was requested.');
+      throw new InputError('No project was requested.', `Rerun ${cli} init when ready.`);
     const created = await createProject(
       options,
       { orgId: org?.id, defaultOrg: !org, name: name ?? '', region: region.region },
@@ -459,7 +459,7 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
     if (
       !(await prompts.confirm(`Create a key for ${project.name} with write access?`))
     )
-      throw new InputError('No project key was requested.');
+      throw new InputError('No project key was requested.', `Rerun ${cli} init when ready.`);
   }
   return useProject(options, project.organization_id, project.id, issue, output);
 }
