@@ -42,11 +42,35 @@ test('the run mode follows the committed version on main pushes', t => {
     } });
     return result.status === 0 ? readFileSync(output, 'utf8').trim() : `failed: ${result.stderr.trim()}`;
   };
-  assert.equal(run('push', '0.1.7-dev.0'), 'mode=dev');
-  assert.equal(run('push', '0.1.7-rc.1'), 'mode=verify');
-  assert.equal(run('push', '0.1.7'), 'mode=verify');
+  // Dev builds are smoke-tested against the dev environment, everything else against production.
+  assert.equal(run('push', '0.1.7-dev.0'), 'mode=dev\nsmoke_prefix=LAMBDADB_DEV_');
+  assert.equal(run('push', '0.1.7-rc.1'), 'mode=verify\nsmoke_prefix=LAMBDADB_PROD_');
+  assert.equal(run('push', '0.1.7'), 'mode=verify\nsmoke_prefix=LAMBDADB_PROD_');
   for (const version of ['0.1.7-dev.3', '0.1.7-dev.10']) assert.match(run('push', version), /failed: .*-dev\.0 placeholder/);
-  assert.equal(run('release', '0.1.7'), 'mode=release');
+  assert.equal(run('release', '0.1.7-rc.1'), 'mode=release\nsmoke_prefix=LAMBDADB_PROD_');
+  assert.equal(run('release', '0.1.7'), 'mode=release\nsmoke_prefix=LAMBDADB_PROD_');
+});
+
+test('every publishing mode runs the deployed live smoke on the packed artifact before publication', () => {
+  const names = [...workflow.matchAll(/^ {6}- name: (.+)$/gm)].map(match => match[1]);
+  const auth = 'Authenticate live smoke tests to AWS';
+  const smoke = 'Run deployed live smoke tests against the exact publication artifact';
+  assert.deepEqual(names.slice(names.indexOf('Pack once and test the exact publication artifact') + 1),
+    [auth, smoke, 'Publish development version and verify registry state', 'Publish explicit release using npm Trusted Publishing']);
+  const condition = "if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'\n";
+  for (const name of [auth, smoke]) assert.ok(step(name).startsWith(`        ${condition}`), name);
+  // Selected Variables have no fallback; a missing one stays empty and fails the run.
+  assert.match(step(auth), /role-to-assume: \$\{\{ vars\[format\('\{0\}SMOKE_AWS_ROLE_ARN', steps\.mode\.outputs\.smoke_prefix\)\] \}\}\n/);
+  for (const name of ['BASE_URL', 'PROJECT_NAME', 'SMOKE_SECRET_ARN']) {
+    const target = name === 'SMOKE_SECRET_ARN' ? 'LAMBDADB_SMOKE_SECRET_ARN' : `LAMBDADB_${name}`;
+    assert.ok(step(smoke).includes(`${target}: \${{ vars[format('{0}${name}', steps.mode.outputs.smoke_prefix)] }}\n`), name);
+  }
+  assert.match(step(smoke), /npm install --prefix "\$RUNNER_TEMP\/smoke" --no-audit --no-fund "\$CLI_TARBALL"/);
+  assert.match(step(smoke), /LAMBDADB_TEST_CLI="\$RUNNER_TEMP\/smoke\/node_modules\/@functional-systems\/lambdadb-cli\/dist\/cli\.js" \\\n\s+node scripts\/run-live-smoke\.mjs$/);
+  assert.doesNotMatch(workflow, /secrets\.|LAMBDADB_API_KEY/, 'The key comes only from Secrets Manager inside the runner.');
+  // Pull requests and the Node matrix get no cloud credentials.
+  const validate = workflow.slice(workflow.indexOf('  validate:'), workflow.indexOf('  publish:'));
+  assert.doesNotMatch(validate, /id-token|vars\.|aws-actions|run-live-smoke/);
 });
 
 test('each mode runs its own checks, and only dev and release modes publish', () => {

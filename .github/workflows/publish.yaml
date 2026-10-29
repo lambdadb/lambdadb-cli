@@ -1,6 +1,8 @@
 # CI validates pull requests and main. A main push with the committed X.Y.Z-dev.0
 # placeholder publishes a dev build; a main push with an rc/stable version (a release
 # PR merge) is verified without publication; a published GitHub Release publishes it.
+# Every publishing mode first runs the deployed live smoke: dev builds against the dev
+# environment, release verification and releases against production.
 name: CI
 
 on:
@@ -51,7 +53,8 @@ jobs:
       (github.event_name == 'release' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The live suite alone may take up to 15 minutes.
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -92,8 +95,12 @@ jobs:
               *) MODE=verify ;;
             esac
           fi
+          # Dev builds are smoke-tested against the dev environment; release verification
+          # and rc/stable releases against production.
+          if [ "$MODE" = dev ]; then SMOKE_PREFIX=LAMBDADB_DEV_; else SMOKE_PREFIX=LAMBDADB_PROD_; fi
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
-          echo "Committed version $VERSION; run mode $MODE"
+          echo "smoke_prefix=$SMOKE_PREFIX" >> "$GITHUB_OUTPUT"
+          echo "Committed version $VERSION; run mode $MODE; live smoke Variables $SMOKE_PREFIX*"
       - name: Prepare deterministic development version
         if: steps.mode.outputs.mode == 'dev'
         id: dev
@@ -120,6 +127,27 @@ jobs:
           CLI_TARBALL=$(node --input-type=module -e 'import fs from "node:fs"; const file=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/package.json","utf8"))[0].filename; console.log(`${process.env.RUNNER_TEMP}/${file}`);')
           npm run test:package -- "$CLI_TARBALL"
           echo "tarball=$CLI_TARBALL" >> "$GITHUB_OUTPUT"
+      # The selected environment's Variables only: a missing one stays empty and fails the
+      # run instead of falling back to the other environment.
+      - name: Authenticate live smoke tests to AWS
+        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars[format('{0}SMOKE_AWS_ROLE_ARN', steps.mode.outputs.smoke_prefix)] }}
+          aws-region: ap-northeast-2
+          role-session-name: cli-smoke-${{ github.run_id }}
+      - name: Run deployed live smoke tests against the exact publication artifact
+        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
+        env:
+          CLI_TARBALL: ${{ steps.package.outputs.tarball }}
+          LAMBDADB_BASE_URL: ${{ vars[format('{0}BASE_URL', steps.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_PROJECT_NAME: ${{ vars[format('{0}PROJECT_NAME', steps.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_SMOKE_SECRET_ARN: ${{ vars[format('{0}SMOKE_SECRET_ARN', steps.mode.outputs.smoke_prefix)] }}
+        run: |
+          echo "Live smoke target: $LAMBDADB_BASE_URL project $LAMBDADB_PROJECT_NAME"
+          npm install --prefix "$RUNNER_TEMP/smoke" --no-audit --no-fund "$CLI_TARBALL"
+          LAMBDADB_TEST_CLI="$RUNNER_TEMP/smoke/node_modules/@functional-systems/lambdadb-cli/dist/cli.js" \
+            node scripts/run-live-smoke.mjs
       - name: Publish development version and verify registry state
         if: >-
           steps.mode.outputs.mode == 'dev' && steps.dev.outputs.ready == 'true' &&

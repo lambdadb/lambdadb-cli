@@ -46,8 +46,11 @@ The `CI` workflow lives in `.github/workflows/publish.yaml`. Its Node 22 and 24
 jobs must both succeed for the exact push commit. Only a push to this repository's
 `main` whose committed version is `X.Y.Z-dev.0` can enter automatic publication;
 PRs and manual CI runs cannot. Only the publishing job receives `id-token: write`.
-No LambdaDB service keys are available to CI, so automatic dev builds do not imply
-a fresh live smoke.
+That job runs the [deployed live smoke](#deployed-live-smoke) against the dev
+environment on the packed tarball before any publication step; dev publication
+runs only after it passes. The smoke runs on every dev-mode main push that is
+still the main head, including while `NPM_DEV_PUBLISH_ENABLED` is unset or the
+publish step later skips the version.
 
 The publishing job replaces the placeholder with `X.Y.Z-dev.N`, where N is the
 number of first-parent commits on `main` since the newest stable release tag
@@ -117,8 +120,9 @@ compatible. Human summaries are not a scripting interface.
 A `main` push whose committed version is `X.Y.Z-rc.N` or `X.Y.Z` (a release PR
 merge) runs the publishing job in verification mode: release metadata and the
 dated changelog entry are checked, the tarball is packed once and its installed
-contracts are tested, and nothing is published. Tag the release only after this
-run passes. Do not merge other pull requests until the release is tagged, or tag
+contracts are tested, the [deployed live smoke](#deployed-live-smoke) runs that
+tarball against production, and nothing is published. Tag the release only after
+this run passes. Do not merge other pull requests until the release is tagged, or tag
 the release PR's merge commit explicitly. A committed `X.Y.Z-dev.N` other than
 the placeholder fails the run.
 
@@ -141,23 +145,23 @@ the placeholder fails the run.
    npm run test:package
    ```
 
-3. Run the live smoke below against an explicitly designated development project.
-   Record commit, SDK version, endpoint/project, command, outcome and cleanup
-   in the release PR without keys or signed URLs. Missing credentials are a blocked
-   release prerequisite, not a skipped success. PR CI deliberately has no service keys.
+3. Optionally run the [deployed live smoke](#deployed-live-smoke) locally against
+   the dev environment before merging, and record commit, SDK version,
+   endpoint/project, command, outcome and cleanup in the release PR without keys
+   or signed URLs. PR CI deliberately has no service keys.
 4. Merge the release PR with required CI checks and wait for the verification
-   run on `main`. Re-run checks/live smoke if release contents changed. Record the
-   verified commit in release notes.
+   run on `main`, which includes the production live smoke. A failed or missing
+   smoke blocks the release; it is never a skipped success. Record the verified
+   commit in release notes.
 5. Obtain explicit authorization for the immutable tag and publication. Tag the
    verified main commit with `vVERSION`, push that tag, and publish a GitHub
    Release with `prerelease: true` for rc and `false` for stable. Draft releases
    do not publish npm. For the first development bootstrap, use the separate
    procedure below; do not publish a dev GitHub Release.
 6. `.github/workflows/publish.yaml` validates main ancestry and metadata, runs
-   lint/types/local tests, packs once, installs and tests that exact tarball, then
-   publishes it with the selected dist-tag and provenance. The release workflow
-   does not rerun the credentialed live prerequisite; release owners must retain
-   that evidence before publishing the GitHub Release.
+   lint/types/local tests, packs once, installs and tests that exact tarball, runs
+   the production live smoke on it, then publishes it with the selected dist-tag
+   and provenance. A failed smoke stops publication.
 7. Verify the workflow, npm version/dist-tag, provenance's repository/commit and
    a clean consumer install of the exact version. Test the installed binary's
    version/help and basic JSON behavior. Confirm a dev/rc release did not move
@@ -232,11 +236,105 @@ does not prove OIDC works; verify the next authorized publication. Current npm
 configurations can default to staged publishing only, which is insufficient for
 this direct-publish workflow. See [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/).
 
-## Explicit live smoke
+## Deployed live smoke
 
-Follow the [live validation procedure](CONTRIBUTING.md#live-validation) and record
-its result in the release PR. It is a release prerequisite; ordinary PR CI has
-no service credentials and cannot establish live readiness.
+The publishing job runs every LambdaDB live test (`npm run test:live`, one file at
+a time) against a deployed environment before any publication step. The Node 22
+and 24 validation jobs and pull requests receive no cloud credentials and never
+run it.
+
+| Event | Live target | Publication after a pass |
+| --- | --- | --- |
+| Pull request | None | None |
+| `main` push, committed `X.Y.Z-dev.0` | Dev | `X.Y.Z-dev.N` when enabled |
+| `main` push, committed rc/stable version | Production | None (verification only) |
+| Published GitHub Release | Production | rc/stable version |
+
+A dev-mode push that is no longer the main head skips packing, the smoke and
+publication. The smoke installs the packed tarball in a clean directory and runs
+the live suite against that installed CLI (`LAMBDADB_TEST_CLI`).
+`scripts/run-live-smoke.mjs` requires the base URL, project name and secret ARN,
+reads the project API key from Secrets Manager with the AWS CLI, masks it in
+GitHub Actions, and passes it only in the test process environment, never in
+command arguments, files, artifacts or GitHub Secrets. It maps the provisioned
+values to the names the live test reads (`LAMBDADB_ENDPOINT`, `LAMBDADB_PROJECT`,
+`LAMBDADB_LIVE_CONFIRM_PROJECT`, `LAMBDADB_API_KEY`) and sets
+`LAMBDADB_RUN_LIVE_TESTS=1`. Missing configuration, a failed secret read, a test
+failure, or a run in which any live test was skipped, marked todo or absent fails
+the job and prevents publication.
+
+The suite creates its own temporary Collections and verifies their deletion. The
+dedicated `cli-ci` projects need `rateLimit` of at least 100 requests per second;
+they must allow Collection create/update/delete, ordinary and bulk writes and
+query/fetch. Do not grant the workflow the stack admin key, project creation,
+deployment or secret write permissions. Key rotation updates the AWS secret
+without changing this workflow.
+
+### Repository Variables
+
+The `LAMBDADB_DEV_` Variables serve dev builds; the `LAMBDADB_PROD_` Variables
+serve release verification and rc/stable Releases. A missing Variable stays empty
+and fails the run; it never falls back to the other environment.
+
+| Variable | Value |
+| --- | --- |
+| `LAMBDADB_DEV_BASE_URL` | `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai` |
+| `LAMBDADB_DEV_PROJECT_NAME` | `cli-ci` in `dev-aws-apne2-v3` |
+| `LAMBDADB_DEV_SMOKE_AWS_ROLE_ARN` | Dev AWS OIDC role `lambdadb-cli-smoke` |
+| `LAMBDADB_DEV_SMOKE_SECRET_ARN` | Exact ARN of the dev project's API key secret |
+| `LAMBDADB_PROD_BASE_URL` | `https://aws-ap-northeast-2-v3.lambdadb.ai` |
+| `LAMBDADB_PROD_PROJECT_NAME` | `cli-ci` in `prod-aws-apne2-v3` |
+| `LAMBDADB_PROD_SMOKE_AWS_ROLE_ARN` | Production AWS OIDC role `lambdadb-cli-prod-smoke` |
+| `LAMBDADB_PROD_SMOKE_SECRET_ARN` | Exact ARN of the production project's API key secret |
+
+Each project key is a plain SecretString in `ap-northeast-2`.
+
+### AWS OIDC roles
+
+This repository uses GitHub's immutable OIDC subject format, so the subject
+names the owner and repository IDs (`lambdadb@209344672`,
+`lambdadb-cli@1375598438`) rather than only their names. Each role trusts audience
+`sts.amazonaws.com` and only these subjects. The dev role:
+
+```text
+repo:lambdadb@209344672/lambdadb-cli@1375598438:ref:refs/heads/main
+```
+
+The production role (release verification on `main`, Releases on tags):
+
+```text
+repo:lambdadb@209344672/lambdadb-cli@1375598438:ref:refs/heads/main
+repo:lambdadb@209344672/lambdadb-cli@1375598438:ref:refs/tags/v*
+```
+
+Renaming or transferring the repository or organization keeps these IDs; a role
+written with the plain `repo:lambdadb/lambdadb-cli:...` form would not match.
+Each permission policy needs `secretsmanager:GetSecretValue` on the exact smoke
+secret ARN of its own environment (plus `kms:Decrypt` on the exact key only for a
+customer-managed KMS key). Provisioning the roles, projects, keys and Variables is
+a separate environment setup step; the workflow alone does not establish working
+AWS access.
+
+### Running the live suite locally
+
+Run the same command the workflow uses, with AWS credentials that can read the
+selected secret; the key is never printed or written to a file:
+
+```sh
+npm ci
+AWS_PROFILE=YOUR_PROFILE \
+LAMBDADB_BASE_URL=https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai \
+LAMBDADB_PROJECT_NAME=cli-ci \
+LAMBDADB_SMOKE_SECRET_ARN=DEV_SMOKE_SECRET_ARN \
+node scripts/run-live-smoke.mjs
+```
+
+Use the `LAMBDADB_PROD_` values to check production. It tests `dist/cli.js`
+unless `LAMBDADB_TEST_CLI` names an installed package's `dist/cli.js`. To use
+another project and key without Secrets Manager, follow the
+[live validation procedure](CONTRIBUTING.md#live-validation). Record the target,
+commit, outcome, duration and cleanup result in the PR, without keys or signed
+URLs.
 
 ## Homebrew handoff
 
