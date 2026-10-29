@@ -109,6 +109,16 @@ function prepare() {
   const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
   checkMetadata(pkg, lock);
   if (pkg.name !== packageName) throw new Error('Unexpected package name.');
+  // Mode selection found v<version> on origin. If that tag was pushed after this checkout, fetch it so
+  // numbering uses the same tag; otherwise the release commit would be counted from an older stable tag.
+  const committedTag = `v${pkg.version}`;
+  if (COMMITTED_VERSION.test(pkg.version) && !git('tag', '--list', committedTag)) {
+    try {
+      git('fetch', '--quiet', '--no-tags', 'origin', `refs/tags/${committedTag}:refs/tags/${committedTag}`);
+    } catch {
+      throw new Error(`${committedTag} is not tagged locally or on origin; development builds require the committed version's tag.`);
+    }
+  }
   const stableTag = latestStableTag(git('tag', '--merged', 'HEAD', '--list', 'v*').split('\n').filter(Boolean));
   const count = git('rev-list', '--first-parent', '--count', stableTag ? `${stableTag}..HEAD` : 'HEAD');
   if (count === '0') {

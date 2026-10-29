@@ -66,8 +66,10 @@ commit, restarts at 1 after each stable release and keeps increasing across the
 RCs of one version. The counter includes commits that were never published; it
 is not necessarily consecutive in npm. The job fails unless the development
 version is newer than that stable tag, and skips a rerun of the stable release
-commit itself (N would be 0). Force pushes and history rewrites must remain
-disabled.
+commit itself (N would be 0). If the committed version's tag was pushed after the
+job's checkout, preparation fetches it from `origin` first, so run-mode selection
+and numbering use the same tag; a tag missing on `origin` fails the run. Force
+pushes and history rewrites must remain disabled.
 
 Generated package/lock versions and `gitHead` are changed only in the runner;
 there are no version-bump commits, Git tags or GitHub Releases for automatic dev

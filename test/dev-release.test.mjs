@@ -418,14 +418,27 @@ test('preparation counts first-parent commits since the newest reachable stable 
   // Only a rerun after tagging reaches this; the push itself ran in verify mode.
   assert.match(prepare(sha).skipped, /HEAD is the stable release v0\.2\.0[\s\S]*ready=false/);
   assert.deepEqual(files(), before, 'The release commit itself is skipped without mutation.');
+  // A tag pushed after the checkout exists only on origin; mode selection saw it, so numbering must
+  // fetch it instead of counting from v0.1.0 and publishing the release commit as a dev build.
+  runGit(repo, 'push', 'origin', 'v0.2.0');
+  runGit(repo, 'tag', '-d', 'v0.2.0');
+  assert.match(prepare(sha).skipped, /HEAD is the stable release v0\.2\.0[\s\S]*ready=false/);
+  assert.equal(runGit(repo, 'rev-parse', 'v0.2.0^{commit}'), sha);
+  assert.deepEqual(files(), before);
   sha = commit('Fix after stable');
   assert.equal(prepare(sha), '0.2.1-dev.1');
 
   // A committed version behind the newest stable tag or a committed development version fails without mutation.
   sha = commit('Reverted version', '0.1.1');
+  runGit(repo, 'tag', 'v0.1.1');
   before = files();
   assert.match(prepare(sha).error, /must be newer than the latest stable release v0\.2\.0/);
   assert.deepEqual(files(), before);
   sha = commit('Committed development version', '0.2.1-dev.3');
   assert.match(prepare(sha).error, /committed X\.Y\.Z or X\.Y\.Z-rc\.N/);
+  // A committed version whose tag exists neither locally nor on origin fails closed.
+  sha = commit('Untagged release candidate', '0.3.0-rc.1');
+  before = files();
+  assert.match(prepare(sha).error, /v0\.3\.0-rc\.1 is not tagged locally or on origin/);
+  assert.deepEqual(files(), before);
 });
