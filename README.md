@@ -121,7 +121,7 @@ and its Node 24 runtime. No separate Node/npm setup is needed. Update with
 If another installation provides `lambdadb`, check `command -v lambdadb` before
 switching package managers. Follow Homebrew's formula trust prompts without
 disabling trust checks. See the
-[maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme)
+[maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/main/packaging/homebrew#readme)
 for packaging and validation details.
 
 ## Choose a command
@@ -201,12 +201,12 @@ verification.
 
 ## Development and boundaries
 
-Development changes target the Git `develop` branch; reviewed release promotions
-for rc/stable target `main`. Once npm setup is complete and automatic publication
-is enabled, successful develop push CI publishes uniquely versioned packages on
-the `dev` channel. CI generates the number; developers do not increment it for
-every merge. Newer work may supersede pending builds. Stable releases remain
-explicit and use `latest`. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch roles, PR checks
+Changes reach the Git `main` branch through squash-merged pull requests; there
+is no `develop` branch. While `main` carries an `X.Y.Z-dev.0` version, successful
+main push CI publishes uniquely versioned packages on the `dev` channel. CI
+generates the number; developers do not increment it for every merge. Newer work
+may supersede pending builds. RC and stable releases remain explicit and use
+`rc` and `latest`. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch roles, PR checks
 and the release boundary. [RELEASING.md](RELEASING.md) covers version channels,
 npm bootstrap, Trusted Publishing and release checks. CI validates Node.js 22
 and 24 using local contracts and the same CLI contracts against an installed

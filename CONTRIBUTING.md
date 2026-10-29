@@ -2,16 +2,16 @@
 
 ## Branches and pull requests
 
-`main` is the default branch and the reviewed rc/stable release baseline.
-`develop` integrates changes and supplies automatic npm development builds.
-Branch names here refer to Git branches,
-not LambdaDB collection branches or refs.
+Releases are trunk-based. `main` is the default and only long-lived branch; it
+supplies automatic npm development builds and the reviewed rc/stable releases.
+There are no `develop`, release or hotfix branches. Branch names here refer to
+Git branches, not LambdaDB collection branches or refs.
 
-1. Create a short-lived `feat/*` or `fix/*` branch from current `develop`.
+1. Create a short-lived `feat/*` or `fix/*` branch from current `main`.
 2. Implement and validate one coherent change.
-3. Open a pull request targeting `develop`. GitHub defaults new pull requests to
-   `main`, so select the base explicitly.
-4. Address review feedback and pass both required CI checks before merging.
+3. Open a pull request targeting `main`.
+4. Address review feedback and pass both required CI checks before merging with
+   **Squash and merge**.
 5. Delete the short-lived branch after verifying the merge.
 
 ## Local and CI validation
@@ -26,59 +26,47 @@ npm run test:package
 ```
 
 The `CI` workflow in `.github/workflows/publish.yaml` runs on pull requests
-targeting `develop` or `main` and on
-pushes to those branches. Its required check names are `Node.js 22` and
+targeting `main` and on pushes to `main`. Its required check names are `Node.js 22` and
 `Node.js 24`. Both install the lockfile, lint, validate version metadata, check
 types, build, run the mock/local contract suite, and repeat the CLI contract
 tests against a separately installed tarball. Use Node.js 22.14 or newer locally.
 Validation jobs use a read-only GitHub token and no LambdaDB credentials. They
 do not publish packages or contact a LambdaDB service. After both jobs succeed,
-an eligible develop push can publish a dev package using a separate OIDC-enabled
-job. PRs, main pushes and manual CI runs cannot publish development packages.
+a main push with a committed `X.Y.Z-dev.0` version can publish a dev package
+using a separate OIDC-enabled job; a main push with an rc/stable version is
+verified without publication. PRs and manual CI runs cannot publish packages.
 Automatic publication requires `NPM_DEV_PUBLISH_ENABLED=true`; enabling it after
 npm bootstrap and trust setup authorizes this ongoing behavior.
 
-Both long-lived branches require pull requests, one approving review, resolved
-review conversations, and both CI checks against an up-to-date base. New commits
-dismiss prior approvals. Force pushes and branch deletion are disabled. Repository
-administrators are also subject to the repository's branch protection.
+`main` requires pull requests, one approving review, resolved review
+conversations, and both CI checks. Force pushes and branch deletion are disabled.
 
 The organization additionally applies its `protect-main` ruleset to the default
 branch. Its update restriction allows designated team members to merge through
 the organization's PR-only bypass; passing repository CI alone does not grant
 permission to update `main`. Repository rules do not weaken organization rules.
 
-## Promoting a release
+## Releases
 
-Development builds do not require main promotion or manual version increments.
-CI derives a unique version from the reviewed development base and first-parent
-commit count. Keep the base in `X.Y.Z-dev.N` form; when moving to the next release
-line, update it and the lockfile through a PR. Generated build versions are not
-committed back. Stale queued builds can be skipped as newer work arrives.
+Development builds do not require manual version increments. `main` carries the
+next version as `X.Y.Z-dev.0`, and CI publishes `X.Y.Z-dev.N`, where N counts
+first-parent commits since the newest stable release tag. Generated build
+versions are not committed back. Stale queued builds can be skipped as newer
+work arrives.
 
-For an rc/stable release, once changes and validation are complete on `develop`, open a
-`develop` → `main` pull request. Record the version, changes, local/CI evidence,
-and whether live verification was performed. Merge this promotion using a merge
-commit so the shared branch ancestry is preserved. After promotion, synchronize
-`main` back into `develop` through a PR when it contains commits absent from
-`develop`, especially release-only changes or hotfixes. Include the next intended
-development base in that synchronization PR so develop retains a dev version.
-
-A separate `release/*` branch can be created from reviewed develop and target
-main when preparing rc/stable metadata while develop retains its automatic dev
-base. Do not merge stable package metadata into develop without setting its next
-dev base, because automatic development publication requires an `X.Y.Z-dev.N`
-version.
+For an rc/stable release, open a release PR into `main` that sets the version
+with `node scripts/version.mjs set VERSION` and dates the changelog entry. Record
+the version, changes, local/CI evidence, and whether live verification was
+performed. Merging it runs release verification on `main` without publication.
+Maintenance releases and urgent fixes are also cut from `main`: anything merged
+into `main` ships in the next release.
 
 The first npm bootstrap, rc/stable tags and GitHub Releases remain explicit
-release actions. Subsequent dev publication is automatic once enabled. Follow
+release actions. Subsequent dev publication is automatic once enabled. After an
+rc/stable publication, a workflow opens the next development version PR. Follow
 [RELEASING.md](RELEASING.md) for package preparation, version/channel rules,
 credentialed live evidence, initial npm bootstrap and Trusted Publishing.
 Local tests and PR validation alone never trigger publication.
-
-For an urgent released-version fix, branch from `main`, review a PR back to
-`main`, then synchronize the fix into `develop`. Preserve the same checks and
-review requirements.
 
 ## Credentials and scope
 

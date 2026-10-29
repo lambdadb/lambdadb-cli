@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { checkMetadata } from './check-release.mjs';
+import { compareCores, latestStableTag, parseVersion, setVersion, COMMITTED_VERSION, PUBLISHED_VERSION } from './version.mjs';
 
 const packageName = '@functional-systems/lambdadb-cli';
 const registry = 'https://registry.npmjs.org';
@@ -20,10 +21,20 @@ function lookupError(code) {
   return error;
 }
 
-export function developmentVersion(version, count) {
-  const match = devPattern.exec(version);
-  if (!match || !/^[1-9]\d*$/.test(String(count))) throw new Error('Develop requires X.Y.Z-dev.N and a positive first-parent commit count.');
-  return `${match[1]}.${match[2]}.${match[3]}-dev.${count}`;
+/**
+ * The committed `X.Y.Z-dev.0` placeholder becomes `X.Y.Z-dev.N`, where N counts first-parent commits
+ * since the newest stable tag reachable from the commit. X.Y.Z must be newer than that tag.
+ */
+export function developmentVersion(committed, { count, stableTag }) {
+  if (!COMMITTED_VERSION.test(committed) || !committed.endsWith('-dev.0')) {
+    throw new Error(`Development builds require a committed X.Y.Z-dev.0 version, found ${committed}.`);
+  }
+  if (!/^[1-9]\d*$/.test(String(count))) throw new Error('Expected a positive first-parent commit count since the latest stable release.');
+  const { core, text } = parseVersion(committed);
+  if (stableTag && compareCores(core, parseVersion(stableTag.slice(1)).core) <= 0) {
+    throw new Error(`Committed ${committed} must be newer than the latest stable release ${stableTag}; merge the next development version first.`);
+  }
+  return `${text}-dev.${count}`;
 }
 
 export function compareDevelopmentVersions(left, right) {
@@ -68,16 +79,16 @@ export function publicationPlan({ version, sha, branchHead, existing, taggedVers
   return 'already-published';
 }
 
-function developHead() {
-  const result = git('ls-remote', 'origin', 'refs/heads/develop');
-  const match = /^([a-f0-9]{40})\s+refs\/heads\/develop$/.exec(result);
-  if (!match) throw new Error('Cannot resolve origin/develop.');
+function mainHead() {
+  const result = git('ls-remote', 'origin', 'refs/heads/main');
+  const match = /^([a-f0-9]{40})\s+refs\/heads\/main$/.exec(result);
+  if (!match) throw new Error('Cannot resolve origin/main.');
   return match[1];
 }
 
 function context() {
-  if (process.env.GITHUB_REPOSITORY !== 'lambdadb/lambdadb-cli' || process.env.GITHUB_EVENT_NAME !== 'push' || process.env.GITHUB_REF !== 'refs/heads/develop') {
-    throw new Error('Automatic development publication only runs on this repository’s develop push.');
+  if (process.env.GITHUB_REPOSITORY !== 'lambdadb/lambdadb-cli' || process.env.GITHUB_EVENT_NAME !== 'push' || process.env.GITHUB_REF !== 'refs/heads/main') {
+    throw new Error('Automatic development publication only runs on this repository’s main push.');
   }
   const sha = git('rev-parse', 'HEAD');
   if (sha !== process.env.GITHUB_SHA) throw new Error('Checkout does not match the triggering commit.');
@@ -91,23 +102,25 @@ function output(name, value) {
 
 function prepare() {
   const sha = context();
-  if (sha !== developHead()) { output('ready', 'false'); return; }
+  if (sha !== mainHead()) { output('ready', 'false'); return; }
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
   const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
   checkMetadata(pkg, lock);
   if (pkg.name !== packageName) throw new Error('Unexpected package name.');
-  const version = developmentVersion(pkg.version, git('rev-list', '--first-parent', '--count', 'HEAD'));
-  pkg.version = lock.version = lock.packages[''].version = version;
-  pkg.gitHead = sha;
-  checkMetadata(pkg, lock, { tag: `v${version}`, prerelease: true });
-  writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-  writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+  const stableTag = latestStableTag(git('tag', '--merged', 'HEAD', '--list', 'v*').split('\n').filter(Boolean));
+  const count = git('rev-list', '--first-parent', '--count', stableTag ? `${stableTag}..HEAD` : 'HEAD');
+  const version = developmentVersion(pkg.version, { count, stableTag });
+  const preparedLock = { ...lock, version, packages: { ...lock.packages, '': { ...lock.packages[''], version } } };
+  checkMetadata({ ...pkg, version }, preparedLock, { tag: `v${version}`, prerelease: true });
+  // Only this disposable checkout changes, after every check passes.
+  setVersion('.', version, { allowed: PUBLISHED_VERSION });
+  writeFileSync('package.json', JSON.stringify({ ...JSON.parse(readFileSync('package.json', 'utf8')), gitHead: sha }, null, 2) + '\n');
   output('version', version);
   output('ready', 'true');
 }
 
 export async function publishDevelopment({ name, version, sha, integrity, tarball }, {
-  run = npm, head = developHead, pause = delay, now = () => performance.now(), report = message => console.error(message),
+  run = npm, head = mainHead, pause = delay, now = () => performance.now(), report = message => console.error(message),
 } = {}) {
   if (name !== packageName) throw new Error('Unexpected package name.');
   // Select dev explicitly; bootstrap can also create latest without a stable release.

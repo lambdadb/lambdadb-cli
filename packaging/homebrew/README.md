@@ -46,7 +46,7 @@ formula test checks version, noninteractive JSON configuration and file permissi
 without API access. The harness also verifies the wrapper with a deliberately
 unusable ambient Node and runs the CLI contracts from the formula's stable
 release commit against the installed package. A full Git checkout is required;
-this avoids testing an older stable package against unreleased develop features.
+this avoids testing an older stable package against unreleased features on main.
 
 An existing `lambdadb-cli` installation or executable in Homebrew's prefix stops the
 test before mutations. On completion or ordinary failure, the script removes only

@@ -1,0 +1,68 @@
+# After an rc/stable GitHub Release publishes, open a pull request that restores the
+# X.Y.Z-dev.0 placeholder on main so dev builds resume above the released version.
+name: Open next development version
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: next-dev-version
+  cancel-in-progress: false
+
+jobs:
+  open-pull-request:
+    if: >-
+      github.repository == 'lambdadb/lambdadb-cli' &&
+      github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Open the next development version pull request
+        env:
+          # For a release-triggered run, head_branch is the release tag.
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]]; then
+            echo "Unexpected release tag $RELEASE_TAG" >&2
+            exit 1
+          fi
+          RELEASED="${RELEASE_TAG#v}"
+          CURRENT=$(node scripts/version.mjs get)
+          if [ "$CURRENT" != "$RELEASED" ]; then
+            echo "main is at $CURRENT, not the released $RELEASED; nothing to do"
+            exit 0
+          fi
+          NEXT=$(node scripts/version.mjs next-dev "$RELEASED")
+          BRANCH="chore/next-dev-$NEXT"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "$BRANCH already exists"
+            exit 0
+          fi
+          node scripts/version.mjs set "$NEXT"
+          git switch -c "$BRANCH"
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -am "chore: start $NEXT development"
+          git push origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" --title "chore: start $NEXT development" --body \
+            "$RELEASE_TAG is published. This restores the development placeholder so dev builds resume as \`${NEXT%.0}.N\`, above the released version. Change the version with \`node scripts/version.mjs set X.Y.Z-dev.0\` if the next release is a minor or major version."
+          # Pull requests opened with GITHUB_TOKEN do not trigger pull_request workflows;
+          # a dispatched CI run reports the required Node.js checks on the branch head.
+          gh workflow run publish.yaml --ref "$BRANCH"

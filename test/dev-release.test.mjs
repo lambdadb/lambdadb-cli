@@ -14,12 +14,17 @@ const artifact = { name, version, sha, integrity, tarball: '/tmp/tested-package.
 const manifest = { name, version, gitHead: sha, dist: { integrity } };
 const state = { version, sha, integrity, branchHead: sha, taggedVersion: '0.1.0-dev.11' };
 
-test('development numbering is deterministic and compares counters and release bases numerically', () => {
-  assert.equal(developmentVersion('0.1.0-dev.1', '12'), version);
-  assert.equal(developmentVersion(version, '12'), version);
-  assert.equal(developmentVersion('0.2.0-dev.1', '13'), '0.2.0-dev.13');
-  for (const bad of ['0.1.0', '0.1.0-rc.1', '0.1.0-dev.01']) assert.throws(() => developmentVersion(bad, 12));
-  for (const bad of ['0', '-1', '01', '1.5', 'NaN']) assert.throws(() => developmentVersion(version, bad));
+test('development numbering replaces the dev.0 placeholder, guards regressions and compares numerically', () => {
+  assert.equal(developmentVersion('0.1.0-dev.0', { count: '12' }), version);
+  assert.equal(developmentVersion('0.1.1-dev.0', { count: 3, stableTag: 'v0.1.0' }), '0.1.1-dev.3');
+  assert.equal(developmentVersion('0.2.0-dev.0', { count: '1', stableTag: 'v0.1.9' }), '0.2.0-dev.1');
+  for (const bad of ['0.1.0', '0.1.0-rc.1', '0.1.0-dev.1', '0.1.0-dev.01', '0.1.0-dev']) {
+    assert.throws(() => developmentVersion(bad, { count: 12 }), /committed X\.Y\.Z-dev\.0/);
+  }
+  for (const bad of ['0', '-1', '01', '1.5', 'NaN', '']) assert.throws(() => developmentVersion('0.1.0-dev.0', { count: bad }), /positive/);
+  for (const tag of ['v0.1.0', 'v0.2.0']) {
+    assert.throws(() => developmentVersion('0.1.0-dev.0', { count: 1, stableTag: tag }), /must be newer than the latest stable release/);
+  }
   assert.equal(compareDevelopmentVersions('0.1.0-dev.10', '0.1.0-dev.2'), 1);
   assert.equal(compareDevelopmentVersions('0.2.0-dev.1', '0.1.0-dev.999'), 1);
   assert.equal(compareDevelopmentVersions(version, version), 0);
@@ -247,23 +252,24 @@ test('preparation uses real Git history, updates both lock versions, and rejects
   const runGit = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   runGit(temp, 'init', '--bare', remote);
   runGit(temp, 'clone', remote, repo);
-  runGit(repo, 'checkout', '-b', 'develop');
+  runGit(repo, 'checkout', '-b', 'main');
   runGit(repo, 'config', 'user.name', 'Release test');
   runGit(repo, 'config', 'user.email', 'test@example.invalid');
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-  pkg.version = '0.1.0-dev.1';
+  pkg.version = '0.1.0-dev.0';
   const lock = { name: pkg.name, version: pkg.version, packages: { '': { name: pkg.name, version: pkg.version } } };
   writeFileSync(join(repo, 'package.json'), JSON.stringify(pkg));
   writeFileSync(join(repo, 'package-lock.json'), JSON.stringify(lock));
   runGit(repo, 'add', '.');
   runGit(repo, 'commit', '-m', 'initial');
   runGit(repo, 'commit', '--allow-empty', '-m', 'next');
-  runGit(repo, 'push', 'origin', 'develop');
+  runGit(repo, 'push', 'origin', 'main');
   const head = runGit(repo, 'rev-parse', 'HEAD');
   const script = resolve('scripts/dev-release.mjs');
-  const env = { ...process.env, GITHUB_REPOSITORY: 'lambdadb/lambdadb-cli', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/develop', GITHUB_SHA: head, GITHUB_OUTPUT: join(temp, 'output') };
+  const env = { ...process.env, GITHUB_REPOSITORY: 'lambdadb/lambdadb-cli', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_SHA: head, GITHUB_OUTPUT: join(temp, 'output') };
   const prepare = overrides => execFileSync(process.execPath, [script, 'prepare'], { cwd: repo, env: { ...env, ...overrides }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   assert.throws(() => prepare({ GITHUB_EVENT_NAME: 'pull_request' }));
+  assert.throws(() => prepare({ GITHUB_REF: 'refs/heads/develop' }));
   assert.throws(() => prepare({ GITHUB_SHA: 'b'.repeat(40) }));
   assert.match(prepare(), /ready=true/);
   const prepared = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
@@ -308,9 +314,88 @@ else { console.log(JSON.stringify({error:{code:'E404'}})); process.exitCode = 1;
   assert.match(failed.stderr, /npm publish did not confirm success/);
   assert.equal(readFileSync(writes, 'utf8'), 'publish\npublish\n');
   runGit(repo, 'commit', '--allow-empty', '-m', 'newer remote head');
-  runGit(repo, 'push', 'origin', 'develop');
+  runGit(repo, 'push', 'origin', 'main');
   runGit(repo, 'checkout', '--detach', head);
   const before = readFileSync(join(repo, 'package.json'), 'utf8');
   assert.match(prepare(), /ready=false/);
   assert.equal(readFileSync(join(repo, 'package.json'), 'utf8'), before);
+});
+
+test('preparation counts first-parent commits since the newest reachable stable tag and fails without mutation', t => {
+  const temp = mkdtempSync(join(tmpdir(), 'cli-dev-numbering-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const remote = join(temp, 'remote.git'), repo = join(temp, 'repo');
+  const runGit = (cwd, ...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
+    { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  runGit(temp, 'init', '--bare', remote);
+  runGit(temp, 'clone', remote, repo);
+  runGit(repo, 'checkout', '-b', 'main');
+  runGit(repo, 'config', 'user.name', 'Release test');
+  runGit(repo, 'config', 'user.email', 'test@example.invalid');
+  const base = JSON.parse(readFileSync('package.json', 'utf8'));
+  const files = () => ['package.json', 'package-lock.json'].map(path => readFileSync(join(repo, path), 'utf8'));
+  const commit = (message, version) => {
+    if (version) {
+      writeFileSync(join(repo, 'package.json'), JSON.stringify({ ...base, version }, null, 2) + '\n');
+      writeFileSync(join(repo, 'package-lock.json'), JSON.stringify({ name: base.name, version, lockfileVersion: 3,
+        packages: { '': { name: base.name, version }, 'node_modules/example': { version: '1.2.3' } } }, null, 2) + '\n');
+    }
+    runGit(repo, 'add', '.');
+    runGit(repo, 'commit', '--allow-empty', '-m', message);
+    runGit(repo, 'push', 'origin', 'main');
+    return runGit(repo, 'rev-parse', 'HEAD');
+  };
+  const script = resolve('scripts/dev-release.mjs');
+  const prepare = sha => {
+    const result = spawnSync(process.execPath, [script, 'prepare'], { cwd: repo, encoding: 'utf8', env: { ...process.env,
+      GITHUB_REPOSITORY: 'lambdadb/lambdadb-cli', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_SHA: sha, GITHUB_OUTPUT: '' } });
+    const prepared = result.status === 0 ? JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')) : undefined;
+    const lock = result.status === 0 ? JSON.parse(readFileSync(join(repo, 'package-lock.json'), 'utf8')) : undefined;
+    runGit(repo, 'checkout', '--', '.');
+    if (!prepared) return { error: result.stderr.trim() };
+    assert.equal(prepared.gitHead, sha);
+    assert.equal(lock.version, prepared.version);
+    assert.equal(lock.packages[''].version, prepared.version);
+    assert.equal(lock.packages['node_modules/example'].version, '1.2.3');
+    return prepared.version;
+  };
+
+  commit('Release 0.1.0', '0.1.0');
+  runGit(repo, 'tag', 'v0.1.0');
+  // A stable-looking tag outside main's history is ignored.
+  runGit(repo, 'checkout', '-b', 'side');
+  runGit(repo, 'commit', '--allow-empty', '-m', 'Unmerged');
+  runGit(repo, 'tag', 'v9.9.9');
+  runGit(repo, 'checkout', 'main');
+  commit('Next development version', '0.1.1-dev.0');
+  runGit(repo, 'checkout', '-b', 'feature');
+  runGit(repo, 'commit', '--allow-empty', '-m', 'Feature A');
+  runGit(repo, 'commit', '--allow-empty', '-m', 'Feature B');
+  runGit(repo, 'checkout', 'main');
+  runGit(repo, 'merge', '--no-ff', '-m', 'Merge feature', 'feature');
+  runGit(repo, 'push', 'origin', 'main');
+  let sha = runGit(repo, 'rev-parse', 'HEAD');
+  assert.equal(prepare(sha), '0.1.1-dev.2', 'A merged branch counts once on the first-parent line.');
+  assert.equal(prepare(sha), '0.1.1-dev.2', 'A rerun of the same commit computes the same version.');
+
+  // Release candidates keep the count; release commits are verified, never prepared as dev builds.
+  sha = commit('Release 0.1.1-rc.1', '0.1.1-rc.1');
+  runGit(repo, 'tag', 'v0.1.1-rc.1');
+  let before = files();
+  assert.match(prepare(sha).error, /committed X\.Y\.Z-dev\.0/);
+  assert.deepEqual(files(), before);
+  sha = commit('Back to development', '0.1.1-dev.0');
+  assert.equal(prepare(sha), '0.1.1-dev.4');
+
+  // A stable tag restarts the count, and a missed next-version change cannot publish a lower version.
+  commit('Release 0.1.1', '0.1.1');
+  runGit(repo, 'tag', 'v0.1.1');
+  sha = commit('Forgot the next version', '0.1.1-dev.0');
+  before = files();
+  assert.match(prepare(sha).error, /must be newer than the latest stable release v0\.1\.1/);
+  assert.deepEqual(files(), before);
+  sha = commit('Next development version', '0.2.0-dev.0');
+  assert.equal(prepare(sha), '0.2.0-dev.2');
+  sha = commit('Unsupported committed dev number', '0.2.0-dev.3');
+  assert.match(prepare(sha).error, /committed X\.Y\.Z-dev\.0/);
 });
