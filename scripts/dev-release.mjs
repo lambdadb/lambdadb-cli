@@ -22,19 +22,21 @@ function lookupError(code) {
 }
 
 /**
- * The committed `X.Y.Z-dev.0` placeholder becomes `X.Y.Z-dev.N`, where N counts first-parent commits
- * since the newest stable tag reachable from the commit. X.Y.Z must be newer than that tag.
+ * The committed, already tagged rc/stable version selects the development line: `X.Y.Z-rc.M` builds
+ * `X.Y.Z-dev.N` and `X.Y.Z` builds `X.Y.(Z+1)-dev.N`. N counts first-parent commits since the newest
+ * stable tag reachable from the commit, and the development line must be newer than that tag.
  */
 export function developmentVersion(committed, { count, stableTag }) {
-  if (!COMMITTED_VERSION.test(committed) || !committed.endsWith('-dev.0')) {
-    throw new Error(`Development builds require a committed X.Y.Z-dev.0 version, found ${committed}.`);
+  if (!COMMITTED_VERSION.test(committed)) {
+    throw new Error(`Development builds require a committed X.Y.Z or X.Y.Z-rc.N version, found ${committed}.`);
   }
   if (!/^[1-9]\d*$/.test(String(count))) throw new Error('Expected a positive first-parent commit count since the latest stable release.');
-  const { core, text } = parseVersion(committed);
+  const [major, minor, patch] = parseVersion(committed).core;
+  const core = committed.includes('-rc.') ? [major, minor, patch] : [major, minor, patch + 1];
   if (stableTag && compareCores(core, parseVersion(stableTag.slice(1)).core) <= 0) {
-    throw new Error(`Committed ${committed} must be newer than the latest stable release ${stableTag}; merge the next development version first.`);
+    throw new Error(`Development version ${core.join('.')} must be newer than the latest stable release ${stableTag}; committed ${committed} is behind it.`);
   }
-  return `${text}-dev.${count}`;
+  return `${core.join('.')}-dev.${count}`;
 }
 
 export function compareDevelopmentVersions(left, right) {
@@ -109,6 +111,12 @@ function prepare() {
   if (pkg.name !== packageName) throw new Error('Unexpected package name.');
   const stableTag = latestStableTag(git('tag', '--merged', 'HEAD', '--list', 'v*').split('\n').filter(Boolean));
   const count = git('rev-list', '--first-parent', '--count', stableTag ? `${stableTag}..HEAD` : 'HEAD');
+  if (count === '0') {
+    // A rerun of the stable release commit after its tag exists; the Release publishes it.
+    console.log(`::notice title=Development publication skipped::HEAD is the stable release ${stableTag}; there is no development version to build.`);
+    output('ready', 'false');
+    return;
+  }
   const version = developmentVersion(pkg.version, { count, stableTag });
   const preparedLock = { ...lock, version, packages: { ...lock.packages, '': { ...lock.packages[''], version } } };
   checkMetadata({ ...pkg, version }, preparedLock, { tag: `v${version}`, prerelease: true });
@@ -121,6 +129,7 @@ function prepare() {
 
 export async function publishDevelopment({ name, version, sha, integrity, tarball }, {
   run = npm, head = mainHead, pause = delay, now = () => performance.now(), report = message => console.error(message),
+  notice = message => console.log(`::notice title=Development publication skipped::${message}`),
 } = {}) {
   if (name !== packageName) throw new Error('Unexpected package name.');
   // Select dev explicitly; bootstrap can also create latest without a stable release.
@@ -130,6 +139,8 @@ export async function publishDevelopment({ name, version, sha, integrity, tarbal
   if (taggedVersion !== undefined && typeof taggedVersion !== 'string') throw new Error('Invalid dev tag.');
   const existing = manifest();
   const plan = publicationPlan({ version, sha, integrity, existing, taggedVersion, branchHead: head() });
+  // The dev tag never moves backwards, e.g. when a development line restarts below an earlier build.
+  if (plan === 'superseded') notice(`${version} is lower than the current dev dist-tag ${taggedVersion}; dev is not moved backwards.`);
   if (plan !== 'publish') return plan;
   const result = run(['publish', tarball, '--access', 'public', '--tag', 'dev', '--provenance']);
   if (result.status !== 0) throw new Error('npm publish did not confirm success. Inspect registry state and rerun; this job never retries the write.');

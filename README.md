@@ -202,9 +202,10 @@ verification.
 ## Development and boundaries
 
 Changes reach the Git `main` branch through squash-merged pull requests; there
-is no `develop` branch. While `main` carries an `X.Y.Z-dev.0` version, successful
-main push CI publishes uniquely versioned packages on the `dev` channel. CI
-generates the number; developers do not increment it for every merge. Newer work
+is no `develop` branch. While the version on `main` is already released,
+successful main push CI publishes uniquely versioned packages on the `dev`
+channel, derived from that version. CI generates the number; developers do not
+change the version for every merge. Newer work
 may supersede pending builds. RC and stable releases remain explicit and use
 `rc` and `latest`. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch roles, PR checks
 and the release boundary. [RELEASING.md](RELEASING.md) covers version channels,

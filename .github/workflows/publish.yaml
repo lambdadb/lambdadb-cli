@@ -1,6 +1,7 @@
-# CI validates pull requests and main. A main push with the committed X.Y.Z-dev.0
-# placeholder publishes a dev build; a main push with an rc/stable version (a release
-# PR merge) is verified without publication; a published GitHub Release publishes it.
+# CI validates pull requests and main. The version files hold the last released or the
+# next rc/stable version. A main push whose committed version is already tagged on origin
+# publishes a dev build derived from it; a main push whose version is not tagged yet (a
+# release PR merge) is verified without publication; a published GitHub Release publishes it.
 # Every publishing mode first runs the deployed live smoke: dev builds against the dev
 # environment, release verification and releases against production.
 name: CI
@@ -78,8 +79,8 @@ jobs:
       - name: Require an OIDC-capable npm
         run: |
           node -e 'const {execFileSync}=require("node:child_process"); const v=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(v[0]<11 || (v[0]===11 && (v[1]<5 || (v[1]===5 && v[2]<1)))) throw Error("npm >=11.5.1 required");'
-      # The committed X.Y.Z-dev.0 placeholder selects a dev build; an rc/stable version
-      # on a main push (a release PR merge) is verified only.
+      # A committed version already tagged on origin selects a dev build; an untagged
+      # rc/stable version on a main push (a release PR merge) is verified only.
       - name: Select the run mode
         id: mode
         env:
@@ -90,9 +91,16 @@ jobs:
             MODE=release
           else
             case "$VERSION" in
-              *-dev.0) MODE=dev ;;
-              *-dev.*) echo "Committed version $VERSION must use the -dev.0 placeholder" >&2; exit 1 ;;
-              *) MODE=verify ;;
+              *-dev.*) echo "Committed version $VERSION must be an rc or stable version" >&2; exit 1 ;;
+            esac
+            # Query origin rather than local tags so a shallow or stale checkout cannot
+            # misclassify the commit. Exit status 2 means the tag does not exist.
+            STATUS=0
+            git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null || STATUS=$?
+            case "$STATUS" in
+              0) MODE=dev ;;
+              2) MODE=verify ;;
+              *) echo "Could not query origin for tag v$VERSION" >&2; exit 1 ;;
             esac
           fi
           # Dev builds are smoke-tested against the dev environment; release verification

@@ -89,13 +89,20 @@
 - Synchronize the 0.1.6 release history and start the 0.1.7 development line.
 - Update the Homebrew formula to verified stable 0.1.6.
 - Move releases to trunk-based development on `main`; `develop` is retired.
-  `main` carries the next version as `X.Y.Z-dev.0` (now `0.1.7-dev.0`), and each
-  main push publishes `X.Y.Z-dev.N` on the `dev` channel, where N counts
-  first-parent commits since the newest stable tag and restarts after each stable
-  release. A merge that sets an rc/stable version is verified without
-  publication, and its GitHub Release publishes it. After publication, a workflow
-  opens the next development version PR. `scripts/version.mjs` updates every
-  version source.
+  Each main push publishes `X.Y.Z-dev.N` on the `dev` channel, where N counts
+  first-parent commits since the newest stable tag and restarts after
+  each stable release. A merge that sets an rc/stable version is verified without
+  publication, and its GitHub Release publishes it. `scripts/version.mjs`
+  updates every version source.
+- Derive development versions from release tags. The version files hold the last
+  released version (now `0.1.6`) or the next rc/stable version set by a release
+  PR; a development version is never committed, and `scripts/version.mjs set`
+  rejects it. A main push whose version is already tagged on `origin` publishes
+  `X.Y.(Z+1)-dev.N` after a stable release or `X.Y.Z-dev.N` after an rc; an
+  untagged version is verified against production without publication. A
+  computed version below the current `dev` dist-tag is skipped with a notice.
+  The `X.Y.Z-dev.0` placeholder and the "Open next development version" workflow
+  are removed.
 
 ## [0.1.6] - 2026-10-25
 
