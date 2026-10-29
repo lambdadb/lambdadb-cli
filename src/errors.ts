@@ -73,15 +73,24 @@ export function describeError(error: unknown): SafeError {
 }
 
 // Commander names the missing flag or unknown word and may suggest a correction.
-// Only unknown commands/options and invalid choices echo argv; clip an inline
-// `--flag=value` so an unknown option never prints its value.
+// Only unknown commands/options and invalid choices echo argv. An unknown option
+// is rebuilt from its flag name alone, so an inline `--flag=value` never prints
+// its value, whatever characters the value contains.
 export function parseError(error: CommanderError, command: string): InputError {
   if (error.code === 'commander.help') return new InputError(`${cli} ${command} needs a subcommand.`, `Run ${cli} ${command} --help to list them.`);
-  const detail = error.message.replace(/^error: /, '')
-    .replace(/^unknown option '([^'=]*)=[^']*'/, "unknown option '$1'")
-    .replace(/\n\(Did you mean (.+)\?\)$/, '. Did you mean $1?').trim();
-  const message = detail ? detail.charAt(0).toUpperCase() + detail.slice(1) : 'Invalid or incomplete command';
-  return new InputError(/[.?]$/.test(message) ? message : `${message}.`, `Run ${cli} --help or the command-specific --help.`);
+  const raw = error.message.replace(/^error: /, '');
+  // Suggestions list only CLI-defined flag or command names.
+  const suggestion = /\n\(Did you mean ((?:one of )?[\w-]+(?:, [\w-]+)*)\?\)$/.exec(raw)?.[1];
+  let detail = suggestion ? raw.slice(0, raw.lastIndexOf('\n')) : raw;
+  if (error.code === 'commander.unknownOption') {
+    const flag = /^[^'=\s]*/.exec(raw.slice(raw.indexOf("'") + 1))![0];
+    detail = `unknown option '${flag}'`;
+  }
+  detail = detail.trim();
+  let message = detail ? detail.charAt(0).toUpperCase() + detail.slice(1) : 'Invalid or incomplete command';
+  if (!/[.?]$/.test(message)) message += '.';
+  if (suggestion) message += ` Did you mean ${suggestion}?`;
+  return new InputError(message, `Run ${cli} --help or the command-specific --help.`);
 }
 
 export function isInputError(error: unknown): boolean {

@@ -542,6 +542,10 @@ test('parse errors name the missing option, unknown word or close suggestion and
     [['collections', 'list', '--sizee', '3'], "Unknown option '--sizee'. Did you mean --size?", 'collections'],
     [['docs', 'import', '--collection', 'demo-docs', '--branch', 'main', '--file', 'x', '--mode', 'xyz'], "Option '--mode <mode>' argument 'xyz' is invalid. Allowed choices are upsert, bulk.", 'docs'],
     [['doctor', `--api-key=${secret}`], "Unknown option '--api-key'.", 'doctor'],
+    [['doctor', `--api-key=prefix'${secret}`], "Unknown option '--api-key'.", 'doctor'],
+    [['doctor', `--api-key=${secret}\n(Did you mean ${secret}?)`], "Unknown option '--api-key'.", 'doctor'],
+    [['doctor', `--api-key-en=${secret}'tail-marker`], "Unknown option '--api-key-en'.", 'doctor'],
+    [['doctor', '--api-key-en'], "Unknown option '--api-key-en'. Did you mean --api-key-env?", 'doctor'],
   ];
   const hint = 'Run lambdadb --help or the command-specific --help.';
   for (const [args, message, command] of cases) {
@@ -550,7 +554,7 @@ test('parse errors name the missing option, unknown word or close suggestion and
     assert.equal(r.json.command, command);
     assert.equal(r.json.error.code, 'INPUT_ERROR');
     assert.ok(r.json.error.message.startsWith(message), r.json.error.message);
-    assert.ok(!r.json.error.message.includes('='), r.json.error.message);
+    assert.ok(!r.json.error.message.includes('=') && !r.json.error.message.includes('prefix') && !r.json.error.message.includes('tail-marker'), r.json.error.message);
     assert.equal(r.json.error.hint, hint);
     const human = await f.run(args);
     assert.equal(human.code, 2);
