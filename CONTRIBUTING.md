@@ -4,6 +4,8 @@
 
 `main` is the default branch and the reviewed rc/stable release baseline.
 `develop` integrates changes and supplies automatic npm development builds.
+Short-lived `release/X.Y.Z` and `hotfix/X.Y.Z` branches carry rc/stable
+preparation and fixes into `main`.
 Branch names here refer to Git branches,
 not LambdaDB collection branches or refs.
 
@@ -12,8 +14,8 @@ not LambdaDB collection branches or refs.
 3. Open a pull request targeting `develop`. GitHub defaults new pull requests to
    `main`, so select the base explicitly.
 4. Address review feedback and pass both required CI checks, then merge with
-   **Squash and merge**. Only promotion and synchronization PRs (below) use
-   merge commits.
+   **Squash and merge**. Only promotion and back-merge PRs (below) use merge
+   commits.
 5. Delete the short-lived branch after verifying the merge.
 
 ## Local and CI validation
@@ -53,8 +55,8 @@ permission to update `main`. Repository rules do not weaken organization rules.
 Once lambdadb/lambdadb-iac#22 is applied, organization rulesets also block
 deletion and force pushes on `develop`, require pull requests for it, and allow
 only squash and merge-commit merges there (rebase merge is blocked). `main`
-allows only merge commits. These rulesets have no bypass actors and do not
-affect tags.
+allows only merge commits. These rulesets have no bypass actors and do not cover
+tags or `release/*` and `hotfix/*` branches.
 
 ## Promoting a release
 
@@ -64,30 +66,39 @@ commit count. Keep the base in `X.Y.Z-dev.N` form; when moving to the next relea
 line, update it and the lockfile through a PR. Generated build versions are not
 committed back. Stale queued builds can be skipped as newer work arrives.
 
-For an rc/stable release, prepare the version, changelog and release notes on a
-short-lived branch from `develop` (a `release/*` name is fine) and merge it into
-`develop` with **Squash and merge**. Release preparation never targets `main`; do
-not add release-only commits directly to `main`. While `develop` carries rc/stable
-metadata, no development package is published (see
-[RELEASING.md](RELEASING.md#automatic-development-publication)).
+For an rc/stable release, cut `release/X.Y.Z` from the reviewed `develop` commit.
+Commit the rc/stable version, changelog, release notes and any RC fixes through
+PRs into that release branch. `develop` keeps its `X.Y.Z-dev.N` base and
+continues to receive feature work and automatic development builds; nothing
+merged into `develop` after the cut ships in this release. Use a release branch
+even when there is nothing to stabilize, because automatic development
+publication requires `develop` to keep an `X.Y.Z-dev.N` version. The CI workflow
+runs on PRs into `develop` and `main` only; validate PRs into a release branch
+locally or with a manual CI run.
 
-Once changes and validation are complete on `develop`, open a `develop` → `main`
-pull request. Record the version, changes, local/CI evidence, and whether live
-verification was performed. Merge this promotion with **Create a merge commit**
-so the shared branch ancestry is preserved, then tag and publish from the
-resulting reviewed `main` commit. After the release, set the next intended
-development base on `develop` through a PR so automatic development publication
-resumes.
+When the release branch is ready, open a `release/X.Y.Z` → `main` pull request.
+Record the version, changes, local/CI evidence, and whether live verification
+was performed. Merge this promotion with **Create a merge commit** so the shared
+branch ancestry is preserved, then tag and publish from the resulting reviewed
+`main` merge commit. Each rc repeats this: fix on the release branch, promote,
+tag the next `-rc.N`.
 
-After every promotion and release tag, and whenever `main` contains other
-commits absent from `develop` (hotfixes, or anything merged straight into `main`,
-such as Dependabot security updates), open a `main` → `develop` synchronization
-PR and merge it with **Create a merge commit**. The promotion merge commit itself
-is absent from `develop`, so without this synchronization the release tag is
-unreachable from `develop`. Never squash or rebase a synchronization PR: that
-makes the trees equal without shared ancestry, so later comparisons show
-already-synchronized commits again and release tags remain unreachable from
-`develop`. Verify with `git merge-base --is-ancestor <main-commit> origin/develop`.
+After every promotion and tag, back-merge `main` (not the release branch) into
+`develop` with **Create a merge commit**. Only `main` carries the promotion merge
+commit and its tag, plus any hotfix or change merged straight into `main`, such
+as Dependabot security updates. Because `main` carries rc/stable package
+metadata, prepare the back-merge on a short-lived branch created from `main`:
+merge `develop` into it, resolve conflicts (typically keeping `develop`'s newer
+content), and restore `develop`'s development base in `package.json` and both
+lockfile version entries. After an rc, keep `develop`'s current `X.Y.Z-dev.N`
+base; after a stable `X.Y.Z` release, move a base still on that line to the
+next one, such as `X.Y.(Z+1)-dev.1`. Open that branch as the back-merge PR into
+`develop`. Never squash or rebase a back-merge PR: that makes the trees equal
+without shared ancestry, so later comparisons repeat merged commits and release
+tags become unreachable from `develop`. Afterwards,
+`git merge-base --is-ancestor origin/main origin/develop` must succeed.
+
+Delete `release/*` and `hotfix/*` branches after their final promotion PR merges.
 
 The first npm bootstrap, rc/stable tags and GitHub Releases remain explicit
 release actions. Subsequent dev publication is automatic once enabled. Follow
@@ -95,10 +106,10 @@ release actions. Subsequent dev publication is automatic once enabled. Follow
 credentialed live evidence, initial npm bootstrap and Trusted Publishing.
 Local tests and PR validation alone never trigger publication.
 
-For an urgent released-version fix, branch from `main`, review a PR back to
-`main` and merge it with **Create a merge commit**, release from `main`, then
-synchronize `main` into `develop` as described above. Preserve the same checks
-and review requirements.
+For an urgent released-version fix, cut `hotfix/X.Y.Z` from `main`, review a PR
+into `main` and merge it with **Create a merge commit**, tag and publish from
+`main`, then back-merge `main` into `develop` as described above. Preserve the
+same checks and review requirements.
 
 ## Credentials and scope
 
