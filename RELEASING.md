@@ -7,10 +7,12 @@ Record execution results in the relevant PR and release, following
 
 ## Branch and version policy
 
-Follow [CONTRIBUTING.md](CONTRIBUTING.md): feature/fix PRs target `develop`,
-promotion PRs target `main`. Development versions publish from `develop` after
-CI, while rc/stable releases publish from reviewed `main` history. npm `latest`,
-not the main branch tip, identifies the stable npm version.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md): feature/fix and release-preparation
+PRs target `develop` and are squash-merged; `develop` → `main` promotion PRs and
+`main` → `develop` synchronization PRs use merge commits. Development versions
+publish from `develop` after CI, while rc/stable releases publish from reviewed
+`main` history. npm `latest`, not the main branch tip, identifies the stable npm
+version.
 
 | Source | Package version | Trigger | npm dist-tag |
 | --- | --- | --- | --- |
@@ -39,7 +41,13 @@ from a full checkout. For example, count 12 produces `0.1.0-dev.12`. The counter
 includes commits that were never published; it is not necessarily consecutive
 in npm. A rerun of the same commit produces the same version. Force pushes and
 history rewrites must remain disabled. When starting the next release line,
-review a new base such as `0.2.0-dev.1`, including when synchronizing main back.
+review a new base such as `0.2.0-dev.1` through a PR into `develop`.
+
+Release preparation merges rc/stable metadata into `develop` before promotion.
+Push CI still validates that commit, but the publication job fails in its
+preparation step, before any registry write, because it requires `X.Y.Z-dev.N`.
+This is expected: no dev package is published from `develop` until the next
+development base is merged after the release.
 
 Generated package/lock versions and `gitHead` are changed only in the runner;
 there are no version-bump commits, Git tags or GitHub Releases for automatic dev
@@ -96,8 +104,9 @@ compatible. Human summaries are not a scripting interface.
 ## Bootstrap and explicit rc/stable release preflight
 
 1. Prepare and review the release version, license file/metadata, changelog,
-   dependency changes and package inventory. Set `private: false` only in this
-   explicitly approved preparation. Preserve the exact repository URL.
+   dependency changes and package inventory in a PR into `develop`. Set
+   `private: false` only in this explicitly approved preparation. Preserve the
+   exact repository URL.
 2. Run the following in a clean checkout of the candidate commit with Node
    22.14+ (CI tests current Node 22 and 24). Do not load production credentials.
 
@@ -114,8 +123,9 @@ compatible. Human summaries are not a scripting interface.
    Record commit, SDK version, endpoint/project, command, outcome and cleanup
    in the release PR without keys or signed URLs. Missing credentials are a blocked
    release prerequisite, not a skipped success. PR CI deliberately has no service keys.
-4. For rc/stable releases, promote to main by reviewed PR with required CI
-   checks. The first development bootstrap can use reviewed develop directly.
+4. For rc/stable releases, promote `develop` to `main` by reviewed PR with
+   required CI checks, merged with a merge commit. The first development
+   bootstrap can use reviewed develop directly.
    Re-run checks/live smoke if release contents changed. Record the verified
    commit in release notes.
 5. Obtain explicit authorization for the immutable tag and publication. Tag the
@@ -132,7 +142,9 @@ compatible. Human summaries are not a scripting interface.
    a clean consumer install of the exact version. Test the installed binary's
    version/help and basic JSON behavior. Confirm a dev/rc release did not move
    `latest`. Add the verification summary and links to the release PR or GitHub
-   Release. Synchronize release-only main changes back to develop by PR.
+   Release. Then set the next development base on `develop` by PR, and
+   synchronize any `main` commits absent from `develop`, such as hotfixes, by a
+   merge-commit PR.
 
 Useful read-only checks after publication:
 

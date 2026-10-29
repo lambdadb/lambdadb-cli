@@ -11,7 +11,9 @@ not LambdaDB collection branches or refs.
 2. Implement and validate one coherent change.
 3. Open a pull request targeting `develop`. GitHub defaults new pull requests to
    `main`, so select the base explicitly.
-4. Address review feedback and pass both required CI checks before merging.
+4. Address review feedback and pass both required CI checks, then merge with
+   **Squash and merge**. Only promotion and synchronization PRs (below) use
+   merge commits.
 5. Delete the short-lived branch after verifying the merge.
 
 ## Local and CI validation
@@ -48,6 +50,12 @@ branch. Its update restriction allows designated team members to merge through
 the organization's PR-only bypass; passing repository CI alone does not grant
 permission to update `main`. Repository rules do not weaken organization rules.
 
+Once lambdadb/lambdadb-iac#22 is applied, organization rulesets also block
+deletion and force pushes on `develop`, require pull requests for it, and allow
+only squash and merge-commit merges there (rebase merge is blocked). `main`
+allows only merge commits. These rulesets have no bypass actors and do not
+affect tags.
+
 ## Promoting a release
 
 Development builds do not require main promotion or manual version increments.
@@ -56,19 +64,28 @@ commit count. Keep the base in `X.Y.Z-dev.N` form; when moving to the next relea
 line, update it and the lockfile through a PR. Generated build versions are not
 committed back. Stale queued builds can be skipped as newer work arrives.
 
-For an rc/stable release, once changes and validation are complete on `develop`, open a
-`develop` → `main` pull request. Record the version, changes, local/CI evidence,
-and whether live verification was performed. Merge this promotion using a merge
-commit so the shared branch ancestry is preserved. After promotion, synchronize
-`main` back into `develop` through a PR when it contains commits absent from
-`develop`, especially release-only changes or hotfixes. Include the next intended
-development base in that synchronization PR so develop retains a dev version.
+For an rc/stable release, prepare the version, changelog and release notes on a
+short-lived branch from `develop` (a `release/*` name is fine) and merge it into
+`develop` with **Squash and merge**. Release preparation never targets `main`; do
+not add release-only commits directly to `main`. While `develop` carries rc/stable
+metadata, no development package is published (see
+[RELEASING.md](RELEASING.md#automatic-development-publication)).
 
-A separate `release/*` branch can be created from reviewed develop and target
-main when preparing rc/stable metadata while develop retains its automatic dev
-base. Do not merge stable package metadata into develop without setting its next
-dev base, because automatic development publication requires an `X.Y.Z-dev.N`
-version.
+Once changes and validation are complete on `develop`, open a `develop` → `main`
+pull request. Record the version, changes, local/CI evidence, and whether live
+verification was performed. Merge this promotion with **Create a merge commit**
+so the shared branch ancestry is preserved, then tag and publish from the
+resulting reviewed `main` commit. After the release, set the next intended
+development base on `develop` through a PR so automatic development publication
+resumes.
+
+Whenever `main` contains commits absent from `develop` (hotfixes, or anything
+merged straight into `main`, such as Dependabot security updates), open a `main`
+→ `develop` synchronization PR and merge it with **Create a merge commit**. Never
+squash or rebase a synchronization PR: that makes the trees equal without shared
+ancestry, so later comparisons show already-synchronized commits again and
+release tags become unreachable from `develop`. Verify with
+`git merge-base --is-ancestor <main-commit> origin/develop`.
 
 The first npm bootstrap, rc/stable tags and GitHub Releases remain explicit
 release actions. Subsequent dev publication is automatic once enabled. Follow
@@ -77,8 +94,9 @@ credentialed live evidence, initial npm bootstrap and Trusted Publishing.
 Local tests and PR validation alone never trigger publication.
 
 For an urgent released-version fix, branch from `main`, review a PR back to
-`main`, then synchronize the fix into `develop`. Preserve the same checks and
-review requirements.
+`main` and merge it with **Create a merge commit**, release from `main`, then
+synchronize `main` into `develop` as described above. Preserve the same checks
+and review requirements.
 
 ## Credentials and scope
 
