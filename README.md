@@ -269,7 +269,9 @@ Use `npm run test:live` with the explicit opt-in settings in
 [CONTRIBUTING.md](CONTRIBUTING.md#live-validation). It exercises ordinary/bulk
 import, query/fetch, native embeddings and Bayesian reranking in temporary
 Collections, then uses the SDK to delete them and verify their absence. The normal
-test suite and CI never run it.
+test suite and PR CI never run it; the publishing workflow runs it against
+dedicated smoke projects before every publication and release verification
+([RELEASING.md](RELEASING.md#deployed-live-smoke)).
 
 ## License
 

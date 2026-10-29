@@ -34,7 +34,11 @@ Validation jobs use a read-only GitHub token and no LambdaDB credentials. They
 do not publish packages or contact a LambdaDB service. After both jobs succeed,
 a main push with a committed `X.Y.Z-dev.0` version can publish a dev package
 using a separate OIDC-enabled job; a main push with an rc/stable version is
-verified without publication. PRs and manual CI runs cannot publish packages.
+verified without publication. That job first runs the deployed live smoke on the
+packed tarball: against the dev environment for dev builds and against production
+for release verification and Releases (see
+[RELEASING.md](RELEASING.md#deployed-live-smoke)). A failed smoke prevents
+publication. PRs and manual CI runs cannot publish packages.
 Automatic publication requires `NPM_DEV_PUBLISH_ENABLED=true`; enabling it after
 npm bootstrap and trust setup authorizes this ongoing behavior.
 
@@ -72,8 +76,8 @@ Local tests and PR validation alone never trigger publication.
 
 Never commit project keys, `.env` files or signed URLs. Runtime tests use loopback
 servers with synthetic credentials. Live tests require an explicitly designated
-development project and credential set; local or CI success is not proof of
-live-service readiness. See [README.md](README.md) for public behavior and the
+project and credential set; local or PR CI success is not proof of live-service
+readiness. See [README.md](README.md) for public behavior and the
 [validation scope](#validation-scope) below for evidence boundaries.
 
 ## Compatibility and maintenance
@@ -145,9 +149,13 @@ repository's runtime matrix or release tooling without checking this CLI's needs
 
 ## Live validation
 
-Provision a disposable development project/key outside this tool, with Collection
-create/update/delete, ordinary and bulk write, and query/fetch access.
-Supply the key through secure shell input or a secret manager, never in history.
+The publishing workflow runs this suite against the dedicated `cli-ci` projects
+through `scripts/run-live-smoke.mjs`; to run that exact command locally, see
+[Running the live suite locally](RELEASING.md#running-the-live-suite-locally).
+For another project, provision a disposable development project/key outside this
+tool, with Collection create/update/delete, ordinary and bulk write, and
+query/fetch access. Supply the key through secure shell input or a secret
+manager, never in history.
 
 ```sh
 export LAMBDADB_ENDPOINT=https://YOUR_DEV_API_ORIGIN

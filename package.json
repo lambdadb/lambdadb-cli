@@ -32,7 +32,7 @@
     "lint": "eslint .",
     "check:version": "node scripts/check-release.mjs",
     "test:package": "node scripts/test-package.mjs",
-    "test:live": "npm run build && node --test test/live/*.test.mjs"
+    "test:live": "npm run build && node --test --test-concurrency=1 test/live/*.test.mjs"
   },
   "dependencies": {
     "@clack/prompts": "1.8.1",
