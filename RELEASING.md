@@ -142,9 +142,9 @@ compatible. Human summaries are not a scripting interface.
    a clean consumer install of the exact version. Test the installed binary's
    version/help and basic JSON behavior. Confirm a dev/rc release did not move
    `latest`. Add the verification summary and links to the release PR or GitHub
-   Release. Then set the next development base on `develop` by PR, and
-   synchronize any `main` commits absent from `develop`, such as hotfixes, by a
-   merge-commit PR.
+   Release. Then synchronize `main` into `develop` by a merge-commit PR so the
+   promotion merge commit and release tag are reachable from `develop`, and set
+   the next development base on `develop` by PR.
 
 Useful read-only checks after publication:
 

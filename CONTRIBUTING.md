@@ -79,13 +79,15 @@ resulting reviewed `main` commit. After the release, set the next intended
 development base on `develop` through a PR so automatic development publication
 resumes.
 
-Whenever `main` contains commits absent from `develop` (hotfixes, or anything
-merged straight into `main`, such as Dependabot security updates), open a `main`
-→ `develop` synchronization PR and merge it with **Create a merge commit**. Never
-squash or rebase a synchronization PR: that makes the trees equal without shared
-ancestry, so later comparisons show already-synchronized commits again and
-release tags become unreachable from `develop`. Verify with
-`git merge-base --is-ancestor <main-commit> origin/develop`.
+After every promotion and release tag, and whenever `main` contains other
+commits absent from `develop` (hotfixes, or anything merged straight into `main`,
+such as Dependabot security updates), open a `main` → `develop` synchronization
+PR and merge it with **Create a merge commit**. The promotion merge commit itself
+is absent from `develop`, so without this synchronization the release tag is
+unreachable from `develop`. Never squash or rebase a synchronization PR: that
+makes the trees equal without shared ancestry, so later comparisons show
+already-synchronized commits again and release tags remain unreachable from
+`develop`. Verify with `git merge-base --is-ancestor <main-commit> origin/develop`.
 
 The first npm bootstrap, rc/stable tags and GitHub Releases remain explicit
 release actions. Subsequent dev publication is automatic once enabled. Follow
