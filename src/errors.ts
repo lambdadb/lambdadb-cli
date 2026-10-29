@@ -36,9 +36,12 @@ export function describeError(error: unknown): SafeError {
     } else if (error.details?.invitation_id) {
       hint = `Respond to the pending invitation at ${error.details.invitation_url}, then rerun setup.`;
     }
+    // Name the request and outcome so a report can distinguish a server error from a timeout.
+    const request = typeof error.details?.request === 'string' ? ` during ${error.details.request}` : '';
+    const outcome = error.status === undefined ? 'no HTTP response: the request timed out or the connection failed' : `HTTP ${error.status}`;
     return {
       code: error.code.toUpperCase(),
-      message: `Account management request failed: ${error.code}.`,
+      message: `Account management request failed: ${error.code} (${outcome})${request}.`,
       httpStatus: error.status,
       details: error.details,
       hint,

@@ -94,7 +94,7 @@ export async function createProject(
     uuid(result.organization_id as string, 'Organization');
     if (typeof result.status !== 'string') throw new Error();
   } catch {
-    throw new ManagementError('write_outcome_unknown', undefined);
+    throw new ManagementError('write_outcome_unknown', undefined, { request: 'POST projects' });
   }
   return {
     id: result.id as string,
@@ -253,7 +253,7 @@ export async function useProject(
         granted = projectAuthorization(response, output, keyName);
         if (granted.project !== project.name) throw new Error();
       } catch {
-        throw new ManagementError('issuance_unconfirmed', undefined, { pendingKeyName: keyName });
+        throw new ManagementError('issuance_unconfirmed', undefined, { request: 'POST connect', pendingKeyName: keyName });
       }
       selected = {
         endpoint: granted.endpoint,

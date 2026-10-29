@@ -124,6 +124,8 @@ export async function accountRequest(
 ): Promise<Record<string, unknown>> {
   let response: Response | undefined;
   let value: Record<string, unknown>;
+  // CLI-authored request name for diagnostics; never includes query values.
+  const request = `${method} ${path.split('?')[0]}`;
   try {
     const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)]) : AbortSignal.timeout(requestTimeoutMs);
     response = await fetch(`${account.apiUrl}/auth/cli/${path}`, {
@@ -168,11 +170,12 @@ export async function accountRequest(
     const status = response?.status;
     if (status !== undefined && status >= 400 && status < 500 && status !== 408 &&
       !(path === 'connect' && status === 409)) {
-      throw new ManagementError('management_request_failed', status);
+      throw new ManagementError('management_request_failed', status, { request });
     }
     throw new ManagementError(
       method === 'GET' ? 'management_unavailable' : 'write_outcome_unknown',
       status,
+      { request },
     );
   }
   if (!response.ok) {
@@ -191,7 +194,7 @@ export async function accountRequest(
           ? value.error
           : 'management_request_failed';
     // Only a small allowlist of non-secret fields may reach diagnostics.
-    const details: Record<string, unknown> = {};
+    const details: Record<string, unknown> = { request };
     if (typeof value.invitation_id === 'string' && /^[0-9a-f-]{36}$/.test(value.invitation_id)) {
       details.invitation_id = value.invitation_id;
       details.invitation_url = `${account.consoleUrl}/invites/${value.invitation_id}`;

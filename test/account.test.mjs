@@ -307,7 +307,8 @@ test('management write failures are uncertain and never automatically retried', 
   });
   await assert.rejects(
     accountRequest({ ...account(), apiUrl: fixture.url }, 'token', 'projects', 'POST', {}),
-    (e) => e.code === 'write_outcome_unknown',
+    (e) => e.code === 'write_outcome_unknown' && e.details.request === 'POST projects'
+      && describeError(e).message === 'Account management request failed: write_outcome_unknown (HTTP 500) during POST projects.',
   );
   assert.equal(fixture.calls.length, 1);
 });
