@@ -18,14 +18,15 @@ Requires Node.js 22.14 or newer and npm. Install the CLI, then initialize from
 your repository root:
 
 ```sh
-npm install --global @functional-systems/lambdadb-cli@latest
+npm install --global @functional-systems/lambdadb-cli
 lambdadb init
 ```
 
 If already installed, run `lambdadb init`. The examples below use the installed
 `lambdadb` command. To try the CLI without a global install, use
 [npx](#run-without-a-global-install); for a bundled Node runtime on macOS or Linux,
-use [Homebrew](#homebrew). For development testing, replace `@latest` with `@dev`.
+use [Homebrew](#homebrew). For development testing, use
+`@functional-systems/lambdadb-cli@dev` instead.
 
 1. Sign up or sign in through Console, compare the terminal code, and approve
    **CLI Login**. You can also connect an existing project using an API-key
@@ -69,14 +70,15 @@ and [non-interactive init](docs/setup.md#non-interactive-setup).
 
 Requires Node.js 22.14 or newer and npm.
 
-Install the stable channel and check that `lambdadb` is available:
+Install the CLI and check that `lambdadb` is available:
 
 ```sh
-npm install --global @functional-systems/lambdadb-cli@latest
+npm install --global @functional-systems/lambdadb-cli
 lambdadb --version
 lambdadb --help
 ```
 
+The default npm tag is `latest`, so it can be omitted from installation commands.
 npm links the executable into its global bin directory, which must be on your
 `PATH` to use `lambdadb` directly.
 
