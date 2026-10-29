@@ -24,6 +24,11 @@
 
 ### Fixed
 
+- Name the failed account-management request and its outcome in the error
+  message, such as `write_outcome_unknown (HTTP 503) during POST projects`,
+  `no HTTP response: the request timed out or the connection failed`, an
+  unreadable response body, or a response that did not match the expected
+  contract. Add the non-secret `request` and `response` fields to `error.details`.
 - Report the exact command-line problem instead of a generic message: the
   missing required option, missing option argument, invalid choice, or unknown
   command/option with a close-match suggestion. An unknown `--flag=value` never

@@ -36,9 +36,17 @@ export function describeError(error: unknown): SafeError {
     } else if (error.details?.invitation_id) {
       hint = `Respond to the pending invitation at ${error.details.invitation_url}, then rerun setup.`;
     }
+    // Name the request and outcome so a report can distinguish a server error from a timeout
+    // or from a response the CLI could not validate.
+    const request = typeof error.details?.request === 'string' ? ` during ${error.details.request}` : '';
+    const outcome = error.details?.response === 'none' ? 'no HTTP response: the request timed out or the connection failed'
+      : error.details?.response === 'invalid' ? 'the response did not match the expected contract'
+      : error.status === undefined ? 'no HTTP status recorded'
+      : error.details?.response === 'incomplete' ? `HTTP ${error.status}, but the response body could not be read or parsed`
+      : `HTTP ${error.status}`;
     return {
       code: error.code.toUpperCase(),
-      message: `Account management request failed: ${error.code}.`,
+      message: `Account management request failed: ${error.code} (${outcome})${request}.`,
       httpStatus: error.status,
       details: error.details,
       hint,

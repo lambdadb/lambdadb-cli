@@ -150,9 +150,12 @@ test('usage access, compatibility and timeout errors retain request-failure sema
     const f = await fixture(t, { error: 'hidden-server-detail' }, status);
     const result = await f.run(['--org-id', org, '--json']);
     assert.equal(result.code, 3); assert.equal(result.value.error.httpStatus, status); assert.match(result.value.error.hint, hint);
+    assert.equal(result.value.error.message, `Account management request failed: usage_request_failed (HTTP ${status}) during GET usage.`);
     assert.ok(!result.stdout.includes('hidden-server-detail')); assert.equal(f.calls.length, 1);
   }
   const f = await fixture(t, free, 200, 400);
   const result = await f.run(['--org-id', org, '--timeout-ms', '100', '--json']);
   assert.equal(result.code, 3); assert.equal(f.calls.length, 1);
+  assert.equal(result.value.error.httpStatus, undefined);
+  assert.equal(result.value.error.message, 'Account management request failed: usage_request_failed (no HTTP response: the request timed out or the connection failed) during GET usage.');
 });

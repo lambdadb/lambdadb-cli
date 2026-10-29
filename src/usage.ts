@@ -47,7 +47,7 @@ export async function usage(options: UsageOptions, output: Output): Promise<Usag
   let response: Record<string, unknown>;
   try { response = await api.request(`usage${params.size ? `?${params}` : ''}`, 'GET', undefined, selected.org); }
   catch (error) {
-    if (error instanceof ManagementError) throw new ManagementError('usage_request_failed', error.status);
+    if (error instanceof ManagementError) throw new ManagementError('usage_request_failed', error.status, error.details);
     throw error;
   }
   const organization = parseOrganization(response.organization, account);
