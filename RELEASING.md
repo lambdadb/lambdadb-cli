@@ -144,8 +144,8 @@ compatible. Human summaries are not a scripting interface.
    `latest`. Add the verification summary and links to the release PR or GitHub
    Release. Then back-merge `main` into `develop` by a merge-commit PR that
    restores `develop`'s development base, so the promotion merge commit and
-   release tag are reachable from `develop`. Delete the release branch after
-   the final promotion.
+   release tag are reachable from `develop`. Keep the release branch through
+   its rcs and delete it after the final stable promotion.
 
 Useful read-only checks after publication:
 

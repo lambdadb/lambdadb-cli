@@ -73,8 +73,9 @@ continues to receive feature work and automatic development builds; nothing
 merged into `develop` after the cut ships in this release. Use a release branch
 even when there is nothing to stabilize, because automatic development
 publication requires `develop` to keep an `X.Y.Z-dev.N` version. The CI workflow
-runs on PRs into `develop` and `main` only; validate PRs into a release branch
-locally or with a manual CI run.
+runs on PRs into `develop` and `main` only, so run the
+[local validation commands](#local-and-ci-validation) for PRs into a release
+branch.
 
 When the release branch is ready, open a `release/X.Y.Z` → `main` pull request.
 Record the version, changes, local/CI evidence, and whether live verification
@@ -98,7 +99,9 @@ without shared ancestry, so later comparisons repeat merged commits and release
 tags become unreachable from `develop`. Afterwards,
 `git merge-base --is-ancestor origin/main origin/develop` must succeed.
 
-Delete `release/*` and `hotfix/*` branches after their final promotion PR merges.
+Keep `release/X.Y.Z` through its rcs, because later rc fixes land on the same
+branch, and delete it after the final stable promotion merges. Delete a
+`hotfix/*` branch after its PR into `main` merges.
 
 The first npm bootstrap, rc/stable tags and GitHub Releases remain explicit
 release actions. Subsequent dev publication is automatic once enabled. Follow
