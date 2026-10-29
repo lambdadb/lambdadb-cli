@@ -2,7 +2,7 @@ name: Homebrew
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - packaging/homebrew/**
       - scripts/test-homebrew.sh

@@ -2,6 +2,101 @@
 
 ## [Unreleased]
 
+### Added
+
+- Name unreleased management selectors `--org-id` and `--project-id` consistently;
+  both take UUIDs. Keep the data API `--project <name>` selector unchanged.
+- Add read-only `usage` for the saved project or an explicit Org/project: current
+  Free quotas without price conversion, or exact Backend-computed Pay-As-You-Go
+  usage and list-rate cost estimates. Support UTC month selection and JSON output.
+
+- Browser-approved `init`, including another-device URLs for SSH, shared
+  Console signup/login, terminal project setup, bounded polling and explicit key issuance.
+- Separate OS-stored account login with seven-day expiry, immediate logout, and
+  reusable `orgs list` / `projects list|regions|create|use` commands. Org-specific
+  billing guidance uses current backend limits. Project switching reuses saved
+  keys and keeps existing agent connections pinned.
+- OS credential references for macOS Keychain, Windows Credential Manager and
+  Linux Secret Service with a new-connection keyutils fallback. Plaintext files
+  and agent arguments never contain keys. Preserve the existing environment/CI path.
+- Resume agent setup with the saved connection, and remove local OS credentials
+  with `credentials remove` without revoking server keys.
+
+### Fixed
+
+- Name the failed account-management request and its outcome in the error
+  message, such as `write_outcome_unknown (HTTP 503) during POST projects`,
+  `no HTTP response: the request timed out or the connection failed`, an
+  unreadable response body, or a response that did not match the expected
+  contract. Add the non-secret `request` and `response` fields to `error.details`.
+- Report the exact command-line problem instead of a generic message: the
+  missing required option, missing option argument, invalid choice, or unknown
+  command/option with a close-match suggestion. An unknown `--flag=value` never
+  echoes its value.
+- Print help when `lambdadb` runs without a command, and print the group help
+  with exit 2 when a command group such as `collections` lacks a subcommand.
+- Omit the generic `Check --help` hint from cancellation and login-required
+  messages that already state the next step; `error.hint` may then be empty.
+- Stop redacting values shorter than eight characters, which no issued key uses,
+  so a placeholder key no longer rewrites ordinary words in output.
+- Suggest `npx -y @functional-systems/lambdadb-cli@<version>` instead of
+  `lambdadb` in init next steps, agent next steps and login/init hints when the
+  CLI runs through npx/npm exec without a global install. The bundled skill
+  explains the same substitution.
+
+### Maintenance
+
+- Confirm an empty interactive agent selection before skipping installation.
+  Default to returning to selection, and clarify Space versus Enter controls.
+  Explicit `--agents none` and non-interactive behavior stay unchanged.
+
+- Unify interactive init with Clack: arrow-key menus, inline validation, explicit
+  confirmations, an optional agent multiselect, boxed file review, progress and
+  aligned completion rows. Replace mixed numbered/readline and checkbox styles.
+  Skip file review when no agents are selected and no settings need saving; keep
+  advanced details in menu actions and finish with a short next step. New settings
+  and selected agents retain review; non-interactive and JSON contracts stay intact.
+  Preserve whitespace-only defaults, copyable approval URLs, selected-agent reload
+  and credential guidance, and environment-selected config paths. Name the project
+  before key issuance; cancellation during file saves stops further files and
+  reports possible partial setup instead of success.
+
+- Simplify interactive init into connection, agent selection and file review.
+  Label detected agents without preselecting them; use a keyboard checkbox list.
+  Select a sole Org automatically and combine existing-project/creation choices.
+  Keep explicit key issuance and file approval, with scope/write-tool changes
+  available from review. Replace the ordinary JSON dump with a concise result;
+  preserve non-interactive flags and the structured JSON contract.
+  Skip the redundant first-project action menu and summarize unchanged files,
+  with an option to expand the full plan. Keep
+  explicit region selection and include public AWS regions requiring deployment,
+  with guidance to resume pending projects without creating them again.
+  Preserve the current write-tool choice when accepting settings defaults and
+  make cancellation/empty-selection guidance match the actual setup state.
+  Keep account/project response-body timeouts effective after garbage collection
+  on Node.js 22, preserving uncertain issuance and definite rejection semantics.
+
+- Remove the pre-release `init --connect` flag: plain `init` guides account setup
+  and offers connection reuse or another project on reruns. Clarify browser approval,
+  login next steps, agent scope and advanced connection options in help.
+
+- Pin published MCP `0.1.6-dev.21` on the development line for recent-write and
+  agent guidance, including its SDK 0.10.0 integration. Keep credential forwarding
+  and explicit write-tool opt-in unchanged; stable promotion needs a stable MCP pin.
+- Prevent inherited npm exec package/command selectors from changing the nested
+  MCP launch, including when the CLI is invoked through `npx --package`.
+
+- Synchronize the 0.1.6 release history and start the 0.1.7 development line.
+- Update the Homebrew formula to verified stable 0.1.6.
+- Move releases to trunk-based development on `main`; `develop` is retired.
+  `main` carries the next version as `X.Y.Z-dev.0` (now `0.1.7-dev.0`), and each
+  main push publishes `X.Y.Z-dev.N` on the `dev` channel, where N counts
+  first-parent commits since the newest stable tag and restarts after each stable
+  release. A merge that sets an rc/stable version is verified without
+  publication, and its GitHub Release publishes it. After publication, a workflow
+  opens the next development version PR. `scripts/version.mjs` updates every
+  version source.
+
 ## [0.1.6] - 2026-10-25
 
 ### Maintenance

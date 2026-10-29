@@ -147,8 +147,14 @@ CLI arguments/configuration → input validation → SDK facade → LambdaDB API
 ```
 
 - `cli.ts`: command tree, target selection, SDK calls and process exit codes.
-- `config.ts`: deterministic user-local configuration, environment auth and
+- `config.ts`: deterministic user-local configuration, OS/environment credential resolution and
   atomic non-secret settings writes.
+- `credentials.ts`: explicit native OS store selection and verified credential writes.
+- `device-auth.ts`: bounded control-plane device authorization; never retries uncertain issuance.
+- `usage.ts`: read-only account-authenticated quota/cost reporting; preserve exact
+  Backend decimal strings, missing values and per-request timeout semantics.
+- `account.ts`: isolated OS account sessions, bounded management requests and local metadata locking.
+- `projects.ts`: terminal Org/project setup, current-limit guidance and cached project selection.
 - `input.ts`: bounded file snapshots, strict request preflight, SDK serializer
   reuse and the small null-size compatibility adjustment.
 - `import-workflow.ts`: byte/count batching, sequential submission, honest
@@ -157,7 +163,9 @@ CLI arguments/configuration → input validation → SDK facade → LambdaDB API
 - `errors.ts` and `output.ts`: safe error classification, versioned output and
   credential redaction.
 
-There is no second HTTP implementation, separate workflow package, plugin system
+Project data requests remain SDK-only. Device authorization and project management use a small, bounded
+control-plane JSON client because the project SDK has no account authorization API.
+There is no separate workflow package, plugin system
 or SDK fork. `listCollectionsPages` owns pagination. `bulkUpsertDocs` owns upload
 metadata, signed PUT, server-provided byte limit and finalization. Query/fetch
 helpers own presigned response downloads and authentication isolation.
@@ -167,13 +175,13 @@ helpers own presigned response downloads and authentication isolation.
 | Decision | Reason |
 | --- | --- |
 | Mandatory endpoint/project resolution, explicit collection, read ref and write branch | Avoid SDK playground/main fallbacks silently choosing a target. |
-| Environment-held keys only | Keeps secrets out of argv and repository/user configuration files. |
+| OS-store references or environment-held project keys | Account login and browser setup use the OS credential store; manual/CI setup can select an environment variable. Configuration contains only non-secret references, never key values or tokens; no plaintext fallback. |
 | Read retry policy bounded through SDK, no mutation retries | No public exactly-once or mutation receipt contract; a missing reply cannot prove rejection. |
 | Entire JSONL preflight before writes | A malformed later line must not unexpectedly leave accepted earlier batches. |
 | 64 MiB / 100,000-document input caps, 4 MB ordinary batches, configurable bulk batches | Bound file size and retained row overhead without building streaming/checkpoint infrastructure; scan lines without a full split array. |
 | SDK request serializers for validation | Keep create/query shapes aligned; query DSL semantics remain server-owned. |
 | Versioned JSON envelope and documented exits | Stable automation contract with explicit target and partial progress. |
-| Preserve fixed output keys/tokens during redaction | Short credentials must not corrupt the CLI protocol; redact variable values and arbitrary document/index/tag map keys. |
+| Preserve fixed output keys/tokens during redaction | Credentials coinciding with protocol tokens must not corrupt the CLI protocol; redact variable values and arbitrary document/index/tag map keys. Values under eight characters are placeholders, not keys, and stay readable. |
 | Conservative unknown state for untyped bulk helper failures | Error strings are not a reliable upload/finalization stage contract. |
 | No readiness wait or version-management commands | First use works through main; reads can target existing refs, without assuming lifecycle or indexing guarantees. |
 

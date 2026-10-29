@@ -1,9 +1,10 @@
 import { applyEdits, modify, parse as parseJson, type ParseError } from 'jsonc-parser';
 import { parse as parseToml } from 'smol-toml';
-import type { Settings } from './config.js';
+import type { SelectedSettings } from './config.js';
+import { credentialReference } from './credentials.js';
 import { InputError } from './errors.js';
 
-export type McpLaunch = { command: string; args: string[]; apiKeyEnv: string };
+export type McpLaunch = { command: string; args: string[]; apiKeyEnv?: string; runtimeEnv?: string[] };
 type Server = { command: string | string[]; args?: string[]; env_vars?: string[];
   env?: Record<string, string>; environment?: Record<string, string>; type?: string };
 type ServerFactory = (launch: McpLaunch) => Server;
@@ -11,10 +12,13 @@ type JsonMapPath = readonly string[] | ((value: Record<string, unknown>) => read
 const begin = '# BEGIN lambdadb init';
 const end = '# END lambdadb init';
 
-export function mcpLaunch(selected: Required<Settings>, writeTools: boolean, cliVersion: string): McpLaunch {
-  return { command: 'npx', apiKeyEnv: selected.apiKeyEnv,
+export function mcpLaunch(selected: SelectedSettings, writeTools: boolean, cliVersion: string): McpLaunch {
+  const stored = selected.credentialStore ? credentialReference(selected.credentialStore, selected.credentialId) : undefined;
+  return { command: 'npx', apiKeyEnv: selected.credentialStore ? undefined : selected.apiKeyEnv,
+    runtimeEnv: selected.credentialStore === 'secret-service' ? ['DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR'] : [],
     args: ['-y', `@functional-systems/lambdadb-cli@${cliVersion}`, 'mcp',
-      '--endpoint', selected.endpoint, '--project', selected.project, '--api-key-env', selected.apiKeyEnv,
+      '--endpoint', selected.endpoint, '--project', selected.project,
+      ...(stored ? ['--credential-store', stored.credentialStore, '--credential-id', stored.credentialId] : ['--api-key-env', selected.apiKeyEnv]),
       ...(writeTools ? ['--write-tools'] : [])] };
 }
 
@@ -30,9 +34,11 @@ function managedServer(value: unknown, createServer: ServerFactory): boolean {
   const a = Array.isArray(value.command) ? value.command.slice(1) : value.args;
   if (command !== 'npx' || !Array.isArray(a)) return false;
   if (a.some(v => typeof v !== 'string') || !/^@functional-systems\/lambdadb-cli@[\w.+-]+$/.test(a[1] ?? '')
-    || a[0] !== '-y' || a[2] !== 'mcp' || a[3] !== '--endpoint' || a[5] !== '--project'
-    || a[7] !== '--api-key-env' || ![9, 10].includes(a.length) || (a.length === 10 && a[9] !== '--write-tools')) return false;
-  const expected = createServer({ command: 'npx', args: a, apiKeyEnv: a[8] });
+    || a[0] !== '-y' || a[2] !== 'mcp' || a[3] !== '--endpoint' || a[5] !== '--project') return false;
+  const stored = a[7] === '--credential-store' && ['keychain', 'windows', 'secret-service', 'keyutils'].includes(a[8]) && a[9] === '--credential-id';
+  const length = stored ? 11 : 9;
+  if ((!stored && a[7] !== '--api-key-env') || ![length, length + 1].includes(a.length) || (a.length > length && a[length] !== '--write-tools')) return false;
+  const expected = createServer({ command: 'npx', args: a, apiKeyEnv: stored ? undefined : a[8], runtimeEnv: stored && a[8] === 'secret-service' ? ['DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR'] : [] });
   return Object.keys(value).length === Object.keys(expected).length
     && Object.entries(expected).every(([key, item]) => JSON.stringify(value[key]) === JSON.stringify(item));
 }

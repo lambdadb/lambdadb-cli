@@ -60,7 +60,7 @@ printf '#!/bin/sh\necho "Unexpected ambient Node executable" >&2\nexit 97\n' > "
 chmod +x "$test_dir/fake-bin/node"
 env PATH="$test_dir/fake-bin:/usr/bin:/bin" "$cli_prefix/bin/lambdadb" --version
 
-# Use contracts from the same stable commit as the lockfile. New develop-only
+# Use contracts from the same stable commit as the lockfile. Unreleased main-only
 # features must not make tests of an older stable Homebrew package fail.
 "$runtime" --input-type=module - "$repo_dir" "$cli_prefix" "$test_dir" <<'NODE'
 import assert from 'node:assert/strict';

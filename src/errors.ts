@@ -1,13 +1,59 @@
+import { CommanderError } from 'commander';
 import { LambdaDBError, ResponseValidationError, SDKValidationError } from '@functional-systems/lambdadb/models/errors';
+import { cli } from './command.js';
 
-export class InputError extends Error {}
+export class InputError extends Error {
+  // An empty hint means the message already states the next step.
+  constructor(message: string, public hint = 'Check --help and the input file or configuration.') { super(message); }
+}
+export class ManagementError extends Error {
+  constructor(
+    public code: string,
+    public status: number | undefined,
+    public details?: Record<string, unknown>,
+  ) {
+    super(code);
+  }
+}
 
-export type SafeError = { code: string; message: string; hint: string; httpStatus?: number };
+export type SafeError = { code: string; message: string; hint: string; httpStatus?: number; details?: Record<string, unknown> };
 
 // Never serialize SDK errors: they can contain credentials, response bodies and signed URLs.
 export function describeError(error: unknown): SafeError {
+  if (error instanceof ManagementError) {
+    let hint = 'Check Console before retrying a write. No automatic retry was made; inspect the named key if issuance was uncertain.';
+    if (error.code === 'project_limit_reached' && error.details?.organization) {
+      const organization = error.details.organization as { billing_url: string };
+      hint = `Use an existing project, or review ${organization.billing_url}. Only the owner can activate billing. Recheck server limits afterwards.`;
+    } else if (error.status === 401) {
+      hint = `Run ${cli} login again. Project keys are unaffected.`;
+    } else if (error.code === 'usage_request_failed') {
+      hint = error.status === 404 ? 'This Backend does not support CLI usage yet; deploy the matching Backend version.'
+        : error.status === 403 ? 'Verify Org/project membership. Pay-As-You-Go cost estimates require an owner or admin.'
+        : 'Check Backend availability, the UTC month and Org/project IDs. Free exposes only the current quota window. No writes or automatic retries were made.';
+    } else if (error.code === 'project_limit_reached') {
+      hint = 'Use an existing project, or review the indicated Organization billing link. Only the owner can activate billing. Recheck server limits afterwards.';
+    } else if (error.details?.invitation_id) {
+      hint = `Respond to the pending invitation at ${error.details.invitation_url}, then rerun setup.`;
+    }
+    // Name the request and outcome so a report can distinguish a server error from a timeout
+    // or from a response the CLI could not validate.
+    const request = typeof error.details?.request === 'string' ? ` during ${error.details.request}` : '';
+    const outcome = error.details?.response === 'none' ? 'no HTTP response: the request timed out or the connection failed'
+      : error.details?.response === 'invalid' ? 'the response did not match the expected contract'
+      : error.status === undefined ? 'no HTTP status recorded'
+      : error.details?.response === 'incomplete' ? `HTTP ${error.status}, but the response body could not be read or parsed`
+      : `HTTP ${error.status}`;
+    return {
+      code: error.code.toUpperCase(),
+      message: `Account management request failed: ${error.code} (${outcome})${request}.`,
+      httpStatus: error.status,
+      details: error.details,
+      hint,
+    };
+  }
   if (error instanceof InputError) {
-    return { code: 'INPUT_ERROR', message: error.message, hint: 'Check --help and the input file or configuration.' };
+    return { code: 'INPUT_ERROR', message: error.message, hint: error.hint };
   }
   if (error instanceof ResponseValidationError) {
     return { code: 'INVALID_RESPONSE', message: 'The API response does not match the SDK contract.', hint: 'Check SDK/API compatibility. A malformed write response does not prove the write failed.', httpStatus: error.statusCode };
@@ -34,12 +80,33 @@ export function describeError(error: unknown): SafeError {
   };
 }
 
+// Commander names the missing flag or unknown word and may suggest a correction.
+// Only unknown commands/options and invalid choices echo argv. An unknown option
+// is rebuilt from its flag name alone, so an inline `--flag=value` never prints
+// its value, whatever characters the value contains.
+export function parseError(error: CommanderError, command: string): InputError {
+  if (error.code === 'commander.help') return new InputError(`${cli} ${command} needs a subcommand.`, `Run ${cli} ${command} --help to list them.`);
+  const raw = error.message.replace(/^error: /, '');
+  // Suggestions list only CLI-defined flag or command names.
+  const suggestion = /\n\(Did you mean ((?:one of )?[\w-]+(?:, [\w-]+)*)\?\)$/.exec(raw)?.[1];
+  let detail = suggestion ? raw.slice(0, raw.lastIndexOf('\n')) : raw;
+  if (error.code === 'commander.unknownOption') {
+    const flag = /^[^'=\s]*/.exec(raw.slice(raw.indexOf("'") + 1))![0];
+    detail = `unknown option '${flag}'`;
+  }
+  detail = detail.trim();
+  let message = detail ? detail.charAt(0).toUpperCase() + detail.slice(1) : 'Invalid or incomplete command';
+  if (!/[.?]$/.test(message)) message += '.';
+  if (suggestion) message += ` Did you mean ${suggestion}?`;
+  return new InputError(message, `Run ${cli} --help or the command-specific --help.`);
+}
+
 export function isInputError(error: unknown): boolean {
   // SDKValidationError uses Symbol.hasInstance and also matches response validation errors.
   return error instanceof InputError || (error instanceof SDKValidationError && !(error instanceof ResponseValidationError));
 }
 
 export function definitelyRejected(error: unknown): boolean {
-  return isInputError(error) || (error instanceof LambdaDBError
+  return isInputError(error) || (error instanceof ManagementError && error.status !== undefined && error.status >= 400 && error.status < 500 && error.status !== 408 && error.code !== 'issuance_unconfirmed') || (error instanceof LambdaDBError
     && error.statusCode >= 400 && error.statusCode < 500 && error.statusCode !== 408);
 }

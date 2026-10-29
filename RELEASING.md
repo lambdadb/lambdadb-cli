@@ -7,39 +7,58 @@ Record execution results in the relevant PR and release, following
 
 ## Branch and version policy
 
-Follow [CONTRIBUTING.md](CONTRIBUTING.md): feature/fix PRs target `develop`,
-promotion PRs target `main`. Development versions publish from `develop` after
-CI, while rc/stable releases publish from reviewed `main` history. npm `latest`,
-not the main branch tip, identifies the stable npm version.
+Releases are trunk-based: `main` is the only long-lived branch. Follow
+[CONTRIBUTING.md](CONTRIBUTING.md): every change reaches `main` through a pull
+request that is squash-merged. There are no `develop`, release or hotfix
+branches; maintenance releases are cut from `main`, and anything merged into
+`main` ships in the next release. npm `latest`, not the main branch tip,
+identifies the stable npm version.
 
-| Source | Package version | Trigger | npm dist-tag |
-| --- | --- | --- | --- |
-| `develop` | `X.Y.Z-dev.N` | Push CI succeeds and automatic publication is enabled | `dev` |
-| `main` history | `X.Y.Z-rc.N` | GitHub prerelease `vX.Y.Z-rc.N` is published | `rc` |
-| `main` history | `X.Y.Z` | GitHub release `vX.Y.Z` is published | `latest` |
+| Source | Committed version | Published version | Trigger | Git tag | npm dist-tag |
+| --- | --- | --- | --- | --- | --- |
+| `main` push | `X.Y.Z-dev.0` | `X.Y.Z-dev.N` (N ≥ 1, assigned by CI) | Push CI succeeds and automatic publication is enabled | None | `dev` |
+| `main` push | `X.Y.Z-rc.N` or `X.Y.Z` | None (verification only) | Release PR merge | None yet | None |
+| `main` history | `X.Y.Z-rc.N` | `X.Y.Z-rc.N` | GitHub prerelease `vX.Y.Z-rc.N` is published | `vX.Y.Z-rc.N` | `rc` |
+| `main` history | `X.Y.Z` | `X.Y.Z` | GitHub release `vX.Y.Z` is published | `vX.Y.Z` | `latest` |
 
 Only these canonical version forms are supported. No leading zeroes or build
-suffixes. For reviewed version changes, update package.json and both root version
-entries in package-lock.json together; `npm version VERSION --no-git-tag-version`
-prepares this without a tag. For explicit releases, move release notes from
-Unreleased to a dated `## [VERSION] - YYYY-MM-DD` section.
-The executable reads package.json, so it has no independently maintained version.
+suffixes. Between releases, `main` carries the next version with the
+development placeholder `X.Y.Z-dev.0`; number 0 is never published. Change
+package.json and both root version entries in package-lock.json at once with the
+version script, which keeps each file's formatting and fails unless all sources
+agree afterwards:
+
+```sh
+node scripts/version.mjs get                # print the committed version
+node scripts/version.mjs set 0.2.0-rc.1     # release pull request
+node scripts/version.mjs set 0.2.0-dev.0    # next development version
+```
+
+It accepts only committed forms: `X.Y.Z-dev.0`, `X.Y.Z-rc.N` and `X.Y.Z`.
+`npm run check:version` rejects any other committed version. For explicit
+releases, move release notes from Unreleased to a dated
+`## [VERSION] - YYYY-MM-DD` section. The executable reads package.json, so it has
+no independently maintained version.
 
 ## Automatic development publication
 
 The `CI` workflow lives in `.github/workflows/publish.yaml`. Its Node 22 and 24
 jobs must both succeed for the exact push commit. Only a push to this repository's
-`develop` can enter automatic publication; PRs, main pushes and manual CI runs
-cannot. Only the publishing job receives `id-token: write`. No LambdaDB service
-keys are available to CI, so automatic dev builds do not imply a fresh live smoke.
+`main` whose committed version is `X.Y.Z-dev.0` can enter automatic publication;
+PRs and manual CI runs cannot. Only the publishing job receives `id-token: write`.
+No LambdaDB service keys are available to CI, so automatic dev builds do not imply
+a fresh live smoke.
 
-Keep a reviewed development base such as `0.1.0-dev.1` in Git. The publishing job
-uses the `X.Y.Z` prefix and sets `N` to `git rev-list --first-parent --count HEAD`
-from a full checkout. For example, count 12 produces `0.1.0-dev.12`. The counter
-includes commits that were never published; it is not necessarily consecutive
-in npm. A rerun of the same commit produces the same version. Force pushes and
-history rewrites must remain disabled. When starting the next release line,
-review a new base such as `0.2.0-dev.1`, including when synchronizing main back.
+The publishing job replaces the placeholder with `X.Y.Z-dev.N`, where N is the
+number of first-parent commits on `main` since the newest stable release tag
+(`vA.B.C`) reachable from the commit, or since the root commit when there is none.
+For example, the second merge after `v0.1.7` with `0.1.8-dev.0` committed publishes
+`0.1.8-dev.2`. N is the same on every rerun of a commit, restarts at 1 after each
+stable release and keeps increasing across the RCs of one version. The counter
+includes commits that were never published; it is not necessarily consecutive in
+npm. The job fails unless `X.Y.Z` is newer than that stable tag, so a missed
+next-version change cannot publish a lower version. Force pushes and history
+rewrites must remain disabled.
 
 Generated package/lock versions and `gitHead` are changed only in the runner;
 there are no version-bump commits, Git tags or GitHub Releases for automatic dev
@@ -50,10 +69,10 @@ The workflow packs once, tests that exact tarball, and publishes it with
 
 Dev publication jobs are serialized without interrupting an active registry
 write. A newer pending job can replace an older pending job. The current remote
-develop head is checked before preparation and immediately before publishing;
+main head is checked before preparation and immediately before publishing;
 stale jobs are skipped. The existing dev tag is also compared numerically to
 prevent an older version from moving it backward. This follows the latest
-eligible develop head rather than guaranteeing an artifact for every rapid merge.
+eligible main head rather than guaranteeing an artifact for every rapid merge.
 
 If a version already exists, a rerun checks its source commit and tarball integrity
 and skips publication only when they agree and the dev tag already points there.
@@ -93,11 +112,23 @@ JSON envelope changes require a new schemaVersion. During 0.x, put incompatible
 changes in a minor release; after 1.0, use a major release. Keep patch releases
 compatible. Human summaries are not a scripting interface.
 
+## Release verification on main
+
+A `main` push whose committed version is `X.Y.Z-rc.N` or `X.Y.Z` (a release PR
+merge) runs the publishing job in verification mode: release metadata and the
+dated changelog entry are checked, the tarball is packed once and its installed
+contracts are tested, and nothing is published. Tag the release only after this
+run passes. Do not merge other pull requests until the release is tagged, or tag
+the release PR's merge commit explicitly. A committed `X.Y.Z-dev.N` other than
+the placeholder fails the run.
+
 ## Bootstrap and explicit rc/stable release preflight
 
-1. Prepare and review the release version, license file/metadata, changelog,
-   dependency changes and package inventory. Set `private: false` only in this
-   explicitly approved preparation. Preserve the exact repository URL.
+1. Open a release PR into `main` that sets the version with
+   `node scripts/version.mjs set VERSION`. Prepare and review the license
+   file/metadata, changelog, dependency changes and package inventory. Set
+   `private: false` only in this explicitly approved preparation. Preserve the
+   exact repository URL.
 2. Run the following in a clean checkout of the candidate commit with Node
    22.14+ (CI tests current Node 22 and 24). Do not load production credentials.
 
@@ -114,10 +145,9 @@ compatible. Human summaries are not a scripting interface.
    Record commit, SDK version, endpoint/project, command, outcome and cleanup
    in the release PR without keys or signed URLs. Missing credentials are a blocked
    release prerequisite, not a skipped success. PR CI deliberately has no service keys.
-4. For rc/stable releases, promote to main by reviewed PR with required CI
-   checks. The first development bootstrap can use reviewed develop directly.
-   Re-run checks/live smoke if release contents changed. Record the verified
-   commit in release notes.
+4. Merge the release PR with required CI checks and wait for the verification
+   run on `main`. Re-run checks/live smoke if release contents changed. Record the
+   verified commit in release notes.
 5. Obtain explicit authorization for the immutable tag and publication. Tag the
    verified main commit with `vVERSION`, push that tag, and publish a GitHub
    Release with `prerelease: true` for rc and `false` for stable. Draft releases
@@ -132,7 +162,16 @@ compatible. Human summaries are not a scripting interface.
    a clean consumer install of the exact version. Test the installed binary's
    version/help and basic JSON behavior. Confirm a dev/rc release did not move
    `latest`. Add the verification summary and links to the release PR or GitHub
-   Release. Synchronize release-only main changes back to develop by PR.
+   Release.
+8. When publication succeeds, the "Open next development version" workflow
+   (`.github/workflows/next-dev-version.yaml`) opens a PR that restores the
+   placeholder: the same `X.Y.Z-dev.0` after an rc, or the next patch
+   `X.Y.(Z+1)-dev.0` after a stable release. Change it with
+   `node scripts/version.mjs set` if the next release is a minor or major version,
+   then merge it. Pull requests opened with `GITHUB_TOKEN` do not trigger
+   `pull_request` workflows, so the workflow dispatches CI on the PR branch to
+   report the required checks. It needs `actions`, `contents` and
+   `pull-requests` write permissions and never publishes.
 
 Useful read-only checks after publication:
 
@@ -157,7 +196,7 @@ This package is already bootstrapped. The steps below document initial setup;
 do not repeat the bootstrap for an existing package or normal dev builds.
 For a new package, first complete the reviewed release preparation and preflight.
 An authorized npm organization owner performs the bootstrap from the verified
-develop commit, using interactive `npm login` and the account's MFA, then
+development commit, using interactive `npm login` and the account's MFA, then
 publishing the tested `0.1.0-dev.1` tarball with `--access public --tag dev`.
 Verify that the account has publication rights in npm's `functional-systems`
 organization; GitHub organization membership does not supply npm permissions.
@@ -180,12 +219,11 @@ select GitHub Actions. Use these values for the workflow in this repository:
 After those settings are saved, enable automatic publication in GitHub repository
 **Settings → Secrets and variables → Actions → Variables** by setting
 `NPM_DEV_PUBLISH_ENABLED=true`. This grants ongoing publication to eligible
-develop pushes. The next develop push (or rerun of its existing push workflow)
+main pushes. The next eligible main push (or rerun of its existing push workflow)
 validates and publishes an automatically numbered version. Keep the variable
-unset until bootstrap and trust configuration are complete. `workflow_dispatch`
-runs validation only. Push-triggered dev publication does not require main to
-contain the workflow; explicit GitHub Release handling does require the workflow
-on the default branch.
+unset until bootstrap and trust configuration are complete; without it, main
+pushes still prepare, pack and test the dev artifact but do not publish.
+`workflow_dispatch` runs validation only.
 
 The workflow uses a GitHub-hosted runner, Node 24, npm >=11.5.1 and
 `id-token: write`. No long-lived npm secret is required. If a GitHub Environment
@@ -202,11 +240,11 @@ no service credentials and cannot establish live readiness.
 
 ## Homebrew handoff
 
-The stable formula is maintained on develop in
-[`packaging/homebrew/Formula/lambdadb-cli.rb`](https://github.com/lambdadb/lambdadb-cli/blob/develop/packaging/homebrew/Formula/lambdadb-cli.rb).
+The stable formula is maintained on main in
+[`packaging/homebrew/Formula/lambdadb-cli.rb`](https://github.com/lambdadb/lambdadb-cli/blob/main/packaging/homebrew/Formula/lambdadb-cli.rb).
 It consumes the verified npm artifact and the lockfile from its immutable release
 commit. Development publication does not update Homebrew. After each stable npm
-release, follow the [Homebrew maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/develop/packaging/homebrew#readme) to
+release, follow the [Homebrew maintainer guide](https://github.com/lambdadb/lambdadb-cli/tree/main/packaging/homebrew#readme) to
 update checksums, pass installation checks and prepare a tap PR. Tap publication
 is separate from this repository's npm workflow; no cross-repository write or
 automatic tap update is configured. Record installation and actual upgrade results

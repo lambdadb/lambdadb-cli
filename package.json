@@ -1,8 +1,8 @@
 {
   "name": "@functional-systems/lambdadb-cli",
-  "version": "0.1.6",
+  "version": "0.1.7-dev.0",
   "private": false,
-  "description": "Project-scoped LambdaDB command-line tools",
+  "description": "LambdaDB CLI for account and project management, usage, data and coding agents",
   "type": "module",
   "bin": {
     "lambdadb": "dist/cli.js"
@@ -10,8 +10,10 @@
   "files": [
     "dist",
     "src",
+    "docs",
     "README.md",
     "DESIGN.md",
+    "ONBOARDING.md",
     "CONTRIBUTING.md",
     "examples",
     "skills",
@@ -33,8 +35,10 @@
     "test:live": "npm run build && node --test test/live/*.test.mjs"
   },
   "dependencies": {
+    "@clack/prompts": "1.8.1",
     "@functional-systems/lambdadb": "0.8.1",
     "commander": "14.0.3",
+    "fast-wrap-ansi": "0.2.2",
     "jsonc-parser": "3.3.1",
     "smol-toml": "1.9.1"
   },
@@ -54,5 +58,8 @@
   "bugs": {
     "url": "https://github.com/lambdadb/lambdadb-cli/issues"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "optionalDependencies": {
+    "@napi-rs/keyring": "2.1.2"
+  }
 }

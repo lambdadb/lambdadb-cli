@@ -285,25 +285,26 @@ test('deadline covers offloaded downloads and signed uploads as well as API requ
 });
 
 test('credential echoed in data is redacted without breaking JSON, even for structural characters', async t => {
-  const unusualSecret = '{"key":';
+  const unusualSecret = '{"key":"x"}';
   const f = await fixture(t, (_r, send) => send(200, { took: 1, total: 1, isDocsInline: true, docs: [{ collection: 'demo-docs', doc: { id: 'doc-1', text: unusualSecret } }] }));
   const r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', 'doc-1', '--json'], { LAMBDADB_API_KEY: unusualSecret });
   assert.equal(r.code, 0); assert.equal(r.json.data.docs[0].doc.text, '[REDACTED]');
 });
 
-test('short credentials preserve output schema and protocol tokens while redacting variable data', async t => {
+test('credentials matching protocol tokens preserve output schema while redacting variable data', async t => {
+  const key = 'accepted';
   const f = await fixture(t, (r, send) => {
     if (r.url.pathname.endsWith('/docs/upsert')) return send(202, { message: 'accepted' });
     if (r.url.pathname.endsWith('/docs/fetch')) return send(200, {
       took: 1, total: 1, isDocsInline: true,
-      docs: [{ collection: 'demo-docs', doc: { id: 'doc-1', a: 'a', state: 'a', nested: { a: ['a'] } } }],
+      docs: [{ collection: 'demo-docs', doc: { id: 'doc-1', [key]: key, [`state-${key}`]: key, nested: { [key]: [key] } } }],
     });
     if (r.url.pathname.endsWith('/collections/demo-docs')) return send(200, {
-      collection: { ...metadata, tags: { a: 'a' }, indexConfigs: { a: { type: 'text', analyzers: ['english'] } } },
+      collection: { ...metadata, tags: { [key]: key }, indexConfigs: { [key]: { type: 'text', analyzers: ['english'] } } },
     });
     return send(200, { collections: [] });
   });
-  const env = { LAMBDADB_API_KEY: 'a' };
+  const env = { LAMBDADB_API_KEY: key };
   let r = await f.run(['doctor', '--json'], env);
   assert.equal(r.code, 0);
   assert.deepEqual(Object.keys(r.json), ['schemaVersion', 'command', 'ok', 'target', 'data']);
@@ -314,7 +315,7 @@ test('short credentials preserve output schema and protocol tokens while redacti
     { name: 'authentication_and_project_collection_list', status: 'passed' },
   ]);
   const args = ['docs', 'import', '--collection', 'demo-docs', '--branch', 'main', '--file', resolve('examples/documents.jsonl')];
-  for (const key of ['a', 'accepted']) {
+  for (const key of ['not_verified', 'accepted']) {
     r = await f.run([...args, '--json'], { LAMBDADB_API_KEY: key });
     assert.equal(r.code, 0);
     assert.equal(r.json.command, 'docs import');
@@ -329,7 +330,7 @@ test('short credentials preserve output schema and protocol tokens while redacti
   r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', 'doc-1', '--json'], env);
   assert.equal(r.json.target.ref.kind, 'branch');
   assert.deepEqual(r.json.data.docs[0].doc, {
-    id: 'doc-1', '[REDACTED]': '[REDACTED]', 'st[REDACTED]te': '[REDACTED]',
+    id: 'doc-1', '[REDACTED]': '[REDACTED]', 'state-[REDACTED]': '[REDACTED]',
     nested: { '[REDACTED]': ['[REDACTED]'] },
   });
   r = await f.run(['collections', 'describe', '--collection', 'demo-docs', '--json'], env);
@@ -356,7 +357,8 @@ test('query and fetch preserve colliding redacted keys, existing suffixes and ne
   const f = await fixture(t, (_r, send) => send(200, {
     took: 1, total: 1, isDocsInline: true, docs: [{ collection: 'demo-docs', score: 1, doc }],
   }));
-  const entries = [['a', 1], ['[REDACTED]', 2], ['[REDACTED]#1', 3], ['a#1', 4]];
+  const key = 'redact-me';
+  const entries = [[key, 1], ['[REDACTED]', 2], ['[REDACTED]#1', 3], [`${key}#1`, 4]];
   const expected = { '[REDACTED]#2': 1, '[REDACTED]': 2, '[REDACTED]#1': 3, '[REDACTED]#1#1': 4 };
   for (const ordered of [entries, [...entries].reverse()]) {
     const fields = Object.fromEntries(ordered);
@@ -365,33 +367,34 @@ test('query and fetch preserve colliding redacted keys, existing suffixes and ne
       ['query', '--file', resolve('examples/query.json')],
       ['docs', 'fetch', '--ids', 'doc-1'],
     ]) {
-      const r = await f.run([...args, '--collection', 'demo-docs', '--ref', 'branch:main', '--json'], { LAMBDADB_API_KEY: 'a' });
+      const r = await f.run([...args, '--collection', 'demo-docs', '--ref', 'branch:main', '--json'], { LAMBDADB_API_KEY: key });
       assert.equal(r.code, 0);
       assert.equal(r.json.schemaVersion, 1);
       assert.deepEqual(r.json.data.docs[0].doc, { id: 'doc-1', ...expected, nested: [expected] });
-      assert.ok(!JSON.stringify(r.json.data.docs[0].doc).includes('a'));
+      assert.ok(!JSON.stringify(r.json.data.docs[0].doc).includes(key));
     }
   }
   // Several distinct keys can collapse even without an unchanged base key.
-  const colliding = [['a[REDACTED]', 5], ['[REDACTED]a', 6], ['aa', 7], ['[REDACTED][REDACTED]#1', 8]];
+  const colliding = [[`${key}[REDACTED]`, 5], [`[REDACTED]${key}`, 6], [`${key}${key}`, 7], ['[REDACTED][REDACTED]#1', 8]];
   for (const ordered of [colliding, [...colliding].reverse()]) {
     doc = { id: 'doc-1', ...Object.fromEntries(ordered) };
-    const r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', 'doc-1', '--json'], { LAMBDADB_API_KEY: 'a' });
+    const r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', 'doc-1', '--json'], { LAMBDADB_API_KEY: key });
     assert.equal(r.code, 0);
     const { id, ...fields } = r.json.data.docs[0].doc;
     assert.equal(id, 'doc-1');
     assert.deepEqual(Object.values(fields).sort(), [5, 6, 7, 8]);
     assert.equal(fields['[REDACTED][REDACTED]#1'], 8);
-    assert.ok(!JSON.stringify(fields).includes('a'));
+    assert.ok(!JSON.stringify(fields).includes(key));
   }
 });
 
 test('colliding metadata keys retain each tag and index configuration', async t => {
+  const key = 'redact-me';
   const f = await fixture(t, (_r, send) => send(200, {
-    collection: { ...metadata, tags: { a: 'first', '[REDACTED]': 'second' },
-      indexConfigs: { a: { type: 'keyword' }, '[REDACTED]': { type: 'text', analyzers: ['english'] } } },
+    collection: { ...metadata, tags: { [key]: 'first', '[REDACTED]': 'second' },
+      indexConfigs: { [key]: { type: 'keyword' }, '[REDACTED]': { type: 'text', analyzers: ['english'] } } },
   }));
-  const r = await f.run(['collections', 'describe', '--collection', 'demo-docs', '--json'], { LAMBDADB_API_KEY: 'a' });
+  const r = await f.run(['collections', 'describe', '--collection', 'demo-docs', '--json'], { LAMBDADB_API_KEY: key });
   assert.equal(r.code, 0);
   assert.deepEqual(r.json.data.collection.tags, { '[REDACTED]#1': 'first', '[REDACTED]': 'second' });
   assert.equal(r.json.data.collection.indexConfigs['[REDACTED]#1'].type, 'keyword');
@@ -502,8 +505,8 @@ test('create forwards all 49 SDK analyzers unchanged and rejects unknown names b
   assert.equal(f.requests.length, 4);
 });
 
-test('short credentials redact facet names and values while preserving bucket schema keys', async t => {
-  for (const key of ['a', 'buckets', 'count']) {
+test('credentials redact facet names and values while preserving bucket schema keys', async t => {
+  for (const key of ['facet-secret', 'buckets-and-count']) {
     const facets = { [key]: { buckets: [{ value: key, count: 1 }] },
       doc: { buckets: [{ value: key, count: 2 }] } };
     const f = await fixture(t, (_r, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [], facets }));
@@ -514,6 +517,84 @@ test('short credentials redact facet names and values while preserving bucket sc
       doc: { buckets: [{ value: '[REDACTED]', count: 2 }] },
     });
   }
+});
+
+test('placeholder keys shorter than eight characters are not redacted, so ordinary words stay readable', async t => {
+  const facets = { count: { buckets: [{ value: 'count', count: 1 }] } };
+  const f = await fixture(t, (_r, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [], facets }));
+  for (const key of ['count', 'abcdefg']) {
+    const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-facets-only.json'), '--json'], { LAMBDADB_API_KEY: key });
+    assert.equal(r.code, 0);
+    assert.deepEqual(r.json.data.facets, facets);
+    assert.ok(!r.stdout.includes('[REDACTED]'));
+  }
+  const human = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-facets-only.json')], { LAMBDADB_API_KEY: 'count' });
+  assert.match(human.stdout, /^0 match\(es\)\.\n/);
+  assert.ok(!human.stdout.includes('[REDACTED]'));
+});
+
+test('parse errors name the missing option, unknown word or close suggestion and never echo an inline value', async t => {
+  const f = await fixture(t, (_r, send) => send(200, { collections: [] }));
+  const cases = [
+    [['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main'], "Required option '--ids <id...>' not specified.", 'docs'],
+    [['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file'], "Option '--file <path>' argument missing.", 'query'],
+    [['collection', 'list'], "Unknown command 'collection'. Did you mean collections?", 'lambdadb'],
+    [['collections', 'list', '--sizee', '3'], "Unknown option '--sizee'. Did you mean --size?", 'collections'],
+    [['docs', 'import', '--collection', 'demo-docs', '--branch', 'main', '--file', 'x', '--mode', 'xyz'], "Option '--mode <mode>' argument 'xyz' is invalid. Allowed choices are upsert, bulk.", 'docs'],
+    [['doctor', `--api-key=${secret}`], "Unknown option '--api-key'.", 'doctor'],
+    [['doctor', `--api-key=prefix'${secret}`], "Unknown option '--api-key'.", 'doctor'],
+    [['doctor', `--api-key=${secret}\n(Did you mean ${secret}?)`], "Unknown option '--api-key'.", 'doctor'],
+    [['doctor', `--api-key-en=${secret}'tail-marker`], "Unknown option '--api-key-en'.", 'doctor'],
+    [['doctor', '--api-key-en'], "Unknown option '--api-key-en'. Did you mean --api-key-env?", 'doctor'],
+  ];
+  const hint = 'Run lambdadb --help or the command-specific --help.';
+  for (const [args, message, command] of cases) {
+    const r = await f.run([...args, '--json']);
+    assert.equal(r.code, 2, r.stdout);
+    assert.equal(r.json.command, command);
+    assert.equal(r.json.error.code, 'INPUT_ERROR');
+    assert.ok(r.json.error.message.startsWith(message), r.json.error.message);
+    assert.ok(!r.json.error.message.includes('=') && !r.json.error.message.includes('prefix') && !r.json.error.message.includes('tail-marker'), r.json.error.message);
+    assert.equal(r.json.error.hint, hint);
+    const human = await f.run(args);
+    assert.equal(human.code, 2);
+    assert.match(human.stdout, /^Command failed\.\n/);
+    assert.ok(human.stderr.includes(message) && human.stderr.includes(hint), human.stderr);
+  }
+  assert.equal(f.requests.length, 0);
+});
+
+test('bare lambdadb prints help and a command group without a subcommand prints its help with exit 2', async t => {
+  const f = await fixture(t, (_r, send) => send(200, { collections: [] }));
+  const bare = await f.run([]);
+  assert.equal(bare.code, 0, bare.stderr);
+  assert.match(bare.stdout, /^Usage: lambdadb \[options\] \[command\]/);
+  assert.match(bare.stdout, /Exit codes: 0 success/);
+  assert.equal(bare.stderr, '');
+  for (const group of ['collections', 'docs', 'projects']) {
+    const r = await f.run([group, '--json']);
+    assert.equal(r.code, 2, r.stdout);
+    assert.equal(r.json.command, group);
+    assert.equal(r.json.error.message, `lambdadb ${group} needs a subcommand.`);
+    assert.equal(r.json.error.hint, `Run lambdadb ${group} --help to list them.`);
+    assert.match(r.stderr, new RegExp(`^Usage: lambdadb ${group} \\[options\\] \\[command\\]`));
+    const human = await f.run([group]);
+    assert.equal(human.code, 2);
+    assert.match(human.stdout, /^Command failed\.\n/);
+    assert.match(human.stderr, /Usage: lambdadb/);
+  }
+  assert.equal(f.requests.length, 0);
+});
+
+test('messages that already state the next step carry no generic hint', async t => {
+  const f = await fixture(t, (_r, send) => send(200, { collections: [] }));
+  const r = await f.run(['usage', '--json']);
+  assert.equal(r.code, 2, r.stdout);
+  assert.match(r.json.error.message, /^Run lambdadb login first\./);
+  assert.equal(r.json.error.hint, '');
+  assert.match(r.stderr, /^Run lambdadb login first\. Project-key environment setup remains available without account login\.\n$/);
+  const size = await f.run(['collections', 'list', '--size', '0', '--json']);
+  assert.equal(size.json.error.hint, 'Check --help and the input file or configuration.');
 });
 
 test('rerank requests preserve omission, nulls, custom criteria and independent vector k', async t => {
@@ -645,12 +726,14 @@ test('colliding credentials preserve fixed rerank tokens while redacting arbitra
       const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-rerank.json'), ...(json ? ['--json'] : [])], { LAMBDADB_API_KEY: key });
       assert.equal(r.code, 0);
       const data = json ? r.json.data : JSON.parse(r.stdout.split('\n').slice(2).join('\n'));
-      assert.deepEqual(data.rerank, { ...rerank, resolvedModel: 'server-[REDACTED]' });
+      // Shorter placeholders are not credentials and stay readable.
+      const redacted = key.length >= 8 ? '[REDACTED]' : key;
+      assert.deepEqual(data.rerank, { ...rerank, resolvedModel: `server-${redacted}` });
       if (docs.length) {
         const doc = data.docs[0].doc;
-        assert.ok(Object.values(doc).includes('[REDACTED]'));
+        assert.ok(Object.values(doc).includes(redacted));
         const nested = Object.values(doc).find(value => value && typeof value === 'object');
-        assert.deepEqual(Object.values(nested), ['[REDACTED]', '[REDACTED]', '[REDACTED]']);
+        assert.deepEqual(Object.values(nested), [redacted, redacted, redacted]);
         assert.equal(data.docs[0].score, 0);
       }
     }

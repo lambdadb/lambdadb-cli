@@ -2,11 +2,11 @@ import { spawn } from 'node:child_process';
 import type { Config } from './config.js';
 import { InputError } from './errors.js';
 
-// Stable stdio package; this CLI only adapts credentials and process lifecycle.
-export const mcpPackage = '@functional-systems/lambdadb-mcp@0.1.5';
+// Exact stdio package; this CLI only adapts credentials and process lifecycle.
+export const mcpPackage = '@functional-systems/lambdadb-mcp@0.1.6-dev.21';
 
 export function mcpEnvironment(config: Config, writeTools: boolean): NodeJS.ProcessEnv {
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     LAMBDADB_BASE_URL: config.endpoint,
     LAMBDADB_PROJECT_NAME: config.project,
@@ -14,6 +14,12 @@ export function mcpEnvironment(config: Config, writeTools: boolean): NodeJS.Proc
     LAMBDADB_MCP_ENABLE_WRITE_TOOLS: String(writeTools),
     LAMBDADB_DEBUG: 'false',
   };
+  // npm exec exports these selectors to its child. They must not override the
+  // separate MCP package and command supplied explicitly to the nested npx.
+  for (const key of Object.keys(env)) {
+    if (/^npm_config_(package|call)$/i.test(key)) delete env[key];
+  }
+  return env;
 }
 
 export async function serveMcp(config: Config, writeTools: boolean): Promise<number> {

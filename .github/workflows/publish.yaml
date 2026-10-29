@@ -1,10 +1,13 @@
+# CI validates pull requests and main. A main push with the committed X.Y.Z-dev.0
+# placeholder publishes a dev build; a main push with an rc/stable version (a release
+# PR merge) is verified without publication; a published GitHub Release publishes it.
 name: CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
   push:
-    branches: [main, develop]
+    branches: [main]
   workflow_dispatch:
   release:
     types: [published]
@@ -46,16 +49,15 @@ jobs:
     if: >-
       github.repository == 'lambdadb/lambdadb-cli' &&
       (github.event_name == 'release' ||
-       (github.event_name == 'push' && github.ref == 'refs/heads/develop' &&
-        vars.NPM_DEV_PUBLISH_ENABLED == 'true'))
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
     concurrency:
-      # Never interrupt a registry write. New pending dev jobs replace older ones.
-      group: npm-${{ github.event_name == 'release' && github.event.release.tag_name || 'dev' }}
+      # Never interrupt a registry write. New pending main jobs replace older ones.
+      group: npm-${{ github.event_name == 'release' && github.event.release.tag_name || 'main' }}
       cancel-in-progress: false
     steps:
       - name: Check out verified source
@@ -73,12 +75,34 @@ jobs:
       - name: Require an OIDC-capable npm
         run: |
           node -e 'const {execFileSync}=require("node:child_process"); const v=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(v[0]<11 || (v[0]===11 && (v[1]<5 || (v[1]===5 && v[2]<1)))) throw Error("npm >=11.5.1 required");'
+      # The committed X.Y.Z-dev.0 placeholder selects a dev build; an rc/stable version
+      # on a main push (a release PR merge) is verified only.
+      - name: Select the run mode
+        id: mode
+        env:
+          PUBLISH_EVENT: ${{ github.event_name }}
+        run: |
+          VERSION=$(node scripts/version.mjs get)
+          if [ "$PUBLISH_EVENT" != "push" ]; then
+            MODE=release
+          else
+            case "$VERSION" in
+              *-dev.0) MODE=dev ;;
+              *-dev.*) echo "Committed version $VERSION must use the -dev.0 placeholder" >&2; exit 1 ;;
+              *) MODE=verify ;;
+            esac
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "Committed version $VERSION; run mode $MODE"
       - name: Prepare deterministic development version
-        if: github.event_name == 'push'
+        if: steps.mode.outputs.mode == 'dev'
         id: dev
         run: node scripts/dev-release.mjs prepare
+      - name: Verify committed release metadata without publishing
+        if: steps.mode.outputs.mode == 'verify'
+        run: node scripts/check-release.mjs --verify
       - name: Verify explicit release metadata and main ancestry
-        if: github.event_name == 'release'
+        if: steps.mode.outputs.mode == 'release'
         id: release
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -86,25 +110,25 @@ jobs:
         run: |
           git merge-base --is-ancestor HEAD origin/main
           node scripts/check-release.mjs --release
-          node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json","utf8")); if(p.version.includes("-dev.")) throw Error("Development versions publish through develop pushes, not GitHub Releases.");'
       - name: Pack once and test the exact publication artifact
-        if: github.event_name == 'release' || steps.dev.outputs.ready == 'true'
+        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
         id: package
         shell: bash
         run: |
           npm ci
-          npm run check:version
           npm pack --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/package.json"
           CLI_TARBALL=$(node --input-type=module -e 'import fs from "node:fs"; const file=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/package.json","utf8"))[0].filename; console.log(`${process.env.RUNNER_TEMP}/${file}`);')
           npm run test:package -- "$CLI_TARBALL"
           echo "tarball=$CLI_TARBALL" >> "$GITHUB_OUTPUT"
       - name: Publish development version and verify registry state
-        if: github.event_name == 'push' && steps.dev.outputs.ready == 'true'
+        if: >-
+          steps.mode.outputs.mode == 'dev' && steps.dev.outputs.ready == 'true' &&
+          vars.NPM_DEV_PUBLISH_ENABLED == 'true'
         env:
           CLI_TARBALL: ${{ steps.package.outputs.tarball }}
         run: node scripts/dev-release.mjs publish
       - name: Publish explicit release using npm Trusted Publishing
-        if: github.event_name == 'release'
+        if: steps.mode.outputs.mode == 'release'
         env:
           CLI_TARBALL: ${{ steps.package.outputs.tarball }}
           NPM_CHANNEL: ${{ steps.release.outputs.channel }}

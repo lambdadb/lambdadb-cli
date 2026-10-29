@@ -22,24 +22,41 @@ const rerankProtocolValues = new Map<string, Set<string>>([
 ]);
 // These response maps carry user-defined field names.
 const freeFormMaps = new Set(['doc', 'indexConfigs', 'tags']);
+const minimumSecretLength = 8;
 
 export class Output {
   json = false;
   private secrets = new Set<string>();
+  private diagnosticWriter?: (message: string) => void;
 
-  protect(secret: string | undefined) { if (secret) this.secrets.add(secret); }
+  // Issued keys are far longer; a short placeholder would otherwise rewrite ordinary words.
+  protect(secret: string | undefined) { if (secret && secret.length >= minimumSecretLength) this.secrets.add(secret); }
+
+  withDiagnostics(writer: (message: string) => void): Output {
+    const scoped = new Output();
+    scoped.secrets = this.secrets;
+    scoped.json = this.json;
+    scoped.diagnosticWriter = writer;
+    return scoped;
+  }
 
   private redact(text: string): string {
     for (const secret of this.secrets) text = text.split(secret).join('[REDACTED]');
     return text;
   }
 
-  diagnostic(message: string) {
+  safeDiagnostic(message: string) {
     // eslint-disable-next-line no-control-regex -- Strip terminal control bytes from diagnostics.
-    process.stderr.write(`${this.redact(message).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')}\n`);
+    return this.redact(message).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
   }
 
-  emit(envelope: Envelope, summary: string) {
+  diagnostic(message: string) {
+    const safe = this.safeDiagnostic(message);
+    if (this.diagnosticWriter) this.diagnosticWriter(safe);
+    else process.stderr.write(`${safe}\n`);
+  }
+
+  emit(envelope: Envelope, summary: string, includeHumanDetails = true) {
     // Preserve the protocol while redacting variable values and arbitrary map keys.
     // Normalize dates first, and redact before serialization to preserve valid JSON.
     const sanitize = (value: unknown, path = '', freeForm = false): unknown => {
@@ -75,9 +92,9 @@ export class Output {
     else {
       const safe = JSON.parse(serialized) as Envelope;
       process.stdout.write(`${this.redact(summary)}\n`);
-      if (safe.target) process.stdout.write(`${JSON.stringify(safe.target)}\n`);
-      if (safe.data !== undefined) process.stdout.write(`${JSON.stringify(safe.data, null, 2)}\n`);
+      if (includeHumanDetails && safe.target) process.stdout.write(`${JSON.stringify(safe.target)}\n`);
+      if (includeHumanDetails && safe.data !== undefined) process.stdout.write(`${JSON.stringify(safe.data, null, 2)}\n`);
     }
-    if (envelope.error) this.diagnostic(`${envelope.error.message} ${envelope.error.hint}`);
+    if (envelope.error) this.diagnostic([envelope.error.message, envelope.error.hint].filter(Boolean).join(' '));
   }
 }

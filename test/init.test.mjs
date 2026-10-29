@@ -1,3 +1,4 @@
+import { terminalInput, keys, enter, down, up, left, cancel } from './terminal-input.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
@@ -7,9 +8,21 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, delimiter } from 'node:path';
 import { parse as toml } from 'smol-toml';
 import { parse as jsonc } from 'jsonc-parser';
+import { pathToFileURL } from 'node:url';
 
 const cli = process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js');
 const secret = 'synthetic-init-key-never-persist';
+const { Output } = await import(pathToFileURL(join(dirname(cli), 'output.js')).href);
+
+test('interactive diagnostics share secret protection with final output and strip terminal controls', () => {
+  const output = new Output(), messages = [];
+  const scoped = output.withDiagnostics(message => messages.push(message));
+  output.protect('account-secret');
+  scoped.protect('project-secret');
+  scoped.diagnostic('account-secret project-secret \x1b[2J\x07');
+  assert.deepEqual(messages, ['[REDACTED] [REDACTED] [2J']);
+  assert.equal(output.safeDiagnostic('project-secret'), '[REDACTED]');
+});
 
 async function fixture(t, status = 200, onRequest) {
   const root = await mkdtemp(join(tmpdir(), 'lambdadb-init-'));
@@ -28,20 +41,24 @@ async function fixture(t, status = 200, onRequest) {
   t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); await rm(root, { recursive: true, force: true }); });
   const config = join(home, 'cli.json');
   const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')
-    && !['XDG_CONFIG_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'GEMINI_CLI_HOME', 'VSCODE_PORTABLE', 'VSCODE_APPDATA', 'COPILOT_HOME', 'APPDATA', 'HOME', 'USERPROFILE'].includes(key)));
-  async function run(args, env = {}) {
-    const child = spawn(process.execPath, [cli, ...args], { cwd, env: {
+    && !['XDG_CONFIG_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'GEMINI_CLI_HOME', 'VSCODE_PORTABLE', 'VSCODE_APPDATA', 'COPILOT_HOME', 'APPDATA', 'HOME', 'USERPROFILE', 'NO_COLOR', 'FORCE_COLOR', 'npm_command'].includes(key)));
+  async function run(args, env = {}, answers) {
+    const preload = join(root, 'interactive.mjs');
+    if (answers) await writeFile(preload, 'process.stdin.isTTY = true; process.stdin.setRawMode = () => process.stdin; process.stderr.isTTY = true; process.stderr.columns = 100;\n');
+    const child = spawn(process.execPath, [...(answers ? ['--import', preload] : []), cli, ...args], { cwd, env: {
       ...cleanEnv, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), APPDATA: join(home, 'AppData', 'Roaming'), LAMBDADB_CONFIG: config,
       LAMBDADB_ENDPOINT: endpoint, LAMBDADB_PROJECT: 'existing-project', CUSTOM_PROJECT_KEY: secret,
-      LAMBDADB_API_KEY_ENV: 'CUSTOM_PROJECT_KEY', ...env,
-    }, stdio: ['ignore', 'pipe', 'pipe'] });
+      LAMBDADB_API_KEY_ENV: 'CUSTOM_PROJECT_KEY', ...(answers ? { TERM: 'xterm-256color' } : {}), ...env,
+    }, stdio: [answers ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => stdout += chunk);
-    child.stderr.on('data', chunk => stderr += chunk);
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    const answered = terminalInput(child, answers);
     const timer = setTimeout(() => child.kill('SIGKILL'), 8000);
     const code = await new Promise((r, reject) => { child.once('error', reject); child.once('close', r); });
     clearTimeout(timer);
     assert.notEqual(code, null, `CLI stalled: ${stdout} ${stderr}`);
+    if (answers) assert.equal(answered(), answers.length, stderr);
     assert.ok(!stdout.includes(secret) && !stderr.includes(secret), 'credential leaked to CLI output');
     return { code, stdout, stderr, data: args.includes('--json') && stdout ? JSON.parse(stdout) : undefined };
   }
@@ -91,6 +108,9 @@ test('init preserves unrelated TOML/JSONC, forwards environment names, installs 
     const skill = await readFile(join(f.cwd, directory, 'skills/lambdadb/SKILL.md'), 'utf8');
     assert.match(skill, /^---\nname: lambdadb\n/);
     assert.ok(!skill.includes(secret));
+    const reference = await readFile(join(f.cwd, directory, 'skills/lambdadb/references/usage.md'), 'utf8');
+    assert.equal(reference, await readFile(new URL('../skills/lambdadb/references/usage.md', import.meta.url), 'utf8'));
+    assert.ok(!reference.includes(secret));
   }
   result = await f.run(f.init());
   assert.equal(result.code, 0);
@@ -122,8 +142,26 @@ test('user scope honors CODEX_HOME and preserves existing skill and unrelated Cl
   assert.equal(result.code, 0, result.stderr);
   assert.match(await readFile(join(codexHome, 'config.toml'), 'utf8'), /mcp_servers.lambdadb/);
   assert.equal(await readFile(skillPath, 'utf8'), 'User-maintained LambdaDB skill\n');
+  await assert.rejects(readFile(join(dirname(skillPath), 'references/usage.md')), { code: 'ENOENT' });
   assert.deepEqual(JSON.parse(await readFile(join(f.home, '.claude.json'), 'utf8')).account, { id: 'preserved' });
   assert.ok(result.data.data.files.every(file => !file.path.startsWith(f.cwd)));
+});
+
+test('skill references preserve user edits and missing bundled references are restored safely', async t => {
+  const f = await fixture(t);
+  const reference = join(await realpath(f.cwd), '.agents/skills/lambdadb/references/usage.md');
+  assert.equal((await f.run(f.init('codex'))).code, 0);
+  const bundled = await readFile(reference, 'utf8');
+  await f.file(reference, 'User-maintained usage notes\n');
+  let result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(reference, 'utf8'), 'User-maintained usage notes\n');
+  assert.equal(result.data.data.files.find(file => file.path === reference).action, 'unchanged');
+  await rm(reference);
+  result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(reference, 'utf8'), bundled);
+  assert.equal(result.data.data.files.find(file => file.path === reference).action, 'create');
 });
 
 test('additional agents preserve configuration, credentials and reruns in their supported scopes', async t => {
@@ -159,7 +197,7 @@ test('additional agents preserve configuration, credentials and reruns in their 
         await f.file(c.path, `${['cline', 'copilot'].includes(agent) ? '' : '// Keep this comment\n'}${JSON.stringify(original, null, 2)}\n`);
         let result = await f.run(f.init(agent, scope));
         assert.equal(result.code, 0, result.stderr);
-        assert.equal(result.data.data.files.length, 3);
+        assert.equal(result.data.data.files.length, 4);
         const text = await readFile(c.path, 'utf8');
         const value = jsonc(text);
         const server = value[c.map].lambdadb;
@@ -173,6 +211,8 @@ test('additional agents preserve configuration, credentials and reruns in their 
         assert.deepEqual(args.slice(2), ['mcp', '--endpoint', f.endpoint, '--project', 'existing-project', '--api-key-env', 'CUSTOM_PROJECT_KEY']);
         assert.equal(server.type, ['gemini', 'kiro'].includes(agent) ? undefined : agent === 'opencode' ? 'local' : 'stdio');
         assert.match(await readFile(c.skill, 'utf8'), /name: lambdadb/);
+        assert.equal(await readFile(join(dirname(c.skill), 'references/usage.md'), 'utf8'),
+          await readFile(new URL('../skills/lambdadb/references/usage.md', import.meta.url), 'utf8'));
         result = await f.run(f.init(agent, scope));
         assert.equal(result.code, 0, result.stderr);
         assert.ok(result.data.data.files.every(file => file.action === 'unchanged'));
@@ -204,7 +244,7 @@ test('all six agents can be installed together with separate skill paths', async
   const result = await f.run(f.init(names));
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(result.data.data.agents, names.split(','));
-  assert.equal(result.data.data.files.length, 13);
+  assert.equal(result.data.data.files.length, 19);
   assert.equal(f.requests.length, 1);
 });
 
@@ -214,9 +254,12 @@ test('all nine agents install together at user scope, sharing the Copilot and VS
   let result = await f.run(f.init(names, 'user'));
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(result.data.data.agents, names.split(','));
-  assert.equal(result.data.data.files.length, 18);
+  assert.equal(result.data.data.files.length, 26);
   const shared = result.data.data.files.find(file => file.path === join(f.home, '.copilot', 'skills', 'lambdadb', 'SKILL.md'));
   assert.match(shared.kind, /vscode skill.*copilot skill/);
+  const sharedReference = result.data.data.files.filter(file => file.path === join(dirname(shared.path), 'references/usage.md'));
+  assert.equal(sharedReference.length, 1);
+  assert.match(sharedReference[0].kind, /vscode skill reference.*copilot skill reference/);
   assert.equal(f.requests.length, 1);
   result = await f.run(f.init(names, 'user'));
   assert.equal(result.code, 0, result.stderr);
@@ -227,7 +270,7 @@ test('Claude and Copilot share a project MCP file and VS Code and Copilot share 
   const f = await fixture(t);
   let result = await f.run(f.init('claude,vscode,copilot'));
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(result.data.data.files.length, 5);
+  assert.equal(result.data.data.files.length, 7);
   const sharedMcp = result.data.data.files.find(file => basename(file.path) === '.mcp.json');
   assert.match(sharedMcp.kind, /claude MCP.*copilot MCP/);
   const text = await readFile(sharedMcp.path, 'utf8');
@@ -254,7 +297,7 @@ test('shared MCP symlinks and CLI settings symlinks retain their targets across 
   await symlink(cliTarget, f.config);
   let result = await f.run(f.init('gemini,kiro'));
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(result.data.data.files.length, 4, 'shared MCP target must be planned only once');
+  assert.equal(result.data.data.files.length, 6, 'shared MCP target must be planned only once');
   assert.equal(result.data.data.files.find(file => file.path === gemini).destination, await realpath(shared));
   assert.deepEqual(result.data.data.files.find(file => file.path === gemini).aliases, [kiro]);
   assert.match(result.stderr, / -> .*shared-mcp.json/);
@@ -561,6 +604,7 @@ test('user edits inside an init-owned entry are preserved on rerun', async t => 
 test('agents none saves only non-secret CLI settings and still verifies connection', async t => {
   const f = await fixture(t);
   const result = await f.run(f.init('none'));
+  assert.doesNotMatch(result.stderr, /No agents selected|Return to agent selection/);
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.data.data.files.length, 1);
   assert.equal(f.requests.length, 1);
@@ -571,21 +615,22 @@ test('MCP launcher maps the custom credential at runtime, overrides inherited wr
   const f = await fixture(t);
   const bin = join(f.root, 'bin');
   const capture = join(f.root, 'child.json');
-  await f.file(join(bin, 'npx'), `#!${process.execPath}\nimport fs from 'node:fs';\nfs.writeFileSync(process.env.CAPTURE, JSON.stringify({args:process.argv.slice(2),endpoint:process.env.LAMBDADB_BASE_URL,project:process.env.LAMBDADB_PROJECT_NAME,key:process.env.LAMBDADB_PROJECT_API_KEY,writes:process.env.LAMBDADB_MCP_ENABLE_WRITE_TOOLS}));\nprocess.stdout.write('{"jsonrpc":"2.0","id":1,"result":{}}\\n');\nprocess.exit(Number(process.env.CHILD_EXIT ?? 0));\n`);
+  await f.file(join(bin, 'npx'), `#!${process.execPath}\nimport fs from 'node:fs';\nfs.writeFileSync(process.env.CAPTURE, JSON.stringify({args:process.argv.slice(2),endpoint:process.env.LAMBDADB_BASE_URL,project:process.env.LAMBDADB_PROJECT_NAME,key:process.env.LAMBDADB_PROJECT_API_KEY,writes:process.env.LAMBDADB_MCP_ENABLE_WRITE_TOOLS,npmExecKeys:Object.keys(process.env).filter(key=>/^npm_config_(package|call)$/i.test(key)),registry:process.env.npm_config_registry}));\nprocess.stdout.write('{"jsonrpc":"2.0","id":1,"result":{}}\\n');\nprocess.exit(Number(process.env.CHILD_EXIT ?? 0));\n`);
   const { chmod } = await import('node:fs/promises');
   await chmod(join(bin, 'npx'), 0o755);
-  const env = { PATH: bin + delimiter + process.env.PATH, CAPTURE: capture, LAMBDADB_MCP_ENABLE_WRITE_TOOLS: 'true', LAMBDADB_PROJECT_API_KEY: 'wrong-inherited-key' };
+  const env = { PATH: bin + delimiter + process.env.PATH, CAPTURE: capture, LAMBDADB_MCP_ENABLE_WRITE_TOOLS: 'true', LAMBDADB_PROJECT_API_KEY: 'wrong-inherited-key', npm_config_package: '@functional-systems/lambdadb-cli@0.1.7-dev.1', NPM_CONFIG_CALL: 'outer-command', npm_config_registry: 'https://registry.npmjs.org' };
   let result = await f.run(['mcp'], env);
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.stdout, '{"jsonrpc":"2.0","id":1,"result":{}}\n');
   assert.equal(result.stderr, '');
   assert.deepEqual(JSON.parse(await readFile(capture, 'utf8')), {
-    args: ['-y', '@functional-systems/lambdadb-mcp@0.1.5'], endpoint: f.endpoint,
-    project: 'existing-project', key: secret, writes: 'false',
+    args: ['-y', '@functional-systems/lambdadb-mcp@0.1.6-dev.21'], endpoint: f.endpoint,
+    project: 'existing-project', key: secret, writes: 'false', npmExecKeys: [], registry: env.npm_config_registry,
   });
-  result = await f.run(['mcp', '--write-tools'], { ...env, CHILD_EXIT: '7' });
+  result = await f.run(['mcp', '--write-tools'], { ...env, CHILD_EXIT: '7', NPM_CONFIG_PACKAGE: 'another-package', npm_config_call: 'another-command' });
   assert.equal(result.code, 7);
   assert.equal(JSON.parse(await readFile(capture, 'utf8')).writes, 'true');
+  assert.deepEqual(JSON.parse(await readFile(capture, 'utf8')).npmExecKeys, []);
   for (const key of ['', '${CUSTOM_PROJECT_KEY}', '${env:CUSTOM_PROJECT_KEY}', '{env:CUSTOM_PROJECT_KEY}']) {
     result = await f.run(['mcp'], { ...env, CUSTOM_PROJECT_KEY: key });
     assert.equal(result.code, 2);
@@ -597,4 +642,343 @@ test('MCP launcher maps the custom credential at runtime, overrides inherited wr
   result = await f.run(['mcp', '--invalid-option'], env);
   assert.equal(result.code, 2);
   assert.equal(result.stdout, '');
+});
+
+test('interactive first use uses a consistent menu and can cancel before requests', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init'], { LAMBDADB_ENDPOINT: '', LAMBDADB_PROJECT: '' }, [['Connection', cancel]]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /Sign in or create an account/);
+  assert.match(result.stderr, /Use an existing API key/);
+  assert.equal(f.requests.length, 0);
+  await assert.rejects(readFile(f.config), { code: 'ENOENT' });
+});
+
+test('manual setup reviews new settings without irrelevant agent options', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--agents', 'none'], { LAMBDADB_ENDPOINT: '', LAMBDADB_PROJECT: '' }, [
+    ['Connection', keys(down, '\r')], ['Project API endpoint', f.endpoint], ['Project name', 'existing-project'],
+    ['API key environment variable', enter], ['Continue with this setup?', keys(up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /Review changes/);
+  assert.match(result.stderr, /https:\/\/app\.lambdadb\.ai/);
+  assert.match(result.stderr, /enter only its environment-variable name/);
+  assert.match(result.stderr, /create\s+~\/cli.json/);
+  assert.doesNotMatch(result.stderr, /Scope:|MCP tools:|Change options/);
+  assert.equal(JSON.parse(await readFile(f.config, 'utf8')).apiKeyEnv, 'CUSTOM_PROJECT_KEY');
+  assert.equal(f.requests.length, 1);
+});
+
+test('saved connections show optional details and verify without an apply prompt', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const before = await readFile(f.config, 'utf8');
+  const result = await f.run(['init', '--agents', 'none'], {}, [['Connection', enter]]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Project\s+existing-project/);
+  assert.match(result.stdout, /Agents\s+Skipped/);
+  assert.match(result.stdout, /lambdadb collections list --json/);
+  assert.match(result.stderr, /Authentication and collection access verified/);
+  assert.doesNotMatch(result.stderr, /Review changes|Continue with this setup|MCP tools:/);
+  assert.equal(await readFile(f.config, 'utf8'), before);
+  const detail = await f.run(['init'], {}, [
+    ['Connection', keys(down, down, '\r')], ['Connection', cancel],
+  ]);
+  assert.equal(detail.code, 2, detail.stderr);
+  assert.match(detail.stderr, /Current connection/);
+  assert.ok(detail.stderr.includes(f.endpoint));
+  assert.equal(f.requests.length, 2);
+});
+
+test('npx runs suggest CLI commands that work without a global install', async t => {
+  const f = await fixture(t);
+  const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const command = `npx -y @functional-systems/lambdadb-cli@${version}`;
+  const json = await f.run(f.init(), { npm_command: 'exec' });
+  assert.equal(json.code, 0, json.stderr);
+  const reads = JSON.parse(json.stdout).data.nextSteps.find(step => step.startsWith('CLI reads:'));
+  assert.ok(reads.includes(`run ${command} collections list --json`), reads);
+  assert.ok(!/(^|[^-])lambdadb (collections|query)/.test(reads), reads);
+  const result = await f.run(['init', '--agents', 'none'], { npm_command: 'exec' }, [['Connection', enter]]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.ok(result.stdout.includes(`${command} collections list --json`), result.stdout);
+});
+
+test('explicit target flags bypass the connection menu and retain text defaults', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', '--agents', 'none'], {}, [
+    ['Project API endpoint', enter], ['Project name', enter], ['API key environment variable', enter],
+    ['Continue with this setup?', keys(up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stderr, /Use current project/);
+  assert.equal(f.requests.length, 1);
+});
+
+test('help presents init without a connect flag and explains browser approval and agent scope', async t => {
+  const f = await fixture(t);
+  const help = await f.run(['init', '--help']);
+  assert.equal(help.code, 0);
+  assert.doesNotMatch(help.stdout, /--connect/);
+  assert.match(help.stdout, /Get started: lambdadb init/);
+  assert.match(help.stdout, /browser approval is still required/);
+  assert.match(help.stdout, /does not change CLI config/);
+  const global = await f.run(['--help']);
+  assert.match(global.stdout, /Advanced connection options:/);
+  assert.match(global.stdout, /Project data API origin/);
+  const login = await f.run(['login', '--help']);
+  assert.match(login.stdout, /sign in and approve/);
+  assert.equal(f.requests.length, 0);
+});
+
+
+test('agent multiselect is explicit, supports toggling, and displays friendly names', async t => {
+  const f = await fixture(t);
+  await f.file(join(f.home, '.codex/config.toml'), '');
+  await f.file(join(f.home, '.claude/settings.json'), '{}');
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const result = await f.run(['init'], {}, [
+    ['Connection', enter], ['Coding agents (Space: select one or more; Enter: confirm)', keys(' ', down, ' ', up, ' ', '\r')],
+    ['Continue with this setup?', keys(up, up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /Codex|Claude Code/);
+  assert.match(result.stdout, /Agents\s+Claude Code/);
+  assert.match(result.stdout, /project scope · MCP read-only/);
+  assert.doesNotMatch(result.stderr, /No agents selected/);
+  assert.doesNotMatch(result.stdout, /"checks"|credentialId/);
+  assert.ok(await readFile(join(f.cwd, '.mcp.json'), 'utf8'));
+  await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
+  assert.equal(f.requests.length, 2);
+});
+
+test('explicitly skipping empty agent selection omits review and preserves read-only settings', async t => {
+  const f = await fixture(t);
+  await f.file(join(f.home, '.codex/config.toml'), '');
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const before = await readFile(f.config, 'utf8');
+  const result = await f.run(['init'], { NO_COLOR: '1' }, [
+    ['Connection', enter], ['Coding agents (Space: select one or more; Enter: confirm)', enter],
+    ['No agents selected', keys(down, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Agents\s+Skipped/);
+  assert.doesNotMatch(result.stderr, /Review changes|Continue with this setup|Scope:|MCP tools:/);
+  // eslint-disable-next-line no-control-regex -- NO_COLOR must remove SGR color/style escapes.
+  assert.doesNotMatch(result.stdout + result.stderr, /\x1b\[[0-9;]*m/);
+  const canceled = await f.run(['init'], {}, [['Connection', enter], ['Coding agents (Space: select one or more; Enter: confirm)', cancel]]);
+  assert.equal(canceled.code, 2, canceled.stderr);
+  assert.equal(await readFile(f.config, 'utf8'), before);
+  await assert.rejects(readFile(join(f.cwd, '.mcp.json')), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
+  assert.equal(f.requests.length, 2);
+});
+
+test('connection failure preserves settings and never prints a completion result', async t => {
+  const f = await fixture(t, 403);
+  const before = JSON.stringify({ endpoint: f.endpoint, project: 'existing-project', apiKeyEnv: 'CUSTOM_PROJECT_KEY' }, null, 2) + '\n';
+  await f.file(f.config, before);
+  const result = await f.run(['init', '--agents', 'none'], {}, [['Connection', enter]]);
+  assert.equal(result.code, 3, result.stderr);
+  assert.match(result.stderr, /Connection verification failed/);
+  assert.doesNotMatch(result.stderr, /Setup complete/);
+  assert.equal(await readFile(f.config, 'utf8'), before);
+  assert.equal(f.requests.length, 1);
+});
+
+test('connection progress cancellation aborts the read and retains input-error semantics', async t => {
+  const f = await fixture(t, 200, () => new Promise(() => {}));
+  const before = JSON.stringify({ endpoint: f.endpoint, project: 'existing-project', apiKeyEnv: 'CUSTOM_PROJECT_KEY' }, null, 2) + '\n';
+  await f.file(f.config, before);
+  const result = await f.run(['init', '--agents', 'none'], {}, [
+    ['Connection', enter], ['error:Verifying connection', { signal: 'SIGINT' }],
+  ]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /Init canceled/);
+  assert.equal(await readFile(f.config, 'utf8'), before);
+  assert.equal(f.requests.length, 1);
+});
+
+test('settings use select/confirm controls, retain write opt-in, and review the changed scope', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const result = await f.run(['init', '--agents', 'codex'], {}, [
+    ['Connection', enter], ['Continue with this setup?', keys(up, up, '\r')],
+    ['Install for', enter], ['Enable MCP write tools?', keys(left, '\r')],
+    ['Continue with this setup?', keys(up, up, '\r')],
+    ['Install for', keys(down, '\r')], ['Enable MCP write tools?', enter],
+    ...Array.from({ length: 2 }, () => [
+      ['Continue with this setup?', keys(up, up, '\r')],
+      ['Install for', enter], ['Enable MCP write tools?', enter],
+    ]).flat(),
+    ['Continue with this setup?', keys(up, up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stderr, /MaxListenersExceededWarning/);
+  assert.match(result.stdout, /user scope · MCP read and write/);
+  assert.ok(toml(await readFile(join(f.home, '.codex/config.toml'), 'utf8')).mcp_servers.lambdadb.args.includes('--write-tools'));
+  await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
+});
+
+test('flag-based write opt-in remains selected when settings confirmation uses Enter', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const result = await f.run(['init', '--agents', 'codex', '--write-tools'], {}, [
+    ['Connection', enter], ['Continue with this setup?', keys(up, up, '\r')],
+    ['Install for', keys(down, '\r')], ['Enable MCP write tools?', enter],
+    ['Continue with this setup?', keys(up, up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /user scope · MCP read and write/);
+});
+
+for (const step of ['agents', 'empty selection', 'user scope']) {
+  test(`manual setup canceled at ${step} reports no saved connection`, async t => {
+    const f = await fixture(t);
+    const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', ...(step === 'user scope' ? ['--agents', 'cline'] : [])], {}, [
+      ['Project API endpoint', enter], ['Project name', enter], ['API key environment variable', enter],
+      ...(step === 'agents' ? [['Coding agents (Space: select one or more; Enter: confirm)', cancel]]
+        : step === 'empty selection' ? [['Coding agents (Space: select one or more; Enter: confirm)', enter], ['No agents selected', cancel]]
+          : [['Install agent settings for your OS user?', enter]]),
+    ]);
+    assert.equal(result.code, 2, result.stderr);
+    assert.match(result.stderr, /Init canceled\. No files were changed\. Rerun lambdadb init when ready\.\n$/);
+    assert.ok(!result.stderr.includes('Check --help'));
+    await assert.rejects(readFile(f.config), { code: 'ENOENT' });
+    assert.equal(f.requests.length, 0);
+  });
+}
+
+test('file details preserve full JSON metadata and unchanged agents still offer settings', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const result = await f.run(['init', '--agents', 'codex'], {}, [
+    ['Connection', enter], ['Continue with this setup?', keys(up, '\r')],
+    ['Continue with this setup?', keys(up, up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /All files/);
+  assert.match(result.stderr, /unchanged\s+~\/cli.json/);
+  const json = await f.run(f.init('codex'));
+  assert.equal(json.code, 0, json.stderr);
+  assert.equal(json.data.data.files.length, 4);
+  assert.ok(json.data.data.files.every(file => file.action === 'unchanged'));
+  const canceled = await f.run(['init', '--agents', 'codex'], {}, [['Connection', enter], ['Continue with this setup?', enter]]);
+  assert.equal(canceled.code, 2, canceled.stderr);
+  assert.match(canceled.stderr, /Change options/);
+  assert.match(canceled.stderr, /No file changes/);
+  assert.equal(f.requests.length, 3);
+});
+
+test('planning conflicts allow user scope without overwriting a manual project entry', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const path = join(f.cwd, '.mcp.json');
+  const original = '{"mcpServers":{"lambdadb":{"command":"manual-server"}}}\n';
+  await f.file(path, original);
+  const result = await f.run(['init', '--agents', 'claude'], {}, [
+    ['Connection', enter], ['Configuration scope', keys(up, '\r')],
+    ['Continue with this setup?', keys(up, up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(path, 'utf8'), original);
+  assert.ok(JSON.parse(await readFile(join(f.home, '.claude.json'), 'utf8')).mcpServers.lambdadb);
+  assert.equal(f.requests.length, 2);
+  const nonInteractive = await f.run(f.init('claude'));
+  assert.equal(nonInteractive.code, 2);
+  assert.doesNotMatch(nonInteractive.stderr, /Configuration scope/);
+});
+
+
+test('whitespace-only interactive input retains endpoint, project and key-variable defaults', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', '--agents', 'none'], {}, [
+    ['Project API endpoint', ' '], ['Project name', ' '], ['API key environment variable', ' '],
+    ['Continue with this setup?', keys(up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(await readFile(f.config, 'utf8')), { endpoint: f.endpoint, project: 'existing-project', apiKeyEnv: 'CUSTOM_PROJECT_KEY' });
+  assert.equal(f.requests.length, 1);
+});
+
+test('interactive agent guidance includes environment requirements, selected-agent steps and environment-selected config', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--agents', 'codex,vscode'], {}, [
+    ['Connection', enter], ['Continue with this setup?', keys(up, up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  const summary = result.stdout.replace(/\s+/g, ' ');
+  assert.match(summary, /CUSTOM_PROJECT_KEY in the agent environment and npx on PATH/);
+  assert.match(summary, /GUI launches may not inherit shell exports/);
+  assert.match(summary, /Codex: trust the project/);
+  assert.match(summary, /VS Code: reload the window, trust the workspace/);
+  assert.doesNotMatch(summary, /Claude Code:|Gemini CLI:/);
+  assert.ok(result.stdout.includes(`Config   ${f.config}`));
+  assert.ok(result.stdout.includes(`CLI config ${JSON.stringify(f.config)}`));
+});
+
+test('the normal XDG config does not add custom-path guidance', async t => {
+  const f = await fixture(t);
+  const result = await f.run(['init', '--agents', 'none'], { LAMBDADB_CONFIG: undefined }, [
+    ['Connection', enter], ['Continue with this setup?', keys(up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /Config|pass --config/);
+  assert.ok(await readFile(join(f.home, '.config/lambdadb/config.json'), 'utf8'));
+});
+
+for (const stage of ['first', 'last']) {
+  test(`Ctrl-C during the ${stage} agent file save reports cancellation instead of success`, async t => {
+    const f = await fixture(t);
+    assert.equal((await f.run(f.init('none'))).code, 0);
+    const preload = join(f.root, 'cancel-save.mjs');
+    await f.file(preload, `
+      import fs from 'node:fs/promises';
+      import { syncBuiltinESMExports } from 'node:module';
+      const original = fs.writeFile;
+      fs.writeFile = async (path, ...args) => {
+        const result = await original(path, ...args);
+        if (String(path).includes(${JSON.stringify(stage === 'first' ? 'config.toml.' : 'usage.md.')})) {
+          process.kill(process.pid, 'SIGINT');
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        return result;
+      };
+      syncBuiltinESMExports();
+    `);
+    const result = await f.run(['init', '--agents', 'codex'], { NODE_OPTIONS: `--import=${preload}` }, [
+      ['Connection', enter], ['Continue with this setup?', keys(up, up, up, '\r')],
+    ]);
+    assert.equal(result.code, 2, result.stderr);
+    assert.match(result.stderr, /Init canceled while saving setup/);
+    assert.match(result.stderr, /Some files may already be updated/);
+    assert.doesNotMatch(result.stderr + result.stdout, /Setup complete|No files were changed/);
+    if (stage === 'first') await assert.rejects(readFile(join(f.cwd, '.agents/skills/lambdadb/SKILL.md')), { code: 'ENOENT' });
+    assert.equal((await f.run(f.init('codex'))).code, 0);
+    assert.ok(await readFile(join(f.cwd, '.agents/skills/lambdadb/references/usage.md'), 'utf8'));
+    assert.ok(f.requests.every(request => request.method === 'GET'));
+  });
+}
+
+
+test('Enter on a focused agent returns to selection by default until agents are checked', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const result = await f.run(['init'], {}, [
+    ['Connection', enter],
+    ['Coding agents (Space: select one or more; Enter: confirm)', keys(down, '\r')],
+    ['No agents selected', enter],
+    ['Coding agents (Space: select one or more; Enter: confirm)', enter],
+    ['No agents selected', enter],
+    ['Coding agents (Space: select one or more; Enter: confirm)', keys(down, ' ', down, ' ', '\r')],
+    ['Continue with this setup?', keys(up, up, up, '\r')],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Agents\s+Claude Code, Cursor/);
+  assert.ok(await readFile(join(f.cwd, '.mcp.json'), 'utf8'));
+  assert.ok(await readFile(join(f.cwd, '.cursor/mcp.json'), 'utf8'));
+  await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
+  assert.equal(f.requests.length, 2);
+  assert.ok(f.requests.every(request => request.method === 'GET'));
 });

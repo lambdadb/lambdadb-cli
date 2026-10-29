@@ -1,17 +1,20 @@
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
-import { createInterface } from 'node:readline/promises';
-import { configPath, loadSettings, resolveConfig, saveSettings, settings, type Options, type Settings } from './config.js';
+import { dirname, join, sep } from 'node:path';
+import { configPath, fileIdentity, loadSettings, resolveConfig, saveSettings, settings, type Options, type SelectedSettings } from './config.js';
+import { terminalSetup } from './projects.js';
 import { InputError } from './errors.js';
 import type { Output } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
 import { mcpPackage } from './mcp.js';
+import { cli } from './command.js';
+import { formatPlan } from './init-output.js';
+import { InitUI } from './init-ui.js';
 import { mcpLaunch } from './agent-config.js';
 import { agentAdapters, agentNames, detectAgents, type Agent, type AgentAdapter, type AgentContext, type AgentScope } from './agents.js';
 
-type InitOptions = Options & { nonInteractive?: boolean; agents?: string; scope?: string; writeTools?: boolean; json?: boolean };
+type InitOptions = Options & { browser?: boolean; apiUrl?: string; nonInteractive?: boolean; agents?: string; scope?: string; writeTools?: boolean; json?: boolean };
 type Change = { path: string; before: string | undefined; after: string; kind: string };
 type PlannedChange = Change & { destination: string; aliases: string[] };
 const version = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version as string;
@@ -40,24 +43,12 @@ async function readOptional(path: string): Promise<string | undefined> {
   }
 }
 
-async function fileIdentity(path: string): Promise<string> {
-  try { return await realpath(path); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new InputError(`Cannot resolve configuration path: ${path}.`);
-    const info = await lstat(path).catch(error => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-      throw new InputError(`Cannot resolve configuration path: ${path}.`);
-    });
-    if (info?.isSymbolicLink()) throw new InputError(`Configuration symbolic link has a missing target: ${path}. Restore its target before rerunning init.`);
-    return join(await fileIdentity(dirname(path)), basename(path));
-  }
-}
-
-async function plan(selected: Required<Settings>, chosen: Agent[], scope: AgentScope, options: InitOptions, context: AgentContext): Promise<PlannedChange[]> {
+async function plan(selected: SelectedSettings, chosen: Agent[], scope: AgentScope, options: InitOptions, context: AgentContext): Promise<PlannedChange[]> {
   const changes: Change[] = [];
   const path = configPath(options);
   changes.push({ path, before: await readOptional(path), after: JSON.stringify(selected, null, 2) + '\n', kind: 'CLI settings (no key)' });
   const skill = await readFile(new URL('../skills/lambdadb/SKILL.md', import.meta.url), 'utf8');
+  const usage = await readFile(new URL('../skills/lambdadb/references/usage.md', import.meta.url), 'utf8');
   for (const agent of chosen) {
     const adapter: AgentAdapter = agentAdapters.find(adapter => adapter.id === agent)!;
     const paths = await adapter.paths(scope, context);
@@ -69,6 +60,11 @@ async function plan(selected: Required<Settings>, chosen: Agent[], scope: AgentS
     const previousSkill = await readOptional(skillPath);
     // Preserve existing skills, including user edits, rather than taking ownership.
     changes.push({ path: skillPath, before: previousSkill, after: previousSkill ?? skill, kind: `${agent} skill (${scope}${previousSkill && previousSkill !== skill ? ', existing skill preserved' : ''})` });
+    if (previousSkill === undefined || previousSkill === skill) {
+      const referencePath = join(dirname(skillPath), 'references', 'usage.md');
+      const previousReference = await readOptional(referencePath);
+      changes.push({ path: referencePath, before: previousReference, after: previousReference ?? usage, kind: `${agent} skill reference (${scope})` });
+    }
   }
   const unique = new Map<string, PlannedChange>();
   for (const change of changes) {
@@ -87,7 +83,12 @@ async function plan(selected: Required<Settings>, chosen: Agent[], scope: AgentS
   return [...unique.values()];
 }
 
-async function apply(changes: PlannedChange[], options: Options) {
+function checkSaveCanceled(signal?: AbortSignal) {
+  if (signal?.aborted) throw new InputError('Init canceled while saving setup. Some files may already be updated. Rerun init to review and finish setup.', '');
+}
+
+async function apply(changes: PlannedChange[], options: Options, signal?: AbortSignal) {
+  checkSaveCanceled(signal);
   // Detect concurrent edits before writing anything. Individual writes are atomic;
   // a disk/permission failure can still leave a partial install, safe to rerun.
   for (const change of changes) {
@@ -99,6 +100,7 @@ async function apply(changes: PlannedChange[], options: Options) {
     }
   }
   for (const change of changes.filter(change => change.before !== change.after)) {
+    checkSaveCanceled(signal);
     if (change.path === configPath(options)) { await saveSettings({ ...options, config: change.destination }); continue; }
     const temp = `${change.destination}.${randomUUID()}.tmp`;
     try {
@@ -111,43 +113,88 @@ async function apply(changes: PlannedChange[], options: Options) {
   }
 }
 
+export function interactiveInit(options: Pick<InitOptions, 'nonInteractive' | 'json'>): boolean {
+  return !options.nonInteractive && !options.json && !!process.stdin.isTTY && !!process.stderr.isTTY;
+}
+
+const scopeLabel = (scope: string) => scope === 'project' ? 'This repository' : 'Your OS user';
+
 export async function initialize(options: InitOptions, output: Output) {
-  const interactive = !options.nonInteractive && !options.json && !!process.stdin.isTTY && !!process.stderr.isTTY;
+  const interactive = interactiveInit(options);
   if (!interactive && !options.nonInteractive) {
-    throw new InputError(`Init needs a terminal. For automation or --json, pass --non-interactive --agents ${agentNames} (or none) --scope project (or user).`);
+    throw new InputError(`Init needs a terminal. For automation or --json, pass --non-interactive --agents ${agentNames} (or none) --scope project (or user).`, '');
   }
   const context = { cwd: process.cwd(), home: homedir(), env: process.env };
   const detected = await detectAgents(context);
-  output.diagnostic('Manual Console step: open https://console.lambdadb.ai, select an existing project, and obtain its API endpoint, project name and API key. Export the key securely; init never accepts or saves a key value.');
-  const prompt = interactive ? createInterface({ input: process.stdin, output: process.stderr }) : undefined;
-  const ask = async (label: string, fallback?: string) => {
-    const cancellation = new AbortController();
-    const cancel = () => cancellation.abort();
-    prompt!.once('SIGINT', cancel);
-    prompt!.once('close', cancel);
-    try {
-      const answer = (await prompt!.question(`${label}${fallback ? ` [${fallback}]` : ''}: `, { signal: cancellation.signal })).trim();
-      return answer || fallback;
-    } catch (error) {
-      if (cancellation.signal.aborted) throw new InputError('Init canceled. No files were changed.');
-      throw error;
-    } finally {
-      prompt!.removeListener('SIGINT', cancel);
-      prompt!.removeListener('close', cancel);
-    }
-  };
+  let connectionSaved = false;
+  let accountSetup = false;
+  const canceled = () => (connectionSaved || accountSetup)
+    ? new InputError('Init canceled. Completed login/project setup is retained. Rerun init to continue with the saved connection or select another project.', '')
+    : new InputError('Init canceled. No files were changed.', `Rerun ${cli} init when ready.`);
+  const ui = interactive ? new InitUI(output, canceled) : undefined;
+  if (ui) output = output.withDiagnostics(message => ui.info(message));
   try {
-    if (interactive) {
-      const saved = await loadSettings(configPath(options));
-      options.endpoint = await ask('API endpoint', options.endpoint ?? process.env.LAMBDADB_ENDPOINT ?? saved.endpoint);
-      options.project = await ask('Existing project name', options.project ?? process.env.LAMBDADB_PROJECT ?? saved.project);
-      options.apiKeyEnv = await ask('Environment variable holding your API key (not its value)', options.apiKeyEnv ?? process.env.LAMBDADB_API_KEY_ENV ?? saved.apiKeyEnv ?? 'LAMBDADB_API_KEY');
-      output.protect(options.apiKeyEnv ? process.env[options.apiKeyEnv] : undefined);
-      output.diagnostic(`Detected agents (heuristic): ${detected.join(', ') || 'none'}. You may also select an undetected agent.`);
-      options.agents ??= await ask(`Agents: ${agentNames} (comma-separated), or none`, detected.join(',') || 'none');
+    if (ui) {
+      ui.start();
+      let saved = await loadSettings(configPath(options));
+      let reuseConnection = false;
+      const explicitConnection = options.endpoint || options.project || options.apiKeyEnv || options.credentialId;
+      if (!explicitConnection) {
+        const currentEndpoint = process.env.LAMBDADB_ENDPOINT ?? saved.endpoint;
+        const currentProject = process.env.LAMBDADB_PROJECT ?? saved.project;
+        const reuse = !!currentEndpoint || !!saved.credentialStore;
+        for (;;) {
+          const choice = await ui.select('Connection', reuse ? [
+            { value: 'reuse', label: 'Use current project', hint: currentProject ?? 'Not set' },
+            { value: 'account', label: 'Choose another project' },
+            { value: 'details', label: 'View connection details' },
+            { value: 'cancel', label: 'Cancel' },
+          ] : [
+            { value: 'account', label: 'Sign in or create an account', hint: 'Recommended' },
+            { value: 'environment', label: 'Use an existing API key', hint: 'From an environment variable' },
+            { value: 'cancel', label: 'Cancel' },
+          ]);
+          if (choice === 'cancel') throw canceled();
+          if (choice === 'details') {
+            ui.note(`Project: ${currentProject ?? 'Not set'}\nEndpoint: ${currentEndpoint ?? 'Not set'}\nSettings: ${configPath(options)}`, 'Current connection');
+            continue;
+          }
+          accountSetup = choice === 'account';
+          reuseConnection = choice === 'reuse' && !!currentEndpoint && !!currentProject;
+          break;
+        }
+      }
+      if (accountSetup) {
+        const path = configPath(options);
+        await fileIdentity(path); // Validate symlinks before login or project changes.
+        ui.info(`Settings: ${path.startsWith(context.home + sep) ? '~' + path.slice(context.home.length) : path}\nKeys: OS credential store`);
+        const selected = await terminalSetup({ ...options, guided: true, signal: ui.signal }, output, ui);
+        options = { ...options, ...selected };
+        saved = selected;
+        connectionSaved = true;
+      }
+      if (!reuseConnection && (!saved.credentialStore || (options.apiKeyEnv && !options.credentialStore))) {
+        ui.info('Get the project endpoint, name and API key in Console:\nhttps://app.lambdadb.ai\nExport the key securely; enter only its environment-variable name below.');
+        options.endpoint = await ui.text('Project API endpoint', options.endpoint ?? process.env.LAMBDADB_ENDPOINT ?? saved.endpoint);
+        options.project = await ui.text('Project name', options.project ?? process.env.LAMBDADB_PROJECT ?? saved.project);
+        options.apiKeyEnv = await ui.text('API key environment variable', options.apiKeyEnv ?? process.env.LAMBDADB_API_KEY_ENV ?? saved.apiKeyEnv ?? 'LAMBDADB_API_KEY');
+        output.protect(options.apiKeyEnv ? process.env[options.apiKeyEnv] : undefined);
+      }
+      if (options.agents === undefined) {
+        const agents = await ui.agents(agentAdapters.map(adapter => ({ value: adapter.id, label: adapter.name,
+          ...(detected.includes(adapter.id) ? { hint: 'Detected' } : {}),
+        })));
+        options.agents = agents.join(',') || 'none';
+      }
       const scopes = availableScopes(selectedAgents(options.agents));
-      options.scope ??= await ask(`Agent configuration scope: ${scopes.join(' or ')}`, scopes[0]);
-      if (options.writeTools === undefined) options.writeTools = (await ask('Enable MCP write tools? Type yes to opt in', 'no')) === 'yes';
+      if (options.scope === undefined) {
+        if (scopes.includes('project')) options.scope = 'project';
+        else {
+          if (!(await ui.confirm('Install agent settings for your OS user?'))) throw canceled();
+          options.scope = 'user';
+        }
+      }
+      options.writeTools ??= false;
     }
     const chosen = selectedAgents(options.agents);
     if (!['project', 'user'].includes(options.scope ?? '')) throw new InputError('Specify --scope project or --scope user. CLI settings still use --config or the normal user configuration path.');
@@ -156,30 +203,78 @@ export async function initialize(options: InitOptions, output: Output) {
     }
     // Use the existing precedence and validation for both saved settings and auth.
     const selected = await settings(options, true);
+    if (!interactive && !selected.credentialStore) output.diagnostic('Manual Console step: obtain an existing project endpoint, name and API key at https://app.lambdadb.ai. Export the key securely; environment setup never saves its value.');
     options = { ...options, ...selected };
     output.protect(process.env[selected.apiKeyEnv]);
-    if (!process.env[selected.apiKeyEnv]?.trim()) throw new InputError(`Export ${selected.apiKeyEnv} securely in this shell, then rerun init. Obtain a project API key in the LambdaDB Console; never pass its value as a flag.`);
+    if (!selected.credentialStore && !process.env[selected.apiKeyEnv]?.trim()) throw new InputError(`Export ${selected.apiKeyEnv} securely in this shell, then rerun init. Obtain a project API key in the LambdaDB Console; never pass its value as a flag.`);
     const config = await resolveConfig(options, true);
-    const changes = await plan(selected, chosen, options.scope as AgentScope, options, context);
-    const files = changes.map(change => ({ path: change.path, ...(change.aliases.length ? { aliases: change.aliases } : {}), ...(change.destination !== change.path ? { destination: change.destination } : {}), kind: change.kind,
+    output.protect(config.apiKey);
+    const planWithScopeRecovery = async () => {
+      for (;;) {
+        try { return await plan(selected, chosen, options.scope as AgentScope, options, context); }
+        catch (error) {
+          const scopes = availableScopes(chosen);
+          if (!interactive || !chosen.length || scopes.length < 2 || !(error instanceof InputError)) throw error;
+          output.diagnostic(`Cannot prepare ${options.scope} scope: ${error.message}`);
+          const scope = await ui!.select('Configuration scope', [
+            ...scopes.map(value => ({ value, label: scopeLabel(value) })),
+            { value: 'cancel', label: 'Cancel' },
+          ], 'cancel');
+          if (scope === 'cancel') throw canceled();
+          options.scope = scope;
+        }
+      }
+    };
+    let changes = await planWithScopeRecovery();
+    const describe = () => changes.map(change => ({ path: change.path, ...(change.aliases.length ? { aliases: change.aliases } : {}), ...(change.destination !== change.path ? { destination: change.destination } : {}), kind: change.kind,
       action: change.before === change.after ? 'unchanged' : change.before === undefined ? 'create' : 'update' }));
-    for (const file of files) output.diagnostic(`${file.action}: ${[file.path, ...(file.aliases ?? [])].join(', ')}${file.destination ? ` -> ${file.destination}` : ''} — ${file.kind}`);
-    output.diagnostic(`MCP: ${mcpPackage}; write tools ${options.writeTools ? 'enabled (explicit opt-in)' : 'disabled'}. Agents must inherit ${selected.apiKeyEnv}; only its name is stored.`);
-    if (interactive && (await ask('Apply these changes after verifying collection-list access? Type yes', 'no')) !== 'yes') {
-      throw new InputError('Init canceled. No files were changed.');
+    let files = describe();
+    if (ui) {
+      const review = chosen.length > 0 || files.some(file => file.action !== 'unchanged');
+      let details = false;
+      while (review) {
+        ui.note(formatPlan(files, chosen, options.scope!, !!options.writeTools, context, details), 'Review changes');
+        const answer = await ui.select('Continue with this setup?', [
+          { value: 'apply', label: 'Apply changes' },
+          ...(chosen.length ? [{ value: 'settings', label: 'Change options' }] : []),
+          { value: 'details', label: 'Show all files' },
+          { value: 'cancel', label: 'Cancel' },
+        ], 'cancel');
+        if (answer === 'apply') break;
+        if (answer === 'details') { details = true; continue; }
+        if (answer === 'cancel') throw canceled();
+        const scopes = availableScopes(chosen);
+        options.scope = await ui.select('Install for', scopes.map(value => ({ value,
+          label: scopeLabel(value),
+        })), options.scope);
+        options.writeTools = await ui.confirm('Enable MCP write tools?', !!options.writeTools);
+        changes = await planWithScopeRecovery();
+        files = describe();
+        details = false;
+      }
+    } else {
+      for (const file of files) output.diagnostic(`${file.action}: ${[file.path, ...(file.aliases ?? [])].join(', ')}${file.destination ? ` -> ${file.destination}` : ''} — ${file.kind}`);
+      output.diagnostic(`MCP: ${mcpPackage}; write tools ${options.writeTools ? 'enabled (explicit opt-in)' : 'disabled'}. ${selected.credentialStore ? `The bridge reads ${selected.credentialStore} using a non-secret reference.` : `Agents must inherit ${selected.apiKeyEnv}; only its name is stored.`}`);
     }
-    const ctx = runtime(config);
+    const ctx = runtime(config, ui?.signal);
     let connection;
-    try { connection = await checkConnection(ctx); } finally { ctx.close(); }
-    await apply(changes, options);
+    try {
+      connection = ui ? await ui.verify(() => checkConnection(ctx)) : await checkConnection(ctx);
+    } finally { ctx.close(); }
+    await apply(changes, options, ui?.signal);
+    checkSaveCanceled(ui?.signal);
+    ui?.finish();
     const nextSteps = [
-      `Restart/reload selected agents from an environment containing ${selected.apiKeyEnv} and npx on PATH. GUI launches may not inherit shell exports.`,
+      selected.credentialStore ? `Restart/reload selected agents as the same OS user with ${selected.credentialStore} accessible and npx on PATH. No shell key export is required.` : `Restart/reload selected agents from an environment containing ${selected.apiKeyEnv} and npx on PATH. GUI launches may not inherit shell exports.`,
       agentAdapters.filter(adapter => chosen.includes(adapter.id)).map(adapter => adapter.instructions).join(' '),
-      'Agent prompt: Use LambdaDB MCP to list collections, inspect the collection I choose, then read up to five documents at branch:main with query omitted. Help me search an actual indexed field. Do not create or modify data.',
-      'CLI alternative: run lambdadb collections list --json and lambdadb collections describe --collection NAME --json. Save {"size":5} in first-query.json, then run lambdadb query --collection NAME --ref branch:main --file first-query.json --json. Replace NAME with the collection you chose.',
+      `Agent prompt: Prefer LambdaDB CLI with --json and configuration file ${JSON.stringify(configPath(options))}; use the matching MCP connection if terminal execution is unavailable or I request MCP. List collections, inspect the collection I choose, then read a small sample at my selected ref (branch:main if none is intended). Help me search an actual indexed field. Do not create or modify data.`,
+      `CLI reads: run ${cli} collections list --json and ${cli} collections describe --collection NAME --json. Save {"size":5} in first-query.json, then run ${cli} query --collection NAME --ref branch:main --file first-query.json --json. Pass the configuration file above with --config; replace NAME and ref with the chosen target.`,
       'If the project has no collections/data, populate it deliberately outside init. Connection success does not establish search readiness.',
     ];
     return { ...connection, settings: selected, detectedAgents: detected, agents: chosen, scope: options.scope,
       writeTools: !!options.writeTools, files, nextSteps };
-  } finally { prompt?.close(); }
+  } catch (error) {
+    ui?.finish('Setup stopped');
+    throw error;
+  } finally { ui?.dispose(); }
 }
