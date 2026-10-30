@@ -789,13 +789,13 @@ test('guided region menu lists ready regions before regions that need provisioni
   const fixture = await cliFixture(t, (call, res) => {
     if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [] }));
     if (call.path.endsWith('/regions')) return res.end(JSON.stringify({ regions: [
-      { region: 'ap-northeast-1', name: 'Tokyo', is_open: false, cloud_provider: 'aws' },
-      { region: 'eu-west-1', name: 'Ireland', is_open: true, cloud_provider: 'aws' },
-      { region: 'us-east-1', name: 'N. Virginia', is_open: true, cloud_provider: 'aws' },
+      { region: 'af-south-1', name: 'Africa (Cape Town)', is_open: false, cloud_provider: 'aws' },
+      { region: 'ap-northeast-1', name: 'Asia Pacific (Tokyo)', is_open: true, cloud_provider: 'aws' },
+      { region: 'ap-northeast-2', name: 'Asia Pacific (Seoul)', is_open: true, cloud_provider: 'aws' },
     ] }));
     assert.equal(call.path, '/auth/cli/projects');
     assert.equal(call.method, 'POST');
-    assert.equal(call.body.region, 'ap-northeast-1');
+    assert.equal(call.body.region, 'af-south-1');
     res.statusCode = 201;
     res.end(JSON.stringify({ id: first, organization_id: org, status: 'CREATING' }));
   });
@@ -803,7 +803,7 @@ test('guided region menu lists ready regions before regions that need provisioni
     ['Connection', enter], ['Region', keys(down, down, '\r')], ['Project name', 'example'], ['Create this project?', keys(left, '\r')],
   ]);
   assert.equal(result.code, 2, result.stderr);
-  assert.match(result.stderr, /was created in ap-northeast-1 and is provisioning/);
+  assert.match(result.stderr, /was created in af-south-1 and is provisioning/);
   assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 1);
 });
 
