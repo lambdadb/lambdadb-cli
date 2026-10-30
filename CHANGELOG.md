@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The guided `init` region menu now lists regions that deploy right away before
+  regions that still need provisioning, in the same order as Console. Within
+  each group the server order is kept. `projects regions` output is unchanged.
+
 ### Fixed
 
 - When the account API answers the CLI authorization start request with a

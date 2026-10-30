@@ -379,8 +379,11 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
       cloud_provider: string;
     }[];
     if (!Array.isArray(regions)) throw new InputError('Invalid region list.');
+    // Match Console: regions that deploy right away first, then regions that still need
+    // provisioning, each group in the server's order.
+    const aws = regions.filter((r) => r.cloud_provider === 'aws');
     const region = await choose(
-      regions.filter((r) => r.cloud_provider === 'aws'),
+      [...aws.filter((r) => r.is_open), ...aws.filter((r) => !r.is_open)],
       (r) => `${r.name} (${r.region})`,
       prompts,
       'Region',
