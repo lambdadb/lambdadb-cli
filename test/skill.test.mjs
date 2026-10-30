@@ -34,6 +34,10 @@ test('the skill routes query tasks to agent-readable docs pages and ships parsea
     assert.ok(rows.some(row => row.includes(`/guides/search/${page}.md |`)), page);
   }
   assert.ok(rows.some(row => row.includes('/guides/collections/native-embeddings.md |')));
+  for (const page of ['upsert-data', 'bulk-upsert-data', 'update-data', 'delete-data']) {
+    assert.ok(rows.some(row => row.includes(`/guides/documents/${page}.md |`)), page);
+  }
+  assert.ok(rows.some(row => row.includes('/guides/data-versioning/branches-tags-aliases.md |')));
   assert.match(skill, /https:\/\/docs\.lambdadb\.ai\/llms\.txt/);
   const blocks = [...skill.matchAll(/```json\n([\s\S]*?)```/g)].map(match => JSON.parse(match[1]));
   assert.equal(blocks.length, 2);

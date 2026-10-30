@@ -70,8 +70,23 @@ retrying it unchanged.
 | Sorting | https://docs.lambdadb.ai/guides/search/sort.md |
 | Keyword facets and `size: 0` counts | https://docs.lambdadb.ai/guides/search/facets.md |
 | Query limits and large results | https://docs.lambdadb.ai/guides/search/limits.md |
-| Index types and analyzers in `indexConfigs` | https://docs.lambdadb.ai/guides/collections/index-types.md |
-| Native embedding fields and their write rules | https://docs.lambdadb.ai/guides/collections/native-embeddings.md |
+
+The same rule applies to collections, refs and writes, which the CLI
+(`collections create`, `collections update`, `docs import`, `docs fetch`) and
+the MCP write tools can perform when the user asks:
+
+| Task | Read |
+| --- | --- |
+| Index types and analyzers for an index configuration | https://docs.lambdadb.ai/guides/collections/index-types.md and https://docs.lambdadb.ai/guides/collections/choose-text-analyzers.md |
+| Create a collection: index config, tags, partitioning, retention | https://docs.lambdadb.ai/guides/collections/create-a-collection.md |
+| Native embedding fields: providers, models, dimensions, write rules | https://docs.lambdadb.ai/guides/collections/native-embeddings.md |
+| What a branch, tag or alias ref means and how reads select one | https://docs.lambdadb.ai/guides/data-versioning/branches-tags-aliases.md |
+| Upsert documents (`docs import --mode upsert`, MCP upsert) | https://docs.lambdadb.ai/guides/documents/upsert-data.md |
+| Bulk upsert (`docs import --mode bulk`) and its exclusions | https://docs.lambdadb.ai/guides/documents/bulk-upsert-data.md |
+| Update fields of existing documents by ID | https://docs.lambdadb.ai/guides/documents/update-data.md |
+| Fetch by ID or list documents, with consistent reads | https://docs.lambdadb.ai/guides/documents/fetch-data.md and https://docs.lambdadb.ai/guides/documents/list-data.md |
+| Delete documents | https://docs.lambdadb.ai/guides/documents/delete-data.md |
+| How reads, writes, storage and inference are billed | https://docs.lambdadb.ai/guides/costs/understanding-costs.md |
 
 The full page index is https://docs.lambdadb.ai/llms.txt. When pages cannot be
 fetched, stay with the verified shapes below and the server's error messages,
@@ -176,9 +191,9 @@ signup/login and CLI approval are required.
 Guided setup enables MCP write tools; non-interactive setup requires
 `--write-tools`. Their availability does not authorize creating collections or
 changing data. Perform writes only when requested, using the user's collection
-and branch. Collections with native embedding fields take the source text, not
-vectors, and do not support bulk upsert; read the native embeddings page before
-importing into one.
+and branch, and read the matching page above first: collections with native
+embedding fields take the source text, not vectors, and do not support bulk
+upsert.
 
 ## Usage and plan limits
 
