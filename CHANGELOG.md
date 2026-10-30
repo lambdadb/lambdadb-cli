@@ -14,6 +14,12 @@
 - The guided `init` region menu now lists regions that deploy right away before
   regions that still need provisioning, in the same order as Console. Within
   each group the server order is kept. `projects regions` output is unchanged.
+- The bundled skill reference states that LambdaDB's query DSL differs from
+  Elasticsearch's: the supported clauses are `queryString`, `bool`, `knn`,
+  `sparseVector` and top-level `bayesian`; there is no `term`, `match` or
+  standalone `filter` clause; `bool` is an array of clauses with `occur`. It adds
+  a `bool` example that filters a `keyword` field through Lucene syntax, so
+  agents build filters from the documented contract instead of guessing.
 
 ### Fixed
 

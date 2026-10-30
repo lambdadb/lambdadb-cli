@@ -35,6 +35,15 @@ connection rather than inventing shell/network workarounds.
    `keyword`, or an existing vector field. Do not invent vector dimensions,
    embedding providers, or unsupported server capabilities. Try a narrow lexical
    query before adding hybrid search or reranking when that answers the task.
+5. Use the LambdaDB query DSL, not Elasticsearch's. Supported clauses are
+   `queryString`, `bool`, `knn`, `sparseVector` and top-level `bayesian`. There
+   is no `term`, `terms`, `match` or standalone `filter` clause: match a
+   `keyword` field with Lucene syntax inside `queryString` (`category:database`,
+   quote values with spaces). `bool` is an array of clauses, each carrying one
+   clause key plus `occur` (`must`, `filter`, `should`, `must_not`; default
+   `should`), not an object with `must`/`filter` arrays. See
+   https://docs.lambdadb.ai/guides/search/boolean and
+   https://docs.lambdadb.ai/guides/search/query-string.
 
 For a collection that actually has a `text` field, a CLI query file can contain:
 
@@ -43,6 +52,21 @@ For a collection that actually has a `text` field, a CLI query file can contain:
   "size": 5,
   "fields": { "include": ["id", "text"] },
   "query": { "queryString": { "query": "serverless", "defaultField": "text" } }
+}
+```
+
+To combine a text match with a `keyword` filter, use a `bool` array:
+
+```json
+{
+  "size": 5,
+  "fields": { "include": ["id", "text", "category"] },
+  "query": {
+    "bool": [
+      { "queryString": { "query": "serverless", "defaultField": "text" }, "occur": "must" },
+      { "queryString": { "query": "category:database" }, "occur": "filter" }
+    ]
+  }
 }
 ```
 
