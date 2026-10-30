@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 
-// Provider timeouts, rate limits and outages are transient under shared load; with
-// onFailure "returnOriginal" they arrive as a fallback naming the reason. Retry only
-// those, a bounded number of times. Credential, invalid-response and any other
-// fallback fails at once, and a fallback never counts as applied reranking.
+// Every live rerank request that sends onFailure "returnOriginal" goes through here.
+// Provider timeouts, rate limits and outages are transient under shared load and
+// arrive as a fallback naming the reason. Retry only those, a bounded number of
+// times. Credential, invalid-response and any other fallback fails at once, and a
+// fallback never counts as applied reranking.
 const transientReasons = new Set(['timeout', 'rateLimit', 'unavailable']);
 export const rerankAttempts = 3;
 

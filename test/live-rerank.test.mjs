@@ -66,6 +66,18 @@ for (const [name, change, message] of [
   });
 }
 
+test('TypeSafe fallbacks follow the same bounded rule', async () => {
+  const typesafe = { ...applied, rerank: { ...applied.rerank, provider: 'typesafe', model: 'jev-1.13.0', criteriaVersion: 'default-relevance-v1' } };
+  const retried = harness([fallback('unavailable'), typesafe]);
+  retried.options.label = 'typesafe jev-1.13.0';
+  assert.equal(await rerankWithRetry(retried.options), typesafe);
+  assert.deepEqual(retried.calls.logs, ['[live] typesafe jev-1.13.0 fell back with reason unavailable; retrying (2/3)']);
+  const failed = harness([fallback('invalidResponse'), typesafe]);
+  failed.options.label = 'typesafe jev-1.13.0';
+  await assert.rejects(rerankWithRetry(failed.options), /typesafe jev-1\.13\.0 fell back with reason invalidResponse on attempt 1\/3/);
+  assert.equal(failed.calls.queries, 1);
+});
+
 test('errors and other statuses pass through after one call', async () => {
   const skipped = { docs: [], rerank: { status: 'skipped', scoredCount: 0, reason: 'noCandidates' } };
   const passed = harness([skipped]);
