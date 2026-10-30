@@ -60,25 +60,27 @@ export function queryInput(body: Record<string, unknown>, ref: ReadRef): QueryCo
   // Public API accepts null size, while the SDK only accepts undefined/number.
   if (input.size === null) delete input.size;
   // The SDK requires integer sizes and facets for zero; bound non-reranked queries here.
-  if (typeof input.size === 'number' && (input.size < 0 || input.size > 100)) {
-    throw new InputError('Query size must be from 0 to 100; zero requires facets.');
+  if (typeof input.size === 'number' && (input.size < 0 || input.size > 1000)) {
+    throw new InputError('Query size must be from 0 to 1000; zero requires facets.');
   }
   try { queryCollectionRequestBodyToJSON(input as QueryCollectionInput); }
   catch { throw new InputError('Invalid query request. Check fields, types and rerank settings; size:0 requires facets, rerank requires a scoring query without sort, and consistentRead:true requires a branch ref.'); }
   return input as QueryCollectionInput;
 }
 
+const invalidIndexConfig = 'Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract: vector dimensions 64–4096, similarity cosine or euclidean, and exactly one embedding sourceField or sources.';
+
 export function createInput(collectionName: string, indexConfigs: Record<string, unknown>): CreateCollectionInput {
   const input = { collectionName, indexConfigs } as CreateCollectionInput;
   try { createCollectionRequestToJSON(input); }
-  catch { throw new InputError('Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract.'); }
+  catch { throw new InputError(invalidIndexConfig); }
   return input;
 }
 
 export function updateInput(indexConfigs: Record<string, unknown>): UpdateCollectionInput {
   const input = { indexConfigs } as UpdateCollectionInput;
   try { updateCollectionRequestBodyToJSON(input); }
-  catch { throw new InputError('Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract.'); }
+  catch { throw new InputError(invalidIndexConfig); }
   return input;
 }
 

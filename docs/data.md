@@ -76,7 +76,15 @@ the committed head of `main`, not the selected read ref or whole-index readiness
 Both create and update take the index map itself through `--index-config`, not a
 full request body. Updates are subject to server index-change restrictions and
 return `state: "updated"`, `searchable: "not_verified"`; acceptance does not prove
-query readiness.
+query readiness. Described `indexConfigs` include the server-managed `id` field as
+`{"type":"keyword"}`. An index map may send it back unchanged or omit it; the
+server rejects any other `id` configuration.
+
+Vector `dimensions` must be integers from 64 to 4096, and `similarity` must be
+`cosine` or `euclidean`. The CLI rejects other values, including the removed
+`dot_product` and `max_inner_product`, before a request. A describe or list
+response containing them no longer matches the SDK contract and fails with
+`INVALID_RESPONSE` (exit 3).
 
 <details>
 <summary>Text analyzer presets</summary>
@@ -110,22 +118,37 @@ lambdadb collections update --collection native-docs --index-config examples/ind
 ```
 
 A vector configuration with `embedding` enables native embedding without a
-`managedEmbedding` flag. Supply `provider`, `model` and `sourceField` explicitly;
-no provider or model is chosen for you. Declare the source field as text and omit
-the generated vector in imported documents. Use ordinary upsert, since bulk
-import does not support embedding fields. Query with `knn.queryText`.
-Optional native `dimensions` and `similarity` belong inside `embedding`.
+`managedEmbedding` flag. Supply `provider` (`openai` or `cohere`), `model` and
+exactly one non-null `sourceField` or `sources` explicitly; no provider, model or
+source is chosen for you. `sourceField` names one text path in the stored JSON.
+`sources` lists 1–16 ordered `{"field":"path","type":"text"|"image"}` mappings;
+OpenAI requires exactly one text source, while Cohere (`embed-v5.0-pro`,
+`embed-v5.0-fast`) also accepts image sources:
+
+```json
+{"vector":{"type":"vector","embedding":{"provider":"cohere","model":"embed-v5.0-fast",
+  "sources":[{"field":"title","type":"text"},{"field":"images","type":"image"}]}}}
+```
+
+Source paths need no index declaration. Omit the generated vector in imported
+documents; ordinary upsert generates it. Bulk import never generates embeddings:
+it requires a compatible precomputed vector for every binding whose sources are
+present. Query with `knn.queryText` or ordered `knn.queryInputs`
+(`{"type":"text"|"image","value":...}`); `knn.queryVector` skips inference.
+Optional native `dimensions` (64–4096 within the model's maximum) and `similarity`
+belong inside `embedding`.
 `managedEmbedding: false` with embedding, or native top-level dimensions/similarity,
 is rejected before a request. For older servers, explicitly add
 `managedEmbedding: true` to the vector configuration. Normalized server metadata
 may still contain this flag. Caller-supplied vectors retain top-level dimensions
-and use `knn.queryVector`.
+and use `knn.queryVector`. Provider/model pairs, Cohere dimension sets, source
+paths, image URLs and provider availability remain server validations.
 
 Bayesian hybrid search uses `query.bayesian` with exactly two subqueries. Neither
 subquery nor any Boolean descendant may have an explicit `boost`, even `1`.
 Nested rank-fusion queries are unsupported. No fusion weights are needed.
 Without reranking, set top-level `candidateSize` so that
-`1 <= size <= candidateSize <= 100`; omitted/null `size` uses the existing default
+`1 <= size <= candidateSize <= 1000`; omitted/null `size` uses the existing default
 of 10. The candidate budget is per signal, independently of final result size.
 With reranking, omit top-level `candidateSize` and use `rerank.candidateSize`,
 whose default remains `max(50, size)`. The CLI does not insert budgets, weights,
@@ -138,14 +161,13 @@ remain input errors (exit 2). Applied reranking retains the Bayesian score in
 `retrievalScore` and the final score in `score`, with full documents and rerank
 metadata in both JSON and human output.
 
-These additions require a supporting deployment; their API contract is pinned to
-backend `9072a1bc8925954369a887f558f1eaf387b7ea0e`. See the SDK 0.8.0
-[Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/bayesian-search.md)
-and [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md).
-Newer servers [raise the candidate limit to 1,000](https://github.com/lambdadb/lambdadb/commit/963d79e8866833f1deb1393ed00a9825d866c853).
-The top-level Bayesian `candidateSize` is forwarded unchanged and its upper bound
-depends on the deployment. This CLI and its bundled SDK still limit final `size`
-and `rerank.candidateSize` to 100; a higher server limit does not raise those local limits.
+These additions require a supporting deployment. See the SDK 0.11.0
+[Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.0/docs/bayesian-search.md)
+and [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.0/docs/native-embeddings.md).
+Query `size`, dense `knn.k`, Bayesian `candidateSize` and `rerank.candidateSize`
+share a maximum of 1000. The CLI checks final `size` and the SDK checks
+`rerank.candidateSize`; the top-level Bayesian `candidateSize` and `knn.k` are
+forwarded unchanged for the server to validate.
 
 ### Native reranking
 
@@ -156,15 +178,19 @@ lambdadb query --collection cli-demo-docs --ref branch:main \
 
 Add optional `rerank` to a query file; omission/null keeps existing searches.
 This is a per-query setting. The LambdaDB server supplies provider credentials;
-you do not supply a Jev key.
-Use `provider: "typesafe"`, `model: "jev-1.13.0"`, nonblank `queryText` (also for
-raw vectors, up to 8 KiB UTF-8), and 1–8 unique stored scalar text `fields`.
+you do not supply a provider key.
+Use `provider: "typesafe"` with `model: "jev-1.13.0"`, or `provider: "cohere"`
+with `model: "rerank-v5.0-pro"` or `"rerank-v5.0-fast"`. Supply nonblank
+`queryText` (also for raw vectors and image `queryInputs`, up to 8 KiB UTF-8),
+and 1–8 unique stored scalar text `fields`; the paths need no index declaration.
 Returned-field projection remains independent of these model inputs.
 `candidateSize` defaults on the server to `max(50, size)` and must satisfy
-`size <= candidateSize <= 100`. Final `size` is 1–100 (default 10); dense
+`size <= candidateSize <= 1000`. Final `size` is 1–1000 (default 10); dense
 `knn.k` stays unchanged and must be raised explicitly for more vector candidates.
-Optional `criteria` replaces defaults with 2–10 distinct nonblank descriptions
-ordered from low to high relevance (2 KiB each, 8 KiB total UTF-8).
+Large candidate sets may still exceed the server's rerank text budget or deadline.
+Optional TypeSafe `criteria` replaces defaults with 2–10 distinct nonblank descriptions
+ordered from low to high relevance (2 KiB each, 8 KiB total UTF-8). Cohere does
+not accept `criteria`; omit it or pass `null`.
 Null optional settings use server defaults; the CLI does not insert them.
 
 Reranking requires a scoring query and rejects `sort`, query-less requests and
@@ -172,15 +198,18 @@ filter-only queries. Existing lexical facet restrictions still apply; vector
 and hybrid facets are not enabled. Facet-only `size: 0` works without reranking.
 Selected candidate fields and model availability remain server validations.
 
-Read `data.rerank.status` and its metadata. Applied document envelope `score` is
+Read `data.rerank.status` and its metadata. Applied results report
+`criteriaVersion` `default-relevance-v1` or `custom` for TypeSafe and
+`cohere-relevance-v1` for Cohere. Applied document envelope `score` is
 the final evaluation score, not a probability; `retrievalScore` retains the search
 score. Output preserves zero, precision and server order, including `docsUrl`
 downloads. Empty results report `skipped`/`noCandidates` with no `maxScore`.
 Unused reranking omits metadata and `retrievalScore`. With `onFailure: "returnOriginal"`, eligible provider failures return retained search order/scores,
 without `retrievalScore`, and report `fallback`; partial evaluations are discarded.
 The default policy is `error`. Validation, authorization, retrieval, quota and
-admission failures remain errors. See the
-[full reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/managed-reranking.md).
+admission failures remain errors, as does an endpoint without the selected
+provider configured. See the
+[full reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.0/docs/native-reranking.md).
 
 These features need a supporting server deployment. SDK publication and shared
 development checks do not establish production deployment, search quality,
@@ -219,7 +248,8 @@ and 16,000,000 bytes; `--batch-bytes` allows up to 64,000,000. These are conserv
 CLI limits, not advertised server maxima. The SDK also enforces the bulk limit
 returned by the server. `--mode bulk` calls the existing SDK `bulkUpsertDocs`
 helper with the selected branch, including signed upload headers and finalization.
-Bulk is unsupported for native embedding vector fields; use ordinary upsert.
+Bulk never generates native embeddings: each document with present sources must
+include its precomputed vector. Use ordinary upsert to generate embeddings.
 
 Import result fields are stable under `schemaVersion: 1`:
 
@@ -256,10 +286,10 @@ request body, with optional `query`, `facets`, `size`, `sort`, `fields`,
 `partitionFilter`, `consistentRead`, `includeVectors`, `rerank` and Bayesian
 `candidateSize`. The query DSL is forwarded
 to the API, not reimplemented in the CLI. Unknown top-level fields are rejected.
-Omit `query` for match-all. `size` accepts 1–100, `null`, or omission; null is
+Omit `query` for match-all. `size` accepts 1–1000, `null`, or omission; null is
 normalized to SDK omission. `size: 0` is accepted only with at least one facet.
 An optional file `ref` must match the mandatory `--ref`; conflicting selectors
-are rejected. Fetch accepts up to 100 IDs and reports `missingIds` without
+are rejected. Fetch accepts up to 1000 IDs and reports `missingIds` without
 turning a successful missing-document response into an error.
 
 The SDK downloads large query/fetch responses from `docsUrl` automatically using

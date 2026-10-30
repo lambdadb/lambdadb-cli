@@ -169,16 +169,19 @@ npm run test:live
 
 The test fails before API calls when required settings are absent. It creates a
 random temporary collection, imports two 3 MiB documents plus a bulk document,
-accepts and verifies metadata for all 49 fixed analyzer presets, checks exact
-facet-only and document+facet buckets, and checks committed query/fetch contents
-with a maximum 300-second observation window per stage. It also checks native
-reranking with default criteria, null and custom criteria, including
-final/retrieval scores and status metadata.
-It creates two additional temporary Collections for native embedding-only and
-legacy true inputs. It exercises actual CLI create/update, normalized metadata,
-document/query embedding generation, ordinary retrieval,
+accepts and verifies metadata for all 49 fixed analyzer presets, sends the
+described metadata, including the server-managed `id` field, back through update,
+checks exact facet-only and document+facet buckets, and checks committed
+query/fetch contents with a maximum 300-second observation window per stage,
+followed by a size-1000 query and a 1000-ID fetch. It also checks native
+reranking with TypeSafe default, null and custom criteria and with Cohere,
+including final/retrieval scores and status metadata.
+It creates three additional temporary Collections for OpenAI native
+embedding-only, OpenAI legacy true and Cohere ordered-`sources` inputs. It
+exercises actual CLI create/update, normalized metadata, document/query
+embedding generation, ordinary and `knn.queryInputs` retrieval,
 Bayesian candidate budgets, default/explicit rerank budgets, null rerank and
-server-side rejection of invalid Bayesian requests. All three Collections are
+server-side rejection of invalid Bayesian requests. All four Collections are
 cleaned up with subsequent HTTP 404 verification.
 
 Request timeouts and polling sleeps are capped to the remaining budget, and

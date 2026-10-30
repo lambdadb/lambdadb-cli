@@ -74,7 +74,11 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   const described = success(await run(['collections', 'describe', '--collection', collection]), 'describe analyzers');
   assert.ok(Object.entries(indexConfigs).every(([field, config]) => isDeepStrictEqual(described.collection?.indexConfigs?.[field], config)),
     'Collection metadata must preserve every requested analyzer preset.');
-  progress('All 49 fixed analyzer presets accepted and metadata verified; language-specific search quality is not measured.');
+  assert.deepEqual(described.collection.indexConfigs.id, { type: 'keyword' }, 'Described metadata must include the server-managed id field.');
+  const roundTripFile = join(temp, 'index-config-described.json');
+  await writeFile(roundTripFile, JSON.stringify(described.collection.indexConfigs));
+  assert.equal(success(await run(['collections', 'update', '--collection', collection, '--index-config', roundTripFile]), 'id round trip').state, 'updated');
+  progress('All 49 fixed analyzer presets accepted and metadata verified; described metadata with the server-managed id was sent back unchanged. Language-specific search quality is not measured.');
   const rows = [
     { id: 'large-1', text: 'serverless smoke', category: 'database', payload: 'a'.repeat(3 * 1024 * 1024) },
     { id: 'large-2', text: 'serverless smoke', category: 'database', payload: 'b'.repeat(3 * 1024 * 1024) },
@@ -123,6 +127,15 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   }
   await waitForContents(['query', '--collection', collection, '--ref', 'branch:main', '--file', resolve('examples/query.json')], 'query');
   await waitForContents(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', ...expected.map(row => row.id)], 'fetch');
+  // Both limits were 100 before the 1000-count read contract.
+  const largeQueryFile = join(temp, 'query-size-1000.json');
+  await writeFile(largeQueryFile, JSON.stringify({ size: 1000, fields: { include: ['id'] } }));
+  assert.equal(success(await run(['query', '--collection', collection, '--ref', 'branch:main', '--file', largeQueryFile]), 'query size 1000').docs.length, expected.length);
+  const missing = Array.from({ length: 1000 - expected.length }, (_, i) => `missing-${i}`);
+  const fetched = success(await run(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', ...expected.map(row => row.id), ...missing]), 'fetch 1000 IDs');
+  assert.deepEqual(fetched.docs.map(hit => hit.doc.id).sort(), expected.map(row => row.id).sort());
+  assert.deepEqual(fetched.missingIds, missing);
+  progress('Query size 1000 and fetch of 1000 IDs accepted.');
   for (const [file, expectedDocs] of [['query-facets-only.json', 0], ['query-with-facets.json', 3]]) {
     const data = success(await run(['query', '--collection', collection, '--ref', 'branch:main', '--file', resolve('examples', file)]), file);
     assert.equal(data.docs.length, expectedDocs);
@@ -132,9 +145,10 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     progress(`${file}: document count and exact facet buckets verified.`);
   }
   const baseline = JSON.parse(await readFile(resolve('examples/query.json'), 'utf8'));
-  for (const variant of ['default', 'null', 'custom']) {
+  for (const variant of ['default', 'null', 'custom', 'cohere']) {
     const rerank = variant === 'null' ? null : {
       provider: 'typesafe', model: 'jev-1.13.0', queryText: 'How does serverless search work?', fields: ['text'],
+      ...(variant === 'cohere' ? { provider: 'cohere', model: 'rerank-v5.0-fast' } : {}),
       ...(variant === 'custom' ? { candidateSize: 50, onFailure: 'error', criteria: [
         'Does not address serverless search.', 'Explains serverless search directly.',
       ] } : {}),
@@ -149,9 +163,9 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
       assert.ok(data.docs.every(hit => hit.retrievalScore === undefined));
     } else {
       assert.equal(data.rerank?.status, 'applied');
-      assert.equal(data.rerank?.provider, 'typesafe');
-      assert.equal(data.rerank?.model, 'jev-1.13.0');
-      assert.equal(data.rerank?.criteriaVersion, variant === 'custom' ? 'custom' : 'default-relevance-v1');
+      assert.equal(data.rerank?.provider, rerank.provider);
+      assert.equal(data.rerank?.model, rerank.model);
+      assert.equal(data.rerank?.criteriaVersion, { default: 'default-relevance-v1', custom: 'custom', cohere: 'cohere-relevance-v1' }[variant]);
       assert.equal(data.rerank?.candidateCount, 3);
       assert.equal(data.rerank?.scoredCount, 3);
       assert.ok(data.docs.every(hit => Number.isFinite(hit.score) && hit.score >= 0 && hit.score <= 1 && Number.isFinite(hit.retrievalScore)));
@@ -160,11 +174,14 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     }
     progress(`Native reranking ${variant}: document envelopes and status metadata verified.`);
   }
-  for (const legacy of [false, true]) {
+  for (const variant of ['openai', 'openai-legacy', 'cohere-sources']) {
+    const legacy = variant === 'openai-legacy';
     const nativeCollection = `cli-native-${randomUUID()}`;
-    const embedding = { provider: 'openai', model: 'text-embedding-3-small', sourceField: 'text', dimensions: 256, similarity: 'cosine' };
+    const embedding = variant === 'cohere-sources'
+      ? { provider: 'cohere', model: 'embed-v5.0-fast', sources: [{ field: 'text', type: 'text' }], dimensions: 256, similarity: 'cosine' }
+      : { provider: 'openai', model: 'text-embedding-3-small', sourceField: 'text', dimensions: 256, similarity: 'cosine' };
     const nativeConfigs = { text: { type: 'text' }, vector: { type: 'vector', embedding, ...(legacy ? { managedEmbedding: true } : {}) } };
-    const configFile = join(temp, `native-${legacy}.json`);
+    const configFile = join(temp, `native-${variant}.json`);
     await writeFile(configFile, JSON.stringify(nativeConfigs));
     const nativeCreated = await run(['collections', 'create', '--collection', nativeCollection, '--index-config', configFile]);
     if (nativeCreated.code === 0 || nativeCreated.code === 5) {
@@ -188,10 +205,10 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
       { id: 'two', text: 'Serverless databases manage search infrastructure.' },
       { id: 'three', text: 'A recipe for vegetable soup.' },
     ];
-    const nativeDocs = join(temp, `native-docs-${legacy}.jsonl`);
+    const nativeDocs = join(temp, `native-docs-${variant}.jsonl`);
     await writeFile(nativeDocs, nativeRows.map(row => JSON.stringify(row)).join('\n') + '\n');
     assert.equal(success(await run(['docs', 'import', '--collection', nativeCollection, '--branch', 'main', '--file', nativeDocs]), 'native import').accepted, 3);
-    const queryFile = join(temp, `native-query-${legacy}.json`);
+    const queryFile = join(temp, `native-query-${variant}.json`);
     async function nativeQuery(body, remainingMs) {
       await writeFile(queryFile, JSON.stringify(body));
       return run(['query', '--collection', nativeCollection, '--ref', 'branch:main', '--file', queryFile], remainingMs);
@@ -213,7 +230,8 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     // Separate provider embedding calls need not return bit-identical retrieval scores.
     assert.deepEqual(prefix.docs.map(hit => hit.doc), baseline.docs.slice(0, 1).map(hit => hit.doc));
     assert.ok(prefix.docs.every(hit => Number.isFinite(hit.score)));
-    for (const query of [signals[0], signals[1], ...['rrf', 'mm', 'l2'].map(method => ({ [method]: signals }))]) {
+    const queryInputs = { knn: { field: 'vector', queryInputs: [{ type: 'text', value: 'How does serverless search work?' }], k: 30 } };
+    for (const query of [signals[0], signals[1], queryInputs, ...['rrf', 'mm', 'l2'].map(method => ({ [method]: signals }))]) {
       assert.ok(success(await nativeQuery({ query, size: 3, consistentRead: true }), 'ordinary retrieval').docs.length > 0);
     }
     for (const explicitBudget of [false, true]) {
@@ -245,11 +263,11 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     ];
     for (const [index, request] of invalid.entries()) {
       const rejected = await nativeQuery(request);
-      assert.equal(rejected.code, 3, `Native/legacy=${legacy} invalid Bayesian case ${index}: exit=${rejected.code}, HTTP=${rejected.result.error?.httpStatus ?? 'not available'}`);
+      assert.equal(rejected.code, 3, `Native embedding ${variant} invalid Bayesian case ${index}: exit=${rejected.code}, HTTP=${rejected.result.error?.httpStatus ?? 'not available'}`);
       assert.equal(rejected.result.error?.code, 'API_ERROR');
       assert.equal(rejected.result.error?.httpStatus, 400);
     }
-    progress(`Native/legacy=${legacy}: create/update, actual embeddings, ordinary retrieval, Bayesian budgets, default/explicit rerank and ${invalid.length} HTTP 400 rejections passed.`);
+    progress(`Native embedding ${variant}: create/update, actual embeddings, ordinary and queryInputs retrieval, Bayesian budgets, default/explicit rerank and ${invalid.length} HTTP 400 rejections passed.`);
   }
-  t.diagnostic('Doctor, all 49 analyzer preset metadata, ordinary/bulk acceptance, committed query/fetch, facets and native reranking default/null/custom passed. This is a bounded development sample, not a production readiness or search-quality guarantee.');
+  t.diagnostic('Doctor, all 49 analyzer preset metadata, id round trip, ordinary/bulk acceptance, committed query/fetch including the 1000 limits, facets, native reranking default/null/custom/Cohere and OpenAI/legacy/Cohere native embeddings passed. This is a bounded development sample, not a production readiness or search-quality guarantee.');
 });

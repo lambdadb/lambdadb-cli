@@ -25,7 +25,9 @@ connection rather than inventing shell/network workarounds.
    inventory. Follow the token when needed; CLI `collections list --all` is an
    explicit way to request all pages.
 2. Describe the chosen collection and inspect `indexConfigs`. Its document count
-   describes committed `main`, not every ref or pending writes.
+   describes committed `main`, not every ref or pending writes. The
+   server-managed `id` field can appear as `{"type":"keyword"}`; native vector
+   fields show their embedding `sourceField` or ordered `sources`.
 3. Read a small sample at the intended ref with `query` omitted. Search result
    entries wrap document fields under `doc`; the example ID is `docs[0].doc.id`.
    Preserve scores and other response metadata separately from document fields.

@@ -22,6 +22,24 @@
 - Resume agent setup with the saved connection, and remove local OS credentials
   with `credentials remove` without revoking server keys.
 
+### Changed
+
+- Upgrade `@functional-systems/lambdadb` from 0.8.1 to 0.11.0. `collections
+  create|update` accept the `cohere` embedding provider and ordered
+  `embedding.sources` (1–16 text/image mappings; exactly one non-null
+  `sourceField` or `sources`). Query files accept Cohere reranking
+  (`rerank-v5.0-pro`, `rerank-v5.0-fast`, without `criteria`), and output keeps
+  `cohere`, its model names and `cohere-relevance-v1` readable like the TypeSafe tokens.
+- Raise the local query `size` limit and the SDK `rerank.candidateSize` limit from
+  100 to 1000, and `docs fetch` from 100 to 1000 IDs, matching the server contract.
+- Breaking: vector `dimensions` outside 64–4096 and `similarity` other than
+  `cosine`/`euclidean` (the removed `dot_product` and `max_inner_product`) are
+  rejected before a request with exit 2. A describe/list response containing them
+  fails with `INVALID_RESPONSE` (exit 3).
+- Document the server-managed `id` field in described `indexConfigs` (send it back
+  unchanged or omit it), `knn.queryInputs`, and bulk imports of precomputed
+  vectors into native embedding Collections.
+
 ### Fixed
 
 - Name the failed account-management request and its outcome in the error

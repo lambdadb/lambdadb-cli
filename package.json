@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@clack/prompts": "1.8.1",
-    "@functional-systems/lambdadb": "0.8.1",
+    "@functional-systems/lambdadb": "0.11.0",
     "commander": "14.0.3",
     "fast-wrap-ansi": "0.2.2",
     "jsonc-parser": "3.3.1",

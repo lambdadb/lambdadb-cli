@@ -15,9 +15,9 @@ const protocolValues = new Set([
 // Exempt only exact contract tokens at these paths, never whole string fields.
 const rerankProtocolValues = new Map<string, Set<string>>([
   ['data.rerank.status', new Set(['applied', 'skipped', 'fallback'])],
-  ['data.rerank.provider', new Set(['typesafe'])],
-  ['data.rerank.model', new Set(['jev-1.13.0'])],
-  ['data.rerank.criteriaVersion', new Set(['default-relevance-v1', 'custom'])],
+  ['data.rerank.provider', new Set(['typesafe', 'cohere'])],
+  ['data.rerank.model', new Set(['jev-1.13.0', 'rerank-v5.0-pro', 'rerank-v5.0-fast'])],
+  ['data.rerank.criteriaVersion', new Set(['default-relevance-v1', 'custom', 'cohere-relevance-v1'])],
   ['data.rerank.reason', new Set(['noCandidates', 'timeout', 'rateLimit', 'unavailable', 'invalidResponse', 'credentials'])],
 ]);
 // These response maps carry user-defined field names.
