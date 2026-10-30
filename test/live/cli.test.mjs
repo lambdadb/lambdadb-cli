@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import { LambdaDBClient } from '@functional-systems/lambdadb';
 import { Analyzer } from '@functional-systems/lambdadb/models';
 import { observeWithin } from '../helpers/observation.mjs';
+import { rerankWithRetry } from '../helpers/rerank.mjs';
 
 test('explicit development-project CLI smoke with temporary collection cleanup', { timeout: 900000 }, async t => {
   // Fail instead of silently skipping a release prerequisite. Never load .env files.
@@ -147,7 +148,7 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   const baseline = JSON.parse(await readFile(resolve('examples/query.json'), 'utf8'));
   for (const variant of ['default', 'null', 'custom', 'cohere']) {
     const rerank = variant === 'null' ? null : {
-      provider: 'typesafe', model: 'jev-1.13.0', queryText: 'How does serverless search work?', fields: ['text'],
+      provider: 'typesafe', model: 'jev-1.13.0', queryText: 'How does serverless search work?', fields: ['text'], onFailure: 'returnOriginal',
       ...(variant === 'cohere' ? { provider: 'cohere', model: 'rerank-v5.0-fast' } : {}),
       ...(variant === 'custom' ? { candidateSize: 50, onFailure: 'error', criteria: [
         'Does not address serverless search.', 'Explains serverless search directly.',
@@ -155,7 +156,10 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     };
     const file = join(temp, `query-rerank-${variant}.json`);
     await writeFile(file, JSON.stringify({ ...baseline, rerank }));
-    const data = success(await run(['query', '--collection', collection, '--ref', 'branch:main', '--file', file], 60000), `rerank ${variant}`);
+    const query = async () => success(await run(['query', '--collection', collection, '--ref', 'branch:main', '--file', file], 60000), `rerank ${variant}`);
+    // The custom variant sets onFailure itself and stays one-shot to keep that contract coverage.
+    const data = rerank?.onFailure === 'returnOriginal'
+      ? await rerankWithRetry({ query, size: baseline.size, label: `${rerank.provider} ${rerank.model}` }) : await query();
     assert.equal(data.docs.length, 3);
     assert.ok(expected.every(row => data.docs.some(hit => hit.doc.id === row.id)));
     if (variant === 'null') {
@@ -235,10 +239,11 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
       assert.ok(success(await nativeQuery({ query, size: 3, consistentRead: true }), 'ordinary retrieval').docs.length > 0);
     }
     for (const explicitBudget of [false, true]) {
-      const reranked = success(await nativeQuery({ query: body.query, size: 2, consistentRead: true, rerank: {
-        provider: 'typesafe', model: 'jev-1.13.0', queryText: 'How does serverless search work?', fields: ['text'],
-        ...(explicitBudget ? { candidateSize: 30 } : {}),
-      } }), 'Bayesian rerank');
+      const reranked = await rerankWithRetry({ size: 2, label: 'typesafe jev-1.13.0 Bayesian', query: async () =>
+        success(await nativeQuery({ query: body.query, size: 2, consistentRead: true, rerank: {
+          provider: 'typesafe', model: 'jev-1.13.0', queryText: 'How does serverless search work?', fields: ['text'],
+          onFailure: 'returnOriginal', ...(explicitBudget ? { candidateSize: 30 } : {}),
+        } }), 'Bayesian rerank') });
       assert.equal(reranked.rerank?.status, 'applied');
       assert.equal(reranked.rerank.candidateCount, 3);
       assert.equal(reranked.rerank.scoredCount, 3);
