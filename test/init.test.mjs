@@ -186,6 +186,18 @@ test('init upgrades an unmodified 0.1.7 skill, removes its merged reference and 
   assert.equal(entry.action, 'unchanged');
   assert.match(entry.kind, /existing skill preserved/);
   assert.ok(!result.data.data.files.some(file => file.path === reference));
+  // A symlinked bundled reference is preserved: deleting through the link could remove a shared target.
+  const sharedReference = join(f.root, 'shared', 'usage.md');
+  await f.file(skill, previous);
+  await rm(reference);
+  await f.file(sharedReference, previousReference);
+  await symlink(sharedReference, reference);
+  result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(skill, 'utf8'), bundled);
+  assert.ok((await lstat(reference)).isSymbolicLink());
+  assert.equal(await readFile(sharedReference, 'utf8'), previousReference);
+  assert.ok(!result.data.data.files.some(file => file.path === reference));
 });
 
 test('additional agents preserve configuration, credentials and reruns in their supported scopes', async t => {

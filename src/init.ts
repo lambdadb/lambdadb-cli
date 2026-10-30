@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { configPath, fileIdentity, loadSettings, resolveConfig, saveSettings, settings, type Options, type SelectedSettings } from './config.js';
@@ -63,9 +63,11 @@ async function plan(selected: SelectedSettings, chosen: Agent[], scope: AgentSco
     const bundled = previousSkill === undefined || previousSkill === skill || isBundledSkill(previousSkill);
     changes.push({ path: skillPath, before: previousSkill, after: bundled ? skill : previousSkill, kind: `${agent} skill (${scope}${bundled ? '' : ', existing skill preserved'})` });
     // Releases through 0.1.7 installed references/usage.md next to the skill; it is part of SKILL.md now.
+    // A symbolic link is left alone: removing it through its resolved target could delete a file
+    // that another installation still uses.
     const referencePath = join(dirname(skillPath), 'references', 'usage.md');
     const previousReference = await readOptional(referencePath);
-    if (bundled && previousReference !== undefined && isBundledReference(previousReference)) {
+    if (bundled && previousReference !== undefined && isBundledReference(previousReference) && !(await lstat(referencePath)).isSymbolicLink()) {
       changes.push({ path: referencePath, before: previousReference, after: undefined, kind: `${agent} skill reference (${scope}, merged into SKILL.md)` });
     }
   }
