@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- When the account API answers the CLI authorization start request with a
+  non-2xx status, the error now names that HTTP status and the request origin
+  (for example `HTTP 404 from https://api.lambdadb.ai/auth/device/login`), so a
+  server without the device authorization routes is distinguishable from a
+  misconfigured endpoint.
+
 ### Maintenance
 
 - The release live smoke reads its project API key from the `dev` or `prod`

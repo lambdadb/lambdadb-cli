@@ -11,7 +11,7 @@ async function request(
   body: object,
   signal: AbortSignal,
   requestTimeoutMs = 30_000,
-): Promise<{ ok: boolean; value: Record<string, unknown> }> {
+): Promise<{ ok: boolean; status: number; value: Record<string, unknown> }> {
   try {
     const response = await fetch(`${origin}/auth/device/${path}`, {
       method: 'POST',
@@ -37,7 +37,7 @@ async function request(
     }
     const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
-    return { ok: response.ok, value };
+    return { ok: response.ok, status: response.status, value };
   } catch {
     throw new InputError(
       'Account login response could not be confirmed. Check connectivity and run login again explicitly. An undelivered session expires within seven days. No project key was requested.',
@@ -72,7 +72,7 @@ async function pollDevice(
   const s = start.value;
   if (!start.ok)
     throw new InputError(
-      'CLI authorization is unavailable on this server. Check deployment/configuration, or obtain a project key in Console and use --api-key-env NAME.',
+      `CLI authorization is unavailable on this server (HTTP ${start.status} from ${origin}/auth/device/login). Check deployment/configuration, or obtain a project key in Console and use --api-key-env NAME.`,
     );
   if (
     typeof s.device_code !== 'string' ||

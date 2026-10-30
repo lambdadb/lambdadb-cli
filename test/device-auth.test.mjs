@@ -8,7 +8,7 @@ const { authorizeAccount } = await import(
   pathToFileURL(join(dirname(process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js')), 'device-auth.js')).href
 );
 
-async function service(t, token) {
+async function service(t, token, login = { status: 200 }) {
   const calls = [];
   const server = createServer(async (req, res) => {
     let body = '';
@@ -16,6 +16,11 @@ async function service(t, token) {
     calls.push({ path: req.url, body: JSON.parse(body) });
     res.setHeader('Content-Type', 'application/json');
     if (req.url.endsWith('/login')) {
+      res.statusCode = login.status;
+      if (login.body) {
+        res.end(JSON.stringify(login.body));
+        return;
+      }
       res.end(
         JSON.stringify({
           device_code: 'a'.repeat(64),
@@ -80,6 +85,22 @@ test('uncertain account redemption is never automatically retried', async (t) =>
     /undelivered session expires/,
   );
   assert.equal(fixture.calls.filter((call) => call.path.endsWith('/token')).length, 1);
+});
+
+test('a server without the device authorization routes reports the HTTP status and origin', async (t) => {
+  const fixture = await service(
+    t,
+    { status: 200, body: {} },
+    { status: 404, body: { status: 404, title: 'Not Found' } },
+  );
+  await assert.rejects(
+    authorizeAccount(fixture.url, false, { diagnostic() {}, protect() {} }, AbortSignal.timeout(5000)),
+    new RegExp(`unavailable on this server \\(HTTP 404 from ${fixture.url}/auth/device/login\\)`),
+  );
+  assert.deepEqual(
+    fixture.calls.map((call) => call.path),
+    ['/auth/device/login'],
+  );
 });
 
 test('removed init --connect is rejected instead of starting authorization', async () => {
