@@ -1,6 +1,6 @@
 {
   "name": "@functional-systems/lambdadb-cli",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": false,
   "description": "LambdaDB CLI for account and project management, usage, data and coding agents",
   "type": "module",

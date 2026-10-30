@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-30
+
 ### Changed
 
 - Guided `init` now defaults to user scope, read-and-write MCP tools and
