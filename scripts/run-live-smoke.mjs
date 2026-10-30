@@ -1,4 +1,4 @@
-import { execFileSync, spawn as spawnProcess } from 'node:child_process';
+import { spawn as spawnProcess } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 // Stream the suite's output while keeping a copy for the summary check.
@@ -25,23 +25,14 @@ export function checkSummary(output) {
   }
 }
 
-export async function runLiveSmoke(env, execute = execFileSync, spawn = runSuite, mask = console.log) {
-  for (const name of ['LAMBDADB_BASE_URL', 'LAMBDADB_PROJECT_NAME', 'LAMBDADB_SMOKE_SECRET_ARN']) {
+export async function runLiveSmoke(env, spawn = runSuite) {
+  for (const name of ['LAMBDADB_BASE_URL', 'LAMBDADB_PROJECT_NAME', 'LAMBDADB_PROJECT_API_KEY']) {
     if (!env[name]?.trim()) throw new Error(`Missing smoke configuration: ${name}`);
   }
-  let key;
-  try {
-    key = execute('aws', ['secretsmanager', 'get-secret-value', '--region', 'ap-northeast-2',
-      '--secret-id', env.LAMBDADB_SMOKE_SECRET_ARN, '--query', 'SecretString', '--output', 'text'],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env }).trim();
-  } catch {
-    // Do not include AWS command output or credentials in errors.
-    throw new Error('Unable to read the dedicated smoke project key from Secrets Manager');
-  }
-  if (!key || key === 'None' || /[\r\n]/.test(key)) throw new Error('Expected a single project API key in SecretString');
-  // The mask command contains the key, so emit it only where GitHub Actions consumes it.
-  if (env.GITHUB_ACTIONS === 'true') mask(`::add-mask::${key.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A')}`);
-  // Keep the key out of files, command arguments, and the rest of the publishing job.
+  const key = env.LAMBDADB_PROJECT_API_KEY.trim();
+  if (/[\r\n]/.test(key)) throw new Error('Expected a single project API key');
+  // The key comes from the GitHub Environment secret, which Actions masks in logs. Keep it
+  // out of files and command arguments.
   const result = await spawn('npm', ['run', 'test:live'], { env: {
     ...env,
     LAMBDADB_RUN_LIVE_TESTS: '1',
