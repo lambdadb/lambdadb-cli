@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Maintenance
+
+- The release live smoke sends `onFailure: "returnOriginal"` on its Cohere rerank
+  query. A `timeout`, `rateLimit` or `unavailable` fallback is retried up to three
+  attempts in total with a 5 s / 10 s backoff. Any other fallback, or a third one,
+  fails the smoke, and every fallback must match the documented shape. A fallback
+  never counts as applied reranking. TypeSafe rerank queries remain one-shot.
+
 ## [0.1.7] - 2026-10-30
 
 ### Security
