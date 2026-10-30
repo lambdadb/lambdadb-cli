@@ -185,7 +185,8 @@ Detection is a hint; select any subset or `none`. The skill prefers an available
 authenticated CLI, with MCP when terminal execution is unavailable or requested.
 Guided init enables MCP write tools and user scope by default; `--non-interactive`
 runs enable write tools only with `--write-tools`. Existing unrelated agent configuration
-and edited skills are preserved; reruns show the files being changed.
+and edited skills are preserved; an unmodified bundled skill follows CLI upgrades on
+rerun, and reruns show the files being changed.
 
 See [agent paths, credential forwarding and restart instructions](docs/agents.md).
 Generated settings and simulated contract tests do not establish live agent

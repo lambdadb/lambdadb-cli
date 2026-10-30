@@ -4,6 +4,17 @@
 
 ### Changed
 
+- The bundled agent skill is one `SKILL.md` that routes each query task to the
+  matching docs.lambdadb.ai page (query string, boolean, vector, sparse vector,
+  hybrid, reranking, sort, facets, limits, index types, native embeddings) and
+  states that the LambdaDB query DSL is neither SQL nor Elasticsearch's, with
+  two verified request shapes. The former `references/usage.md` content moved
+  into `SKILL.md`; `init` no longer installs a separate reference file.
+- `init` now updates an installed skill that is an unmodified copy of any
+  bundled version, and removes an unmodified `references/usage.md` left by
+  releases through 0.1.7, so a CLI upgrade followed by `init` refreshes the
+  skill. Edited skills and references are still preserved; the file plan shows
+  these steps as `update` and `delete` before writing.
 - Guided `init` now defaults to user scope, read-and-write MCP tools and
   **Apply changes** in the review step, so pressing Enter through the prompts
   installs the complete setup for your OS user. **Change options** still
