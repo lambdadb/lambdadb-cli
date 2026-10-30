@@ -22,6 +22,7 @@ try {
   assert.ok(inventory.files.some(file => file.path === 'dist/cli.js'));
   assert.ok(inventory.files.some(file => file.path === 'skills/lambdadb/SKILL.md'));
   assert.ok(!inventory.files.some(file => file.path.startsWith('skills/lambdadb/references/')), 'The skill is a single SKILL.md.');
+  assert.ok(inventory.files.some(file => file.path === 'AGENTS.md'), 'CONTRIBUTING.md links to AGENTS.md.');
   for (const guide of ['setup', 'agents', 'account', 'data']) {
     assert.ok(inventory.files.some(file => file.path === `docs/${guide}.md`), `Missing packaged guide: ${guide}`);
   }
