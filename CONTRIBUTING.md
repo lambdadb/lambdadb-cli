@@ -91,7 +91,9 @@ selection, detection and help; keep authentication, file planning and atomic
 writes in `src/init.ts`. `src/agent-config.ts` provides shared CLI launch
 arguments and JSONC/TOML editors that preserve unrelated settings. MCP
 configuration generation receives the key's variable name, never its value.
-An MCP-only adapter can omit the skill path.
+An MCP-only adapter can omit the skill path. The bundled skill itself follows the
+rules in [AGENTS.md](AGENTS.md): one `SKILL.md`, docs routing instead of a
+restated query DSL, and a recorded hash for every bundled version.
 An adapter that cannot configure project MCP settings declares `scopes: ['user']`;
 init rejects unsupported flags and offers only shared supported scopes interactively.
 Identical changes to the same canonical path are combined; conflicting contents
