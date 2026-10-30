@@ -47,38 +47,31 @@ jobs:
           npm test
           npm run test:package
 
-  publish:
+  # A job's Environment must be known before it starts, so the run mode is selected in its
+  # own job before the publishing job.
+  mode:
     needs: validate
     if: >-
       github.repository == 'lambdadb/lambdadb-cli' &&
       (github.event_name == 'release' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    # The live suite alone may take up to 15 minutes.
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      # Never interrupt a registry write. New pending main jobs replace older ones.
-      group: npm-${{ github.event_name == 'release' && github.event.release.tag_name || 'main' }}
-      cancel-in-progress: false
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      smoke_prefix: ${{ steps.mode.outputs.smoke_prefix }}
+      environment: ${{ steps.mode.outputs.environment }}
     steps:
       - name: Check out verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-          fetch-depth: 0
           persist-credentials: false
-      - name: Set up publishing runtime
+      - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - name: Require an OIDC-capable npm
-        run: |
-          node -e 'const {execFileSync}=require("node:child_process"); const v=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(v[0]<11 || (v[0]===11 && (v[1]<5 || (v[1]===5 && v[2]<1)))) throw Error("npm >=11.5.1 required");'
       # A committed version already tagged on origin selects a dev build; an untagged
       # rc/stable version on a main push (a release PR merge) is verified only.
       - name: Select the run mode
@@ -108,16 +101,56 @@ jobs:
           if [ "$MODE" = dev ]; then SMOKE_PREFIX=LAMBDADB_DEV_; else SMOKE_PREFIX=LAMBDADB_PROD_; fi
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "smoke_prefix=$SMOKE_PREFIX" >> "$GITHUB_OUTPUT"
+          # The GitHub Environment that holds the matching smoke project API key.
+          if [ "$MODE" = dev ]; then ENVIRONMENT=dev; else ENVIRONMENT=prod; fi
+          echo "environment=$ENVIRONMENT" >> "$GITHUB_OUTPUT"
           echo "Committed version $VERSION; run mode $MODE; live smoke Variables $SMOKE_PREFIX*"
+
+  # The GitHub Environment holds the smoke project API key. Its deployment policy admits only
+  # main (dev, prod) and v* tags (prod), so other refs cannot read the key.
+  publish:
+    needs: [validate, mode]
+    if: >-
+      github.repository == 'lambdadb/lambdadb-cli' &&
+      (github.event_name == 'release' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    environment: ${{ needs.mode.outputs.environment }}
+    # The live suite alone may take up to 15 minutes.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # npm Trusted Publishing and provenance.
+      id-token: write
+    concurrency:
+      # Never interrupt a registry write. New pending main jobs replace older ones.
+      group: npm-${{ github.event_name == 'release' && github.event.release.tag_name || 'main' }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up publishing runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Require an OIDC-capable npm
+        run: |
+          node -e 'const {execFileSync}=require("node:child_process"); const v=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(v[0]<11 || (v[0]===11 && (v[1]<5 || (v[1]===5 && v[2]<1)))) throw Error("npm >=11.5.1 required");'
       - name: Prepare deterministic development version
-        if: steps.mode.outputs.mode == 'dev'
+        if: needs.mode.outputs.mode == 'dev'
         id: dev
         run: node scripts/dev-release.mjs prepare
       - name: Verify committed release metadata without publishing
-        if: steps.mode.outputs.mode == 'verify'
+        if: needs.mode.outputs.mode == 'verify'
         run: node scripts/check-release.mjs --verify
       - name: Verify explicit release metadata and main ancestry
-        if: steps.mode.outputs.mode == 'release'
+        if: needs.mode.outputs.mode == 'release'
         id: release
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -126,7 +159,7 @@ jobs:
           git merge-base --is-ancestor HEAD origin/main
           node scripts/check-release.mjs --release
       - name: Pack once and test the exact publication artifact
-        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
+        if: needs.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
         id: package
         shell: bash
         run: |
@@ -137,20 +170,13 @@ jobs:
           echo "tarball=$CLI_TARBALL" >> "$GITHUB_OUTPUT"
       # The selected environment's Variables only: a missing one stays empty and fails the
       # run instead of falling back to the other environment.
-      - name: Authenticate live smoke tests to AWS
-        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: ${{ vars[format('{0}SMOKE_AWS_ROLE_ARN', steps.mode.outputs.smoke_prefix)] }}
-          aws-region: ap-northeast-2
-          role-session-name: cli-smoke-${{ github.run_id }}
       - name: Run deployed live smoke tests against the exact publication artifact
-        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
+        if: needs.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
         env:
           CLI_TARBALL: ${{ steps.package.outputs.tarball }}
-          LAMBDADB_BASE_URL: ${{ vars[format('{0}BASE_URL', steps.mode.outputs.smoke_prefix)] }}
-          LAMBDADB_PROJECT_NAME: ${{ vars[format('{0}PROJECT_NAME', steps.mode.outputs.smoke_prefix)] }}
-          LAMBDADB_SMOKE_SECRET_ARN: ${{ vars[format('{0}SMOKE_SECRET_ARN', steps.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_BASE_URL: ${{ vars[format('{0}BASE_URL', needs.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_PROJECT_NAME: ${{ vars[format('{0}PROJECT_NAME', needs.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_PROJECT_API_KEY: ${{ secrets.LAMBDADB_PROJECT_API_KEY }}
         run: |
           echo "Live smoke target: $LAMBDADB_BASE_URL project $LAMBDADB_PROJECT_NAME"
           npm install --prefix "$RUNNER_TEMP/smoke" --no-audit --no-fund "$CLI_TARBALL"
@@ -158,13 +184,13 @@ jobs:
             node scripts/run-live-smoke.mjs
       - name: Publish development version and verify registry state
         if: >-
-          steps.mode.outputs.mode == 'dev' && steps.dev.outputs.ready == 'true' &&
+          needs.mode.outputs.mode == 'dev' && steps.dev.outputs.ready == 'true' &&
           vars.NPM_DEV_PUBLISH_ENABLED == 'true'
         env:
           CLI_TARBALL: ${{ steps.package.outputs.tarball }}
         run: node scripts/dev-release.mjs publish
       - name: Publish explicit release using npm Trusted Publishing
-        if: steps.mode.outputs.mode == 'release'
+        if: needs.mode.outputs.mode == 'release'
         env:
           CLI_TARBALL: ${{ steps.package.outputs.tarball }}
           NPM_CHANNEL: ${{ steps.release.outputs.channel }}

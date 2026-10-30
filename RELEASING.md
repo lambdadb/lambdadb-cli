@@ -225,7 +225,7 @@ select GitHub Actions. Use these values for the workflow in this repository:
 | Organization or user | `lambdadb` |
 | Repository | `lambdadb-cli` |
 | Workflow filename | `publish.yaml` (filename only) |
-| Environment name | Leave empty; the job currently declares no environment |
+| Environment name | Leave empty, so publication from either smoke Environment (`dev`, `prod`) is accepted |
 | Allowed actions | Enable direct `npm publish` |
 
 After those settings are saved, enable automatic publication in GitHub repository
@@ -238,8 +238,12 @@ pushes still prepare, pack and test the dev artifact but do not publish.
 `workflow_dispatch` runs validation only.
 
 The workflow uses a GitHub-hosted runner, Node 24, npm >=11.5.1 and
-`id-token: write`. No long-lived npm secret is required. If a GitHub Environment
-is later added, its exact name must also be configured on npm. Saving settings
+`id-token: write`. No long-lived npm secret is required. The publishing job runs
+in the `dev` or `prod` GitHub Environment that holds the smoke key (see
+[GitHub Environments](#github-environments)); the npm Trusted Publisher has no
+Environment requirement, so it accepts both. If an Environment requirement is
+added on npm, it must match the Environment the job runs in; coordinate both
+changes. Saving settings
 does not prove OIDC works; verify the next authorized publication. Current npm
 configurations can default to staged publishing only, which is insufficient for
 this direct-publish workflow. See [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/).
@@ -261,22 +265,24 @@ run it.
 A dev-mode push that is no longer the main head skips packing, the smoke and
 publication. The smoke installs the packed tarball in a clean directory and runs
 the live suite against that installed CLI (`LAMBDADB_TEST_CLI`).
-`scripts/run-live-smoke.mjs` requires the base URL, project name and secret ARN,
-reads the project API key from Secrets Manager with the AWS CLI, masks it in
-GitHub Actions, and passes it only in the test process environment, never in
-command arguments, files, artifacts or GitHub Secrets. It maps the provisioned
-values to the names the live test reads (`LAMBDADB_ENDPOINT`, `LAMBDADB_PROJECT`,
-`LAMBDADB_LIVE_CONFIRM_PROJECT`, `LAMBDADB_API_KEY`) and sets
-`LAMBDADB_RUN_LIVE_TESTS=1`. Missing configuration, a failed secret read, a test
-failure, or a run in which any live test was skipped, marked todo or absent fails
-the job and prevents publication.
+The `mode` job selects the run mode and the GitHub Environment before the
+publishing job starts: `dev` for dev builds, `prod` for release verification and
+rc/stable Releases. The publishing job runs in that Environment, and the smoke
+step reads the project API key from its secret `LAMBDADB_PROJECT_API_KEY`.
+Actions masks the key in logs; it is passed only in the smoke step's environment,
+never in command arguments, files or artifacts.
+`scripts/run-live-smoke.mjs` requires the base URL, project name and a
+single-line key. It maps them to the names the live test reads
+(`LAMBDADB_ENDPOINT`, `LAMBDADB_PROJECT`, `LAMBDADB_LIVE_CONFIRM_PROJECT`,
+`LAMBDADB_API_KEY`) and sets `LAMBDADB_RUN_LIVE_TESTS=1`. Missing configuration, a
+test failure, or a run in which any live test was skipped, marked todo or absent
+fails the job and prevents publication.
 
 The suite creates its own temporary Collections and verifies their deletion. The
 dedicated `cli-ci` projects need `rateLimit` of at least 100 requests per second;
 they must allow Collection create/update/delete, ordinary and bulk writes and
-query/fetch. Do not grant the workflow the stack admin key, project creation,
-deployment or secret write permissions. Key rotation updates the AWS secret
-without changing this workflow.
+query/fetch. Never use the stack admin key or a key with project creation or
+deployment permissions.
 
 ### Repository Variables
 
@@ -288,61 +294,40 @@ and fails the run; it never falls back to the other environment.
 | --- | --- |
 | `LAMBDADB_DEV_BASE_URL` | `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai` |
 | `LAMBDADB_DEV_PROJECT_NAME` | `cli-ci` in `dev-aws-apne2-v3` |
-| `LAMBDADB_DEV_SMOKE_AWS_ROLE_ARN` | Dev AWS OIDC role `lambdadb-cli-smoke` |
-| `LAMBDADB_DEV_SMOKE_SECRET_ARN` | Exact ARN of the dev project's API key secret |
 | `LAMBDADB_PROD_BASE_URL` | `https://aws-ap-northeast-2-v3.lambdadb.ai` |
 | `LAMBDADB_PROD_PROJECT_NAME` | `cli-ci` in `prod-aws-apne2-v3` |
-| `LAMBDADB_PROD_SMOKE_AWS_ROLE_ARN` | Production AWS OIDC role `lambdadb-cli-prod-smoke` |
-| `LAMBDADB_PROD_SMOKE_SECRET_ARN` | Exact ARN of the production project's API key secret |
 
-Each project key is a plain SecretString in `ap-northeast-2`.
+### GitHub Environments
 
-### AWS OIDC roles
+Each Environment holds the secret `LAMBDADB_PROJECT_API_KEY`, its `cli-ci`
+project's API key. The deployment policy keeps the key away from other branches
+and tags.
 
-This repository uses GitHub's immutable OIDC subject format, so the subject
-names the owner and repository IDs (`lambdadb@209344672`,
-`lambdadb-cli@1375598438`) rather than only their names. Each role trusts audience
-`sts.amazonaws.com` and only these subjects. The dev role:
+| Environment | Deployment branches and tags | Key |
+| --- | --- | --- |
+| `dev` | branch `main` | Dev `cli-ci` project |
+| `prod` | branch `main`, tag `v*` | Production `cli-ci` project |
 
-```text
-repo:lambdadb@209344672/lambdadb-cli@1375598438:ref:refs/heads/main
-```
-
-The production role (release verification on `main`, Releases on tags):
-
-```text
-repo:lambdadb@209344672/lambdadb-cli@1375598438:ref:refs/heads/main
-repo:lambdadb@209344672/lambdadb-cli@1375598438:ref:refs/tags/v*
-```
-
-Renaming the repository or organization keeps these IDs, and a recreated
-repository with the same name gets a new ID, so it cannot assume the roles.
-Transferring the repository changes the owner ID and requires updating the trust
-policies. A role written with the plain `repo:lambdadb/lambdadb-cli:...` form
-does not match this repository's tokens.
-Each permission policy needs `secretsmanager:GetSecretValue` on the exact smoke
-secret ARN of its own environment (plus `kms:Decrypt` on the exact key only for a
-customer-managed KMS key). Provisioning the roles, projects, keys and Variables is
-a separate environment setup step; the workflow alone does not establish working
-AWS access.
+Rotate a key by issuing a new project key and replacing the Environment secret
+with `gh secret set LAMBDADB_PROJECT_API_KEY --env <name>`, which prompts for the
+value without printing it.
 
 ### Running the live suite locally
 
-Run the same command the workflow uses, with AWS credentials that can read the
-selected secret; the key is never printed or written to a file:
+Keep the dev `cli-ci` project's settings outside the repository in
+`~/.config/lambdadb/smoke/dev/cli-ci.env` (mode `0600`) with `LAMBDADB_BASE_URL`,
+`LAMBDADB_PROJECT_NAME` and `LAMBDADB_PROJECT_API_KEY`. Load it into the shell
+and run the same command the workflow uses; the key is never printed or written
+to another file:
 
 ```sh
 npm ci
-AWS_PROFILE=YOUR_PROFILE \
-LAMBDADB_BASE_URL=https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai \
-LAMBDADB_PROJECT_NAME=cli-ci \
-LAMBDADB_SMOKE_SECRET_ARN=DEV_SMOKE_SECRET_ARN \
+set -a; . ~/.config/lambdadb/smoke/dev/cli-ci.env; set +a
 node scripts/run-live-smoke.mjs
 ```
 
-Use the `LAMBDADB_PROD_` values to check production. It tests `dist/cli.js`
-unless `LAMBDADB_TEST_CLI` names an installed package's `dist/cli.js`. To use
-another project and key without Secrets Manager, follow the
+It tests `dist/cli.js` unless `LAMBDADB_TEST_CLI` names an installed package's
+`dist/cli.js`. To use another project and key directly, follow the
 [live validation procedure](CONTRIBUTING.md#live-validation). Record the target,
 commit, outcome, duration and cleanup result in the PR, without keys or signed
 URLs.

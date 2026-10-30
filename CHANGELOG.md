@@ -4,6 +4,11 @@
 
 ### Maintenance
 
+- The release live smoke reads its project API key from the `dev` or `prod`
+  GitHub Environment secret `LAMBDADB_PROJECT_API_KEY`, selected with the run
+  mode in a new `mode` job, instead of assuming an AWS OIDC role and reading
+  Secrets Manager. The runner still fails before starting when the base URL,
+  project name or key is missing, or the key spans several lines.
 - The release live smoke sends `onFailure: "returnOriginal"` on its TypeSafe and
   Cohere rerank queries. A `timeout`, `rateLimit` or `unavailable` fallback is
   retried up to three attempts in total with a 5 s / 10 s backoff. Any other
