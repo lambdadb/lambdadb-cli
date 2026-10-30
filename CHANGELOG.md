@@ -10,6 +10,13 @@
   states that the LambdaDB query DSL is neither SQL nor Elasticsearch's, with
   two verified request shapes. The former `references/usage.md` content moved
   into `SKILL.md`; `init` no longer installs a separate reference file.
+- Pin stable MCP `0.3.0` (LambdaDB SDK 0.11.1). Read-only mode adds the
+  `lambdadb_list_branches`, `lambdadb_list_tags` and `lambdadb_list_aliases`
+  tools; `--write-tools` additionally exposes branch, tag and alias lifecycle,
+  document partial update, bulk upsert, collection setting update and collection
+  deletion tools. Every tool parameter is described and results are compact
+  JSON. Existing tool names, inputs and defaults are unchanged, as are the
+  CLI's credential forwarding and explicit write-tool opt-in.
 - `init` now updates an installed skill that is an unmodified copy of any
   bundled version, and removes an unmodified `references/usage.md` left by
   releases through 0.1.7, so a CLI upgrade followed by `init` refreshes the
