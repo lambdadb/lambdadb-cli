@@ -87,7 +87,7 @@ program.command('init')
   .option('--non-interactive', 'Require explicit agent/scope choices; never prompt')
   .option('--agents <names>', `Comma-separated ${agentNames} subset, or none`)
   .option('--scope <scope>', 'Where to install agent settings and skills: project (current directory) or user; does not change CLI config location')
-  .option('--write-tools', 'Explicitly enable MCP write tools (default: read-only)')
+  .option('--write-tools', 'Enable MCP write tools (guided init default; --non-interactive default: read-only)')
   .addHelpText('after', '\nGet started: lambdadb init\nSSH: lambdadb init --no-browser (browser approval is still required on another device).\nReruns offer to reuse the current connection or select another project.\nAccount setup reuses a valid login, or guides signup/login and CLI approval in a browser. Select or create a project in the terminal; secrets are saved only in the OS credential store.\nManual/CI setup: obtain a project key in Console and export it securely; init saves only the environment-variable name.\nAutomation example (export LAMBDADB_API_KEY first):\n  lambdadb init --non-interactive --agents codex,claude,cursor --scope project --endpoint https://api.lambdadb.ai --project my-project --json')
   .action(async (_opts, cmd: Command) => {
     const options = cmd.optsWithGlobals();

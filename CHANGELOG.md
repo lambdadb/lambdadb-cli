@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Guided `init` now defaults to user scope, read-and-write MCP tools and
+  **Apply changes** in the review step, so pressing Enter through the prompts
+  installs the complete setup for your OS user. **Change options** still
+  switches to project scope or disables write tools. The Cline-only user-scope
+  confirmation is gone because user scope is the default. `--non-interactive`
+  runs are unchanged: `--scope` stays required and write tools stay off without
+  `--write-tools`.
+- The guided `init` region menu now lists regions that deploy right away before
+  regions that still need provisioning, in the same order as Console. Within
+  each group the server order is kept. `projects regions` output is unchanged.
+
 ### Fixed
 
 - When the account API answers the CLI authorization start request with a

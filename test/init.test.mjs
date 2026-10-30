@@ -658,7 +658,7 @@ test('manual setup reviews new settings without irrelevant agent options', async
   const f = await fixture(t);
   const result = await f.run(['init', '--agents', 'none'], { LAMBDADB_ENDPOINT: '', LAMBDADB_PROJECT: '' }, [
     ['Connection', keys(down, '\r')], ['Project API endpoint', f.endpoint], ['Project name', 'existing-project'],
-    ['API key environment variable', enter], ['Continue with this setup?', keys(up, up, '\r')],
+    ['API key environment variable', enter], ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /Review changes/);
@@ -709,7 +709,7 @@ test('explicit target flags bypass the connection menu and retain text defaults'
   const f = await fixture(t);
   const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', '--agents', 'none'], {}, [
     ['Project API endpoint', enter], ['Project name', enter], ['API key environment variable', enter],
-    ['Continue with this setup?', keys(up, up, '\r')],
+    ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.doesNotMatch(result.stderr, /Use current project/);
@@ -740,15 +740,16 @@ test('agent multiselect is explicit, supports toggling, and displays friendly na
   assert.equal((await f.run(f.init('none'))).code, 0);
   const result = await f.run(['init'], {}, [
     ['Connection', enter], ['Coding agents (Space: select one or more; Enter: confirm)', keys(' ', down, ' ', up, ' ', '\r')],
-    ['Continue with this setup?', keys(up, up, up, '\r')],
+    ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /Codex|Claude Code/);
   assert.match(result.stdout, /Agents\s+Claude Code/);
-  assert.match(result.stdout, /project scope · MCP read-only/);
+  assert.match(result.stdout, /user scope · MCP read and write/);
   assert.doesNotMatch(result.stderr, /No agents selected/);
   assert.doesNotMatch(result.stdout, /"checks"|credentialId/);
-  assert.ok(await readFile(join(f.cwd, '.mcp.json'), 'utf8'));
+  assert.ok(JSON.parse(await readFile(join(f.home, '.claude.json'), 'utf8')).mcpServers.lambdadb.args.includes('--write-tools'));
+  await assert.rejects(readFile(join(f.cwd, '.mcp.json')), { code: 'ENOENT' });
   await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
   assert.equal(f.requests.length, 2);
 });
@@ -800,47 +801,53 @@ test('connection progress cancellation aborts the read and retains input-error s
   assert.equal(f.requests.length, 1);
 });
 
-test('settings use select/confirm controls, retain write opt-in, and review the changed scope', async t => {
+test('settings use select/confirm controls, retain an explicit write opt-out, and review the changed scope', async t => {
   const f = await fixture(t);
   assert.equal((await f.run(f.init('none'))).code, 0);
   const result = await f.run(['init', '--agents', 'codex'], {}, [
-    ['Connection', enter], ['Continue with this setup?', keys(up, up, '\r')],
-    ['Install for', enter], ['Enable MCP write tools?', keys(left, '\r')],
-    ['Continue with this setup?', keys(up, up, '\r')],
+    ['Connection', enter], ['Continue with this setup?', keys(down, '\r')],
+    ['Install for', keys(up, '\r')], ['Enable MCP write tools?', keys(left, '\r')],
+    ['Continue with this setup?', keys(down, '\r')],
     ['Install for', keys(down, '\r')], ['Enable MCP write tools?', enter],
     ...Array.from({ length: 2 }, () => [
-      ['Continue with this setup?', keys(up, up, '\r')],
+      ['Continue with this setup?', keys(down, '\r')],
       ['Install for', enter], ['Enable MCP write tools?', enter],
     ]).flat(),
-    ['Continue with this setup?', keys(up, up, up, '\r')],
+    ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.doesNotMatch(result.stderr, /MaxListenersExceededWarning/);
+  assert.match(result.stderr, /Scope: project/);
+  assert.match(result.stdout, /user scope · MCP read-only/);
+  assert.ok(!toml(await readFile(join(f.home, '.codex/config.toml'), 'utf8')).mcp_servers.lambdadb.args.includes('--write-tools'));
+  await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
+});
+
+test('guided defaults select user scope and write tools, and Enter through settings keeps them', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.run(f.init('none'))).code, 0);
+  const result = await f.run(['init', '--agents', 'codex'], {}, [
+    ['Connection', enter], ['Continue with this setup?', keys(down, '\r')],
+    ['Install for', enter], ['Enable MCP write tools?', enter],
+    ['Continue with this setup?', enter],
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /Scope: user/);
+  assert.match(result.stderr, /MCP tools: read and write/);
+  assert.doesNotMatch(result.stderr, /explicit opt-in/);
   assert.match(result.stdout, /user scope · MCP read and write/);
   assert.ok(toml(await readFile(join(f.home, '.codex/config.toml'), 'utf8')).mcp_servers.lambdadb.args.includes('--write-tools'));
   await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
 });
 
-test('flag-based write opt-in remains selected when settings confirmation uses Enter', async t => {
-  const f = await fixture(t);
-  assert.equal((await f.run(f.init('none'))).code, 0);
-  const result = await f.run(['init', '--agents', 'codex', '--write-tools'], {}, [
-    ['Connection', enter], ['Continue with this setup?', keys(up, up, '\r')],
-    ['Install for', keys(down, '\r')], ['Enable MCP write tools?', enter],
-    ['Continue with this setup?', keys(up, up, up, '\r')],
-  ]);
-  assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /user scope · MCP read and write/);
-});
-
-for (const step of ['agents', 'empty selection', 'user scope']) {
+for (const step of ['agents', 'empty selection', 'review']) {
   test(`manual setup canceled at ${step} reports no saved connection`, async t => {
     const f = await fixture(t);
-    const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', ...(step === 'user scope' ? ['--agents', 'cline'] : [])], {}, [
+    const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', ...(step === 'review' ? ['--agents', 'cline'] : [])], {}, [
       ['Project API endpoint', enter], ['Project name', enter], ['API key environment variable', enter],
       ...(step === 'agents' ? [['Coding agents (Space: select one or more; Enter: confirm)', cancel]]
         : step === 'empty selection' ? [['Coding agents (Space: select one or more; Enter: confirm)', enter], ['No agents selected', cancel]]
-          : [['Install agent settings for your OS user?', enter]]),
+          : [['Continue with this setup?', keys(down, down, down, '\r')]]),
     ]);
     assert.equal(result.code, 2, result.stderr);
     assert.match(result.stderr, /Init canceled\. No files were changed\. Rerun lambdadb init when ready\.\n$/);
@@ -853,18 +860,18 @@ for (const step of ['agents', 'empty selection', 'user scope']) {
 test('file details preserve full JSON metadata and unchanged agents still offer settings', async t => {
   const f = await fixture(t);
   assert.equal((await f.run(f.init('none'))).code, 0);
-  const result = await f.run(['init', '--agents', 'codex'], {}, [
-    ['Connection', enter], ['Continue with this setup?', keys(up, '\r')],
-    ['Continue with this setup?', keys(up, up, up, '\r')],
+  const result = await f.run(['init', '--agents', 'codex', '--scope', 'project'], {}, [
+    ['Connection', enter], ['Continue with this setup?', keys(down, down, '\r')],
+    ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /All files/);
   assert.match(result.stderr, /unchanged\s+~\/cli.json/);
-  const json = await f.run(f.init('codex'));
+  const json = await f.run(f.init('codex', 'project', ['--write-tools']));
   assert.equal(json.code, 0, json.stderr);
   assert.equal(json.data.data.files.length, 4);
   assert.ok(json.data.data.files.every(file => file.action === 'unchanged'));
-  const canceled = await f.run(['init', '--agents', 'codex'], {}, [['Connection', enter], ['Continue with this setup?', enter]]);
+  const canceled = await f.run(['init', '--agents', 'codex', '--scope', 'project'], {}, [['Connection', enter], ['Continue with this setup?', keys(down, down, down, '\r')]]);
   assert.equal(canceled.code, 2, canceled.stderr);
   assert.match(canceled.stderr, /Change options/);
   assert.match(canceled.stderr, /No file changes/);
@@ -877,9 +884,9 @@ test('planning conflicts allow user scope without overwriting a manual project e
   const path = join(f.cwd, '.mcp.json');
   const original = '{"mcpServers":{"lambdadb":{"command":"manual-server"}}}\n';
   await f.file(path, original);
-  const result = await f.run(['init', '--agents', 'claude'], {}, [
+  const result = await f.run(['init', '--agents', 'claude', '--scope', 'project'], {}, [
     ['Connection', enter], ['Configuration scope', keys(up, '\r')],
-    ['Continue with this setup?', keys(up, up, up, '\r')],
+    ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.equal(await readFile(path, 'utf8'), original);
@@ -895,7 +902,7 @@ test('whitespace-only interactive input retains endpoint, project and key-variab
   const f = await fixture(t);
   const result = await f.run(['init', '--endpoint', f.endpoint, '--project', 'existing-project', '--agents', 'none'], {}, [
     ['Project API endpoint', ' '], ['Project name', ' '], ['API key environment variable', ' '],
-    ['Continue with this setup?', keys(up, up, '\r')],
+    ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(JSON.parse(await readFile(f.config, 'utf8')), { endpoint: f.endpoint, project: 'existing-project', apiKeyEnv: 'CUSTOM_PROJECT_KEY' });
@@ -905,7 +912,7 @@ test('whitespace-only interactive input retains endpoint, project and key-variab
 test('interactive agent guidance includes environment requirements, selected-agent steps and environment-selected config', async t => {
   const f = await fixture(t);
   const result = await f.run(['init', '--agents', 'codex,vscode'], {}, [
-    ['Connection', enter], ['Continue with this setup?', keys(up, up, up, '\r')],
+    ['Connection', enter], ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   const summary = result.stdout.replace(/\s+/g, ' ');
@@ -921,7 +928,7 @@ test('interactive agent guidance includes environment requirements, selected-age
 test('the normal XDG config does not add custom-path guidance', async t => {
   const f = await fixture(t);
   const result = await f.run(['init', '--agents', 'none'], { LAMBDADB_CONFIG: undefined }, [
-    ['Connection', enter], ['Continue with this setup?', keys(up, up, '\r')],
+    ['Connection', enter], ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.doesNotMatch(result.stdout, /Config|pass --config/);
@@ -947,8 +954,8 @@ for (const stage of ['first', 'last']) {
       };
       syncBuiltinESMExports();
     `);
-    const result = await f.run(['init', '--agents', 'codex'], { NODE_OPTIONS: `--import=${preload}` }, [
-      ['Connection', enter], ['Continue with this setup?', keys(up, up, up, '\r')],
+    const result = await f.run(['init', '--agents', 'codex', '--scope', 'project'], { NODE_OPTIONS: `--import=${preload}` }, [
+      ['Connection', enter], ['Continue with this setup?', enter],
     ]);
     assert.equal(result.code, 2, result.stderr);
     assert.match(result.stderr, /Init canceled while saving setup/);
@@ -972,12 +979,12 @@ test('Enter on a focused agent returns to selection by default until agents are 
     ['Coding agents (Space: select one or more; Enter: confirm)', enter],
     ['No agents selected', enter],
     ['Coding agents (Space: select one or more; Enter: confirm)', keys(down, ' ', down, ' ', '\r')],
-    ['Continue with this setup?', keys(up, up, up, '\r')],
+    ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /Agents\s+Claude Code, Cursor/);
-  assert.ok(await readFile(join(f.cwd, '.mcp.json'), 'utf8'));
-  assert.ok(await readFile(join(f.cwd, '.cursor/mcp.json'), 'utf8'));
+  assert.ok(await readFile(join(f.home, '.claude.json'), 'utf8'));
+  assert.ok(await readFile(join(f.home, '.cursor/mcp.json'), 'utf8'));
   await assert.rejects(readFile(join(f.cwd, '.codex/config.toml')), { code: 'ENOENT' });
   assert.equal(f.requests.length, 2);
   assert.ok(f.requests.every(request => request.method === 'GET'));

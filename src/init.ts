@@ -187,14 +187,10 @@ export async function initialize(options: InitOptions, output: Output) {
         options.agents = agents.join(',') || 'none';
       }
       const scopes = availableScopes(selectedAgents(options.agents));
-      if (options.scope === undefined) {
-        if (scopes.includes('project')) options.scope = 'project';
-        else {
-          if (!(await ui.confirm('Install agent settings for your OS user?'))) throw canceled();
-          options.scope = 'user';
-        }
-      }
-      options.writeTools ??= false;
+      // Guided defaults install for the OS user with write tools so Enter alone yields a
+      // complete setup; Change options can narrow either. Non-interactive runs stay explicit.
+      if (options.scope === undefined) options.scope = scopes.includes('user') ? 'user' : 'project';
+      options.writeTools ??= true;
     }
     const chosen = selectedAgents(options.agents);
     if (!['project', 'user'].includes(options.scope ?? '')) throw new InputError('Specify --scope project or --scope user. CLI settings still use --config or the normal user configuration path.');
@@ -239,7 +235,7 @@ export async function initialize(options: InitOptions, output: Output) {
           ...(chosen.length ? [{ value: 'settings', label: 'Change options' }] : []),
           { value: 'details', label: 'Show all files' },
           { value: 'cancel', label: 'Cancel' },
-        ], 'cancel');
+        ], 'apply');
         if (answer === 'apply') break;
         if (answer === 'details') { details = true; continue; }
         if (answer === 'cancel') throw canceled();

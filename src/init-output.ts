@@ -28,7 +28,7 @@ export function formatPlan(files: FilePlan[], agents: Agent[], scope: string, wr
     ...(agents.length ? [
       `Agents: ${agents.map(agentName).join(', ')}`,
       `Scope: ${scope} (${text(scope === 'project' ? context.cwd : context.home)})`,
-      `MCP tools: ${writeTools ? 'read and write (explicit opt-in)' : 'read-only'}`,
+      `MCP tools: ${writeTools ? 'read and write' : 'read-only'}`,
       '',
     ] : []),
     ...(visible.length ? [details ? 'All files (. = current directory, ~ = home):' : 'Files to change (. = current directory, ~ = home):'] : ['No file changes.']),

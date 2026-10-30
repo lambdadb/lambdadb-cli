@@ -653,7 +653,7 @@ test('guided init selects an existing project at its limit without a billing det
   const result = await fixture.run(['init', '--agents', 'codex', '--no-browser'], {}, [
     ['Connection', enter], ['Project', enter],
     ['Create a key for first with write access?', keys(left, '\r')],
-    ['Continue with this setup?', keys(up, up, up, '\r')],
+    ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /Organization: Team/);
@@ -697,7 +697,7 @@ test('guided cancellation after project connection reports and retains the compl
     res.end(JSON.stringify({ endpoint: fixture.url, project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: { key_id: 'key-id' } } }));
   }, true);
   const result = await fixture.run(['init', '--agents', 'cline'], {}, [
-    ['Connection', enter], ['Project', enter], ['Create a key for first with write access?', keys(left, '\r')], ['Install agent settings for your OS user?', enter],
+    ['Connection', enter], ['Project', enter], ['Create a key for first with write access?', keys(left, '\r')], ['Continue with this setup?', keys(down, down, down, '\r')],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, /Completed login\/project setup is retained/);
@@ -783,6 +783,28 @@ test('guided cold-region creation retains the selection and returns provisioning
   assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 1);
   assert.equal(fixture.calls.filter(c => c.path.endsWith('/connect')).length, 0);
   await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
+});
+
+test('guided region menu lists ready regions before regions that need provisioning', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path.endsWith('/organizations')) return res.end(JSON.stringify({ organizations: [] }));
+    if (call.path.endsWith('/regions')) return res.end(JSON.stringify({ regions: [
+      { region: 'af-south-1', name: 'Africa (Cape Town)', is_open: false, cloud_provider: 'aws' },
+      { region: 'ap-northeast-1', name: 'Asia Pacific (Tokyo)', is_open: true, cloud_provider: 'aws' },
+      { region: 'ap-northeast-2', name: 'Asia Pacific (Seoul)', is_open: true, cloud_provider: 'aws' },
+    ] }));
+    assert.equal(call.path, '/auth/cli/projects');
+    assert.equal(call.method, 'POST');
+    assert.equal(call.body.region, 'af-south-1');
+    res.statusCode = 201;
+    res.end(JSON.stringify({ id: first, organization_id: org, status: 'CREATING' }));
+  });
+  const result = await fixture.run(['init', '--agents', 'none'], {}, [
+    ['Connection', enter], ['Region', keys(down, down, '\r')], ['Project name', 'example'], ['Create this project?', keys(left, '\r')],
+  ]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /was created in af-south-1 and is provisioning/);
+  assert.equal(fixture.calls.filter(c => c.method !== 'GET').length, 1);
 });
 
 test('guided rerun selects a provisioning project without creating another or asking for a key', async t => {

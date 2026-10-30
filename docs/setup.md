@@ -58,15 +58,16 @@ optional.
 Use Space to toggle agents and Enter to continue. Detected agents are labeled,
 not preselected. Enter confirms checked agents; it does not select the focused
 agent. Submitting an empty selection offers **Return to agent selection** (the
-default) or **Skip agent setup**. The review defaults to project scope and
-read-only MCP tools. It shows the directory
+default) or **Skip agent setup**. The review defaults to user scope and
+read-and-write MCP tools, with **Apply changes** preselected, so pressing Enter
+through the prompts installs the complete setup for your OS user. It shows the directory
 and each file to create or update before applying changes. Unchanged files are
 summarized by count; choose **Show all files** to display every path, with changes
-first. Choose **Change options** to change scope or explicitly enable write tools,
-then review the revised plan. Cline requires explicit user-scope confirmation. Existing `--agents`,
+first. Choose **Change options** to switch to project scope or disable write tools,
+then review the revised plan. Cline supports user scope only. Existing `--agents`,
 `--scope`, and `--write-tools` flags can set these choices in advance.
 Pressing Enter in settings keeps the current write-tool choice, including a
-previous explicit opt-in.
+previous explicit opt-out.
 If the selected scope has a configuration conflict, init offers another supported
 scope or cancellation before writing files; existing entries stay protected.
 
@@ -130,9 +131,10 @@ lambdadb init --non-interactive --agents copilot,kiro,cline --scope user
 These two examples reuse existing CLI settings and an OS-stored or
 environment-held key. `--scope project` installs agent files in the current working directory;
 `--scope user` installs them in the agent's user configuration. Neither changes
-the selected LambdaDB project or CLI configuration path. `--write-tools`
-explicitly enables MCP write tools; omission disables them, including on reruns and when the inherited
-`LAMBDADB_MCP_ENABLE_WRITE_TOOLS` environment variable is true.
+the selected LambdaDB project or CLI configuration path. In `--non-interactive`
+mode `--write-tools` enables MCP write tools; omission disables them, including on reruns and when the inherited
+`LAMBDADB_MCP_ENABLE_WRITE_TOOLS` environment variable is true. Guided init enables
+write tools unless you disable them under **Change options**.
 
 The global `--config`, `--endpoint`, `--project`, `--api-key-env`, and
 `--timeout-ms` flags apply to existing-credential setup. Explicit endpoint,

@@ -54,6 +54,6 @@ choose account-based project setup to reconnect through terminal project
 selection. A valid account login is reused; otherwise browser signup/login and
 CLI approval are required.
 
-MCP exposes read tools by default. Write tools require explicit setup opt-in;
-their availability does not authorize creating collections or changing data.
+Guided setup enables MCP write tools; non-interactive setup requires `--write-tools`.
+Their availability does not authorize creating collections or changing data.
 Perform writes only when requested, using the user's collection and branch.
