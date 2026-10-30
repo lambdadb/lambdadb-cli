@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { configPath, fileIdentity, loadSettings, resolveConfig, saveSettings, settings, type Options, type SelectedSettings } from './config.js';
@@ -13,9 +13,11 @@ import { formatPlan } from './init-output.js';
 import { InitUI } from './init-ui.js';
 import { mcpLaunch } from './agent-config.js';
 import { agentAdapters, agentNames, detectAgents, type Agent, type AgentAdapter, type AgentContext, type AgentScope } from './agents.js';
+import { isBundledReference, isBundledSkill } from './skill-history.js';
 
 type InitOptions = Options & { browser?: boolean; apiUrl?: string; nonInteractive?: boolean; agents?: string; scope?: string; writeTools?: boolean; json?: boolean };
-type Change = { path: string; before: string | undefined; after: string; kind: string };
+// after undefined deletes the file.
+type Change = { path: string; before: string | undefined; after: string | undefined; kind: string };
 type PlannedChange = Change & { destination: string; aliases: string[] };
 const version = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version as string;
 
@@ -48,7 +50,6 @@ async function plan(selected: SelectedSettings, chosen: Agent[], scope: AgentSco
   const path = configPath(options);
   changes.push({ path, before: await readOptional(path), after: JSON.stringify(selected, null, 2) + '\n', kind: 'CLI settings (no key)' });
   const skill = await readFile(new URL('../skills/lambdadb/SKILL.md', import.meta.url), 'utf8');
-  const usage = await readFile(new URL('../skills/lambdadb/references/usage.md', import.meta.url), 'utf8');
   for (const agent of chosen) {
     const adapter: AgentAdapter = agentAdapters.find(adapter => adapter.id === agent)!;
     const paths = await adapter.paths(scope, context);
@@ -58,12 +59,20 @@ async function plan(selected: SelectedSettings, chosen: Agent[], scope: AgentSco
     const skillPath = paths.skill;
     if (!skillPath) continue;
     const previousSkill = await readOptional(skillPath);
-    // Preserve existing skills, including user edits, rather than taking ownership.
-    changes.push({ path: skillPath, before: previousSkill, after: previousSkill ?? skill, kind: `${agent} skill (${scope}${previousSkill && previousSkill !== skill ? ', existing skill preserved' : ''})` });
-    if (previousSkill === undefined || previousSkill === skill) {
-      const referencePath = join(dirname(skillPath), 'references', 'usage.md');
-      const previousReference = await readOptional(referencePath);
-      changes.push({ path: referencePath, before: previousReference, after: previousReference ?? usage, kind: `${agent} skill reference (${scope})` });
+    // Unmodified copies of any bundled version follow the package; user edits are preserved.
+    const bundled = previousSkill === undefined || previousSkill === skill || isBundledSkill(previousSkill);
+    changes.push({ path: skillPath, before: previousSkill, after: bundled ? skill : previousSkill, kind: `${agent} skill (${scope}${bundled ? '' : ', existing skill preserved'})` });
+    // Releases through 0.1.7 installed references/usage.md next to the skill; it is part of SKILL.md now.
+    // Only a regular file is removed: a symbolic link would delete its shared target, and a
+    // directory or other entry is the user's.
+    const referencePath = join(dirname(skillPath), 'references', 'usage.md');
+    const referenceInfo = await lstat(referencePath).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw new InputError(`Cannot read ${referencePath}. Check file permissions.`);
+    });
+    const previousReference = bundled && referenceInfo?.isFile() ? await readOptional(referencePath) : undefined;
+    if (previousReference !== undefined && isBundledReference(previousReference)) {
+      changes.push({ path: referencePath, before: previousReference, after: undefined, kind: `${agent} skill reference (${scope}, merged into SKILL.md)` });
     }
   }
   const unique = new Map<string, PlannedChange>();
@@ -102,6 +111,11 @@ async function apply(changes: PlannedChange[], options: Options, signal?: AbortS
   for (const change of changes.filter(change => change.before !== change.after)) {
     checkSaveCanceled(signal);
     if (change.path === configPath(options)) { await saveSettings({ ...options, config: change.destination }); continue; }
+    if (change.after === undefined) {
+      try { await rm(change.destination); await rmdir(dirname(change.destination)).catch(() => {}); }
+      catch { throw new InputError(`Cannot remove ${change.path}. Check permissions and rerun init; earlier files may already have been updated.`); }
+      continue;
+    }
     const temp = `${change.destination}.${randomUUID()}.tmp`;
     try {
       await mkdir(dirname(change.destination), { recursive: true });
@@ -223,7 +237,7 @@ export async function initialize(options: InitOptions, output: Output) {
     };
     let changes = await planWithScopeRecovery();
     const describe = () => changes.map(change => ({ path: change.path, ...(change.aliases.length ? { aliases: change.aliases } : {}), ...(change.destination !== change.path ? { destination: change.destination } : {}), kind: change.kind,
-      action: change.before === change.after ? 'unchanged' : change.before === undefined ? 'create' : 'update' }));
+      action: change.before === change.after ? 'unchanged' : change.after === undefined ? 'delete' : change.before === undefined ? 'create' : 'update' }));
     let files = describe();
     if (ui) {
       const review = chosen.length > 0 || files.some(file => file.action !== 'unchanged');

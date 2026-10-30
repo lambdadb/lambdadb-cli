@@ -108,9 +108,7 @@ test('init preserves unrelated TOML/JSONC, forwards environment names, installs 
     const skill = await readFile(join(f.cwd, directory, 'skills/lambdadb/SKILL.md'), 'utf8');
     assert.match(skill, /^---\nname: lambdadb\n/);
     assert.ok(!skill.includes(secret));
-    const reference = await readFile(join(f.cwd, directory, 'skills/lambdadb/references/usage.md'), 'utf8');
-    assert.equal(reference, await readFile(new URL('../skills/lambdadb/references/usage.md', import.meta.url), 'utf8'));
-    assert.ok(!reference.includes(secret));
+    await assert.rejects(readFile(join(f.cwd, directory, 'skills/lambdadb/references/usage.md')), { code: 'ENOENT' });
   }
   result = await f.run(f.init());
   assert.equal(result.code, 0);
@@ -147,21 +145,69 @@ test('user scope honors CODEX_HOME and preserves existing skill and unrelated Cl
   assert.ok(result.data.data.files.every(file => !file.path.startsWith(f.cwd)));
 });
 
-test('skill references preserve user edits and missing bundled references are restored safely', async t => {
+test('init upgrades an unmodified 0.1.7 skill, removes its merged reference and preserves edits', async t => {
   const f = await fixture(t);
-  const reference = join(await realpath(f.cwd), '.agents/skills/lambdadb/references/usage.md');
-  assert.equal((await f.run(f.init('codex'))).code, 0);
-  const bundled = await readFile(reference, 'utf8');
-  await f.file(reference, 'User-maintained usage notes\n');
+  const skill = join(await realpath(f.cwd), '.agents/skills/lambdadb/SKILL.md');
+  const reference = join(dirname(skill), 'references/usage.md');
+  const previous = await readFile(new URL('./fixtures/skill-0.1.7/SKILL.md', import.meta.url), 'utf8');
+  const previousReference = await readFile(new URL('./fixtures/skill-0.1.7/references/usage.md', import.meta.url), 'utf8');
+  const bundled = await readFile(new URL('../skills/lambdadb/SKILL.md', import.meta.url), 'utf8');
+  assert.notEqual(previous, bundled);
+  await f.file(skill, previous);
+  await f.file(reference, previousReference);
   let result = await f.run(f.init('codex'));
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(await readFile(reference, 'utf8'), 'User-maintained usage notes\n');
-  assert.equal(result.data.data.files.find(file => file.path === reference).action, 'unchanged');
-  await rm(reference);
+  const actions = Object.fromEntries(result.data.data.files.map(file => [file.path, file.action]));
+  assert.equal(actions[skill], 'update');
+  assert.equal(actions[reference], 'delete');
+  assert.match(result.stderr, /delete: .*usage\.md.*merged into SKILL\.md/);
+  assert.equal(await readFile(skill, 'utf8'), bundled);
+  await assert.rejects(readFile(reference), { code: 'ENOENT' });
+  await assert.rejects(stat(dirname(reference)), { code: 'ENOENT' });
   result = await f.run(f.init('codex'));
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(await readFile(reference, 'utf8'), bundled);
-  assert.equal(result.data.data.files.find(file => file.path === reference).action, 'create');
+  assert.ok(result.data.data.files.every(file => file.action === 'unchanged'));
+  // An edited reference next to a bundled skill: the skill follows the package, the notes stay.
+  await f.file(skill, previous);
+  await f.file(reference, 'User-maintained usage notes\n');
+  result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(skill, 'utf8'), bundled);
+  assert.equal(await readFile(reference, 'utf8'), 'User-maintained usage notes\n');
+  assert.ok(!result.data.data.files.some(file => file.path === reference));
+  // An edited skill is left alone, including a bundled reference beside it.
+  await f.file(skill, previous + '\nTeam note\n');
+  await f.file(reference, previousReference);
+  result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(skill, 'utf8'), previous + '\nTeam note\n');
+  assert.equal(await readFile(reference, 'utf8'), previousReference);
+  const entry = result.data.data.files.find(file => file.path === skill);
+  assert.equal(entry.action, 'unchanged');
+  assert.match(entry.kind, /existing skill preserved/);
+  assert.ok(!result.data.data.files.some(file => file.path === reference));
+  // A symlinked bundled reference is preserved: deleting through the link could remove a shared target.
+  const sharedReference = join(f.root, 'shared', 'usage.md');
+  await f.file(skill, previous);
+  await rm(reference);
+  await f.file(sharedReference, previousReference);
+  await symlink(sharedReference, reference);
+  result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(skill, 'utf8'), bundled);
+  assert.ok((await lstat(reference)).isSymbolicLink());
+  assert.equal(await readFile(sharedReference, 'utf8'), previousReference);
+  assert.ok(!result.data.data.files.some(file => file.path === reference));
+  // CRLF line endings from a checkout still count as the bundled copy, and a directory named
+  // usage.md belongs to the user.
+  await rm(reference);
+  await f.file(skill, previous.replace(/\n/g, '\r\n'));
+  await f.file(join(reference, 'notes.md'), 'User notes\n');
+  result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(skill, 'utf8'), bundled);
+  assert.equal(await readFile(join(reference, 'notes.md'), 'utf8'), 'User notes\n');
+  assert.ok(!result.data.data.files.some(file => file.path === reference));
 });
 
 test('additional agents preserve configuration, credentials and reruns in their supported scopes', async t => {
@@ -197,7 +243,7 @@ test('additional agents preserve configuration, credentials and reruns in their 
         await f.file(c.path, `${['cline', 'copilot'].includes(agent) ? '' : '// Keep this comment\n'}${JSON.stringify(original, null, 2)}\n`);
         let result = await f.run(f.init(agent, scope));
         assert.equal(result.code, 0, result.stderr);
-        assert.equal(result.data.data.files.length, 4);
+        assert.equal(result.data.data.files.length, 3);
         const text = await readFile(c.path, 'utf8');
         const value = jsonc(text);
         const server = value[c.map].lambdadb;
@@ -211,8 +257,7 @@ test('additional agents preserve configuration, credentials and reruns in their 
         assert.deepEqual(args.slice(2), ['mcp', '--endpoint', f.endpoint, '--project', 'existing-project', '--api-key-env', 'CUSTOM_PROJECT_KEY']);
         assert.equal(server.type, ['gemini', 'kiro'].includes(agent) ? undefined : agent === 'opencode' ? 'local' : 'stdio');
         assert.match(await readFile(c.skill, 'utf8'), /name: lambdadb/);
-        assert.equal(await readFile(join(dirname(c.skill), 'references/usage.md'), 'utf8'),
-          await readFile(new URL('../skills/lambdadb/references/usage.md', import.meta.url), 'utf8'));
+        await assert.rejects(readFile(join(dirname(c.skill), 'references/usage.md')), { code: 'ENOENT' });
         result = await f.run(f.init(agent, scope));
         assert.equal(result.code, 0, result.stderr);
         assert.ok(result.data.data.files.every(file => file.action === 'unchanged'));
@@ -244,7 +289,7 @@ test('all six agents can be installed together with separate skill paths', async
   const result = await f.run(f.init(names));
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(result.data.data.agents, names.split(','));
-  assert.equal(result.data.data.files.length, 19);
+  assert.equal(result.data.data.files.length, 13);
   assert.equal(f.requests.length, 1);
 });
 
@@ -254,12 +299,10 @@ test('all nine agents install together at user scope, sharing the Copilot and VS
   let result = await f.run(f.init(names, 'user'));
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(result.data.data.agents, names.split(','));
-  assert.equal(result.data.data.files.length, 26);
-  const shared = result.data.data.files.find(file => file.path === join(f.home, '.copilot', 'skills', 'lambdadb', 'SKILL.md'));
-  assert.match(shared.kind, /vscode skill.*copilot skill/);
-  const sharedReference = result.data.data.files.filter(file => file.path === join(dirname(shared.path), 'references/usage.md'));
-  assert.equal(sharedReference.length, 1);
-  assert.match(sharedReference[0].kind, /vscode skill reference.*copilot skill reference/);
+  assert.equal(result.data.data.files.length, 18);
+  const shared = result.data.data.files.filter(file => file.path === join(f.home, '.copilot', 'skills', 'lambdadb', 'SKILL.md'));
+  assert.equal(shared.length, 1);
+  assert.match(shared[0].kind, /vscode skill.*copilot skill/);
   assert.equal(f.requests.length, 1);
   result = await f.run(f.init(names, 'user'));
   assert.equal(result.code, 0, result.stderr);
@@ -270,7 +313,7 @@ test('Claude and Copilot share a project MCP file and VS Code and Copilot share 
   const f = await fixture(t);
   let result = await f.run(f.init('claude,vscode,copilot'));
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(result.data.data.files.length, 7);
+  assert.equal(result.data.data.files.length, 5);
   const sharedMcp = result.data.data.files.find(file => basename(file.path) === '.mcp.json');
   assert.match(sharedMcp.kind, /claude MCP.*copilot MCP/);
   const text = await readFile(sharedMcp.path, 'utf8');
@@ -297,7 +340,7 @@ test('shared MCP symlinks and CLI settings symlinks retain their targets across 
   await symlink(cliTarget, f.config);
   let result = await f.run(f.init('gemini,kiro'));
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(result.data.data.files.length, 6, 'shared MCP target must be planned only once');
+  assert.equal(result.data.data.files.length, 4, 'shared MCP target must be planned only once');
   assert.equal(result.data.data.files.find(file => file.path === gemini).destination, await realpath(shared));
   assert.deepEqual(result.data.data.files.find(file => file.path === gemini).aliases, [kiro]);
   assert.match(result.stderr, / -> .*shared-mcp.json/);
@@ -869,7 +912,7 @@ test('file details preserve full JSON metadata and unchanged agents still offer 
   assert.match(result.stderr, /unchanged\s+~\/cli.json/);
   const json = await f.run(f.init('codex', 'project', ['--write-tools']));
   assert.equal(json.code, 0, json.stderr);
-  assert.equal(json.data.data.files.length, 4);
+  assert.equal(json.data.data.files.length, 3);
   assert.ok(json.data.data.files.every(file => file.action === 'unchanged'));
   const canceled = await f.run(['init', '--agents', 'codex', '--scope', 'project'], {}, [['Connection', enter], ['Continue with this setup?', keys(down, down, down, '\r')]]);
   assert.equal(canceled.code, 2, canceled.stderr);
@@ -946,7 +989,7 @@ for (const stage of ['first', 'last']) {
       const original = fs.writeFile;
       fs.writeFile = async (path, ...args) => {
         const result = await original(path, ...args);
-        if (String(path).includes(${JSON.stringify(stage === 'first' ? 'config.toml.' : 'usage.md.')})) {
+        if (String(path).includes(${JSON.stringify(stage === 'first' ? 'config.toml.' : 'SKILL.md.')})) {
           process.kill(process.pid, 'SIGINT');
           await new Promise(resolve => setTimeout(resolve, 20));
         }
@@ -963,7 +1006,7 @@ for (const stage of ['first', 'last']) {
     assert.doesNotMatch(result.stderr + result.stdout, /Setup complete|No files were changed/);
     if (stage === 'first') await assert.rejects(readFile(join(f.cwd, '.agents/skills/lambdadb/SKILL.md')), { code: 'ENOENT' });
     assert.equal((await f.run(f.init('codex'))).code, 0);
-    assert.ok(await readFile(join(f.cwd, '.agents/skills/lambdadb/references/usage.md'), 'utf8'));
+    assert.ok(await readFile(join(f.cwd, '.agents/skills/lambdadb/SKILL.md'), 'utf8'));
     assert.ok(f.requests.every(request => request.method === 'GET'));
   });
 }
