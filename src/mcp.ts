@@ -3,7 +3,7 @@ import type { Config } from './config.js';
 import { InputError } from './errors.js';
 
 // Exact stdio package; this CLI only adapts credentials and process lifecycle.
-export const mcpPackage = '@functional-systems/lambdadb-mcp@0.1.6-dev.21';
+export const mcpPackage = '@functional-systems/lambdadb-mcp@0.2.0';
 
 export function mcpEnvironment(config: Config, writeTools: boolean): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
@@ -12,8 +12,10 @@ export function mcpEnvironment(config: Config, writeTools: boolean): NodeJS.Proc
     LAMBDADB_PROJECT_NAME: config.project,
     LAMBDADB_PROJECT_API_KEY: config.apiKey,
     LAMBDADB_MCP_ENABLE_WRITE_TOOLS: String(writeTools),
-    LAMBDADB_DEBUG: 'false',
   };
+  // The SDK coerces any non-empty LAMBDADB_DEBUG, including 'false', to true and then
+  // logs requests with their API key header to stdout, corrupting the MCP transport.
+  delete env.LAMBDADB_DEBUG;
   // npm exec exports these selectors to its child. They must not override the
   // separate MCP package and command supplied explicitly to the nested npx.
   for (const key of Object.keys(env)) {

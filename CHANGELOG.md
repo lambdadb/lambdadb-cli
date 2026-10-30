@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-30
+
+### Security
+
+- Stop enabling SDK debug logging in the MCP child. `lambdadb mcp` passed
+  `LAMBDADB_DEBUG=false`, which the SDK coerces to true, so the MCP server wrote
+  every request, including the project API key header, to stdout, the MCP
+  transport, since 0.1.5. The bridge now removes `LAMBDADB_DEBUG`, including an
+  inherited value, as the CLI's own commands already do. Rerun `init` for the same
+  agents to move their exact CLI pin to this version.
+
 ### Added
 
 - Name unreleased management selectors `--org-id` and `--project-id` consistently;
@@ -98,13 +109,13 @@
   and offers connection reuse or another project on reruns. Clarify browser approval,
   login next steps, agent scope and advanced connection options in help.
 
-- Pin published MCP `0.1.6-dev.21` on the development line for recent-write and
-  agent guidance, including its SDK 0.10.0 integration. Keep credential forwarding
-  and explicit write-tool opt-in unchanged; stable promotion needs a stable MCP pin.
+- Pin stable MCP `0.2.0` (LambdaDB SDK 0.11.0: Cohere native embedding and
+  reranking, ordered embedding `sources`, `queryInputs`, 1000-result limits), which
+  includes the recent-write and agent guidance first pinned from `0.1.6-dev.21`.
+  Keep credential forwarding and explicit write-tool opt-in unchanged.
 - Prevent inherited npm exec package/command selectors from changing the nested
   MCP launch, including when the CLI is invoked through `npx --package`.
 
-- Synchronize the 0.1.6 release history and start the 0.1.7 development line.
 - Update the Homebrew formula to verified stable 0.1.6.
 - Move releases to trunk-based development on `main`; `develop` is retired.
   Each main push publishes `X.Y.Z-dev.N` on the `dev` channel, where N counts
