@@ -653,7 +653,7 @@ test('guided init selects an existing project at its limit without a billing det
   const result = await fixture.run(['init', '--agents', 'codex', '--no-browser'], {}, [
     ['Connection', enter], ['Project', enter],
     ['Create a key for first with write access?', keys(left, '\r')],
-    ['Continue with this setup?', keys(up, up, up, '\r')],
+    ['Continue with this setup?', enter],
   ]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /Organization: Team/);
@@ -697,7 +697,7 @@ test('guided cancellation after project connection reports and retains the compl
     res.end(JSON.stringify({ endpoint: fixture.url, project: 'first', credentials: { api_key: 'synthetic-issued-secret', key: { key_id: 'key-id' } } }));
   }, true);
   const result = await fixture.run(['init', '--agents', 'cline'], {}, [
-    ['Connection', enter], ['Project', enter], ['Create a key for first with write access?', keys(left, '\r')], ['Install agent settings for your OS user?', enter],
+    ['Connection', enter], ['Project', enter], ['Create a key for first with write access?', keys(left, '\r')], ['Continue with this setup?', keys(down, down, down, '\r')],
   ]);
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, /Completed login\/project setup is retained/);

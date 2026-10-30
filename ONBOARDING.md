@@ -261,9 +261,9 @@ setup. Existing manual Console key setup remains supported during rollout.
 - Interactive init uses a checkbox list with detection labels and no automatic
   agent selection. Empty submission offers return-to-selection by default or an
   explicit skip; focusing an agent does not check it. A sole Org is displayed
-  without a separate prompt; project selection and creation share one menu. Project scope and read-only MCP tools
-  are shown in the final file review and can be changed with **Change options**; Cline
-  requires explicit user-scope consent. Ordinary output summarizes completion,
+  without a separate prompt; project selection and creation share one menu. User scope and read-and-write MCP tools
+  are the guided defaults, shown in the final file review with **Apply changes** preselected, and can be
+  changed with **Change options**; Cline supports user scope only. Ordinary output summarizes completion,
   while non-interactive JSON retains the full result.
   First-project setup skips a redundant create/use menu when there is no other
   Org to select. All pickers use arrow keys and Enter; text validation stays inline.

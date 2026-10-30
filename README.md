@@ -183,7 +183,8 @@ Init can configure MCP and install a LambdaDB usage skill for:
 
 Detection is a hint; select any subset or `none`. The skill prefers an available,
 authenticated CLI, with MCP when terminal execution is unavailable or requested.
-MCP write tools require explicit opt-in. Existing unrelated agent configuration
+Guided init enables MCP write tools and user scope by default; `--non-interactive`
+runs enable write tools only with `--write-tools`. Existing unrelated agent configuration
 and edited skills are preserved; reruns show the files being changed.
 
 See [agent paths, credential forwarding and restart instructions](docs/agents.md).
