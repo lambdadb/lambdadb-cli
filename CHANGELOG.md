@@ -10,6 +10,10 @@
   fallback, or a third one, fails the smoke, and every fallback must match the
   documented shape. A fallback never counts as applied reranking. The query that
   sets `onFailure: "error"` itself is still sent unchanged, once.
+- Update the Homebrew formula to verified stable 0.1.7, which contains the MCP
+  bridge API key fix.
+- The Homebrew harness supplies the terminal input helper and the packaged agent
+  skills that the 0.1.7 init contract tests read.
 
 ## [0.1.7] - 2026-10-30
 
