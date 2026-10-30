@@ -1,7 +1,51 @@
 # AGENTS.md
 
-Guidance for coding agents working in this repository. CONTRIBUTING.md covers
-branches, validation and releases; RELEASING.md covers the release flow.
+Guidance for coding agents working in this repository: where things live, the
+rules that are easy to break, and the bundled skill's design. For depth, read
+[CONTRIBUTING.md](CONTRIBUTING.md) (branches, validation, credentials, adapters),
+[RELEASING.md](RELEASING.md) (versions, tags, npm dist-tags, live smoke),
+[DESIGN.md](DESIGN.md) (SDK contract decisions) and `docs/` (user guides).
+
+## Repository map
+
+- `src/cli.ts` wires commands; `src/command.ts` names the executable for hints.
+- `src/init.ts` plans and atomically applies agent setup; `src/agents.ts` is the
+  adapter registry (detection, MCP and skill paths, restart text per agent);
+  `src/agent-config.ts` edits JSONC/TOML while preserving unrelated settings;
+  `src/skill-history.ts` lists every bundled skill hash.
+- `src/config.ts`, `src/credentials.ts`, `src/device-auth.ts`, `src/account.ts`,
+  `src/projects.ts` cover settings, OS credential stores and account login.
+- `src/import-workflow.ts`, `src/runtime.ts`, `src/usage.ts` cover document
+  import, data API calls and usage reporting.
+- `skills/lambdadb/SKILL.md` is the bundled skill; `examples/` holds the query
+  and index-config files the README and help text name.
+- `test/*.test.mjs` is the mock/local contract suite CI runs; `test/live/` needs
+  a real project key and never runs in CI; `test/fixtures/` holds previously
+  released skill bytes.
+- `docs/`, `README.md`, `CHANGELOG.md`, `examples/` and `skills/` ship in the
+  npm package (`files` in `package.json`), so relative links in them must
+  resolve inside the tarball or be absolute URLs.
+
+## Working conventions
+
+- Branch from current `main` (`feat/*`, `fix/*`), one coherent change per PR,
+  squash merge. There is no `develop`.
+- Add a `CHANGELOG.md` entry under `## [Unreleased]` for every user-visible
+  change, in the same PR. Release PRs move that section under a version.
+- `npm test` builds first, then runs the contract suite; `npm run lint`,
+  `npm run typecheck` and `npm run test:package` are the other CI gates. Run them
+  before opening or updating a PR and record the exact outcome in the PR.
+- Never put a key in a file, flag, example, test fixture or PR text; tests use
+  synthetic values and assert they do not leak. Live validation (`npm run
+  test:live`) requires a deliberately exported key and is reported separately.
+- Codex reviews every PR. A push does not re-trigger it: comment `@codex review`
+  once per new head, wait for the review summary to report the current commit
+  as completed, address or rebut each finding in its thread, and resolve the
+  thread only after replying.
+- Keep an unmodified CLI contract unless the change asks for it: argument
+  parsing, validation order, error classification, exit codes and the JSON
+  envelope (`ok`, `error.code`, `error.httpStatus`, `error.hint`) are relied on
+  by agents and tests.
 
 ## Bundled agent skill (`skills/lambdadb/`)
 
