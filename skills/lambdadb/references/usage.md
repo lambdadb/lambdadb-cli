@@ -35,9 +35,11 @@ connection rather than inventing shell/network workarounds.
    `keyword`, or an existing vector field. Do not invent vector dimensions,
    embedding providers, or unsupported server capabilities. Try a narrow lexical
    query before adding hybrid search or reranking when that answers the task.
-5. Use the LambdaDB query DSL, not Elasticsearch's. Supported clauses are
-   `queryString`, `bool`, `knn`, `sparseVector` and top-level `bayesian`. There
-   is no `term`, `terms`, `match` or standalone `filter` clause: match a
+5. Use the LambdaDB query DSL, not Elasticsearch's. Query clauses are
+   `queryString`, `bool`, `knn` and `sparseVector`; hybrid fusion uses a
+   top-level `rrf`, `mm`, `l2` or `bayesian` array of exactly two subqueries
+   (https://docs.lambdadb.ai/guides/search/hybrid). There is no `term`,
+   `terms`, `match` or standalone `filter` clause: match a
    `keyword` field with Lucene syntax inside `queryString` (`category:database`,
    quote values with spaces). `bool` is an array of clauses, each carrying one
    clause key plus `occur` (`must`, `filter`, `should`, `must_not`; default

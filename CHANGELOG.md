@@ -15,9 +15,10 @@
   regions that still need provisioning, in the same order as Console. Within
   each group the server order is kept. `projects regions` output is unchanged.
 - The bundled skill reference states that LambdaDB's query DSL differs from
-  Elasticsearch's: the supported clauses are `queryString`, `bool`, `knn`,
-  `sparseVector` and top-level `bayesian`; there is no `term`, `match` or
-  standalone `filter` clause; `bool` is an array of clauses with `occur`. It adds
+  Elasticsearch's: the query clauses are `queryString`, `bool`, `knn` and
+  `sparseVector`, hybrid fusion is a top-level `rrf`, `mm`, `l2` or `bayesian`
+  array of two subqueries, there is no `term`, `match` or standalone `filter`
+  clause, and `bool` is an array of clauses with `occur`. It adds
   a `bool` example that filters a `keyword` field through Lucene syntax, so
   agents build filters from the documented contract instead of guessing.
 
