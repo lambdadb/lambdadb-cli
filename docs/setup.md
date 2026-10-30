@@ -179,14 +179,15 @@ connection or writes; restore their targets before rerunning init.
 Reruns update only recognizable init-generated `lambdadb` MCP entries;
 existing custom entries or additions inside a generated entry cause an actionable
 conflict. The skill is a single `SKILL.md`. A rerun after a CLI upgrade updates
-an installed skill that is an unmodified copy of any bundled version, and removes
-the `references/usage.md` that releases through 0.1.7 installed when it is also
-unmodified and not a symbolic link; the plan lists both as `update` and `delete`
-before anything is written. An edited skill or reference is preserved as it is. To reinstall the
-bundled version over your edits, back up the skill directory and remove the
-files you want init to reinstall. Writes use atomic replacement per file, not a
-transaction across files: a disk/permission failure can leave a partial
-installation; inspect the displayed paths and rerun.
+an installed skill that is an unmodified copy of any bundled version (line
+endings and a byte-order mark are ignored), and removes the `references/usage.md`
+that releases through 0.1.7 installed when it is also unmodified and is a regular
+file rather than a symbolic link; the plan lists both as `update` and `delete`
+before anything is written. An edited skill or reference is preserved as it is.
+To reinstall the bundled version over your edits, back up the skill directory and
+remove the files you want init to reinstall. Writes use atomic replacement per
+file, not a transaction across files: a disk/permission failure can leave a
+partial installation; inspect the displayed paths and rerun.
 
 ## Configuration and authentication
 

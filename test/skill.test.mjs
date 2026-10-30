@@ -22,6 +22,7 @@ test('every historical bundled version is recognized and user edits are not', as
   assert.ok(isBundledSkill(previous));
   assert.ok(isBundledReference(reference));
   assert.ok(!isBundledSkill(previous + '\nUser note\n'));
+  assert.ok(isBundledSkill('\uFEFF' + previous.replace(/\n/g, '\r\n')), 'BOM and CRLF are normalized');
   assert.ok(!isBundledReference(reference.replace('LambdaDB', 'My notes')));
   assert.ok(!isBundledSkill(''));
 });

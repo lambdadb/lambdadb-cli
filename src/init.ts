@@ -63,11 +63,15 @@ async function plan(selected: SelectedSettings, chosen: Agent[], scope: AgentSco
     const bundled = previousSkill === undefined || previousSkill === skill || isBundledSkill(previousSkill);
     changes.push({ path: skillPath, before: previousSkill, after: bundled ? skill : previousSkill, kind: `${agent} skill (${scope}${bundled ? '' : ', existing skill preserved'})` });
     // Releases through 0.1.7 installed references/usage.md next to the skill; it is part of SKILL.md now.
-    // A symbolic link is left alone: removing it through its resolved target could delete a file
-    // that another installation still uses.
+    // Only a regular file is removed: a symbolic link would delete its shared target, and a
+    // directory or other entry is the user's.
     const referencePath = join(dirname(skillPath), 'references', 'usage.md');
-    const previousReference = await readOptional(referencePath);
-    if (bundled && previousReference !== undefined && isBundledReference(previousReference) && !(await lstat(referencePath)).isSymbolicLink()) {
+    const referenceInfo = await lstat(referencePath).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw new InputError(`Cannot read ${referencePath}. Check file permissions.`);
+    });
+    const previousReference = bundled && referenceInfo?.isFile() ? await readOptional(referencePath) : undefined;
+    if (previousReference !== undefined && isBundledReference(previousReference)) {
       changes.push({ path: referencePath, before: previousReference, after: undefined, kind: `${agent} skill reference (${scope}, merged into SKILL.md)` });
     }
   }

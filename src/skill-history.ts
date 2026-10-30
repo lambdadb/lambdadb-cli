@@ -24,5 +24,7 @@ const bundledReferences = new Set([
 ]);
 
 export const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
-export const isBundledSkill = (text: string) => bundledSkills.has(sha256(text));
-export const isBundledReference = (text: string) => bundledReferences.has(sha256(text));
+// Checkouts and editors can add a BOM or CRLF line endings to an otherwise untouched copy.
+const normalized = (text: string) => sha256(text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n'));
+export const isBundledSkill = (text: string) => bundledSkills.has(normalized(text));
+export const isBundledReference = (text: string) => bundledReferences.has(normalized(text));

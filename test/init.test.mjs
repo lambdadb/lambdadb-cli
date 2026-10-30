@@ -198,6 +198,16 @@ test('init upgrades an unmodified 0.1.7 skill, removes its merged reference and 
   assert.ok((await lstat(reference)).isSymbolicLink());
   assert.equal(await readFile(sharedReference, 'utf8'), previousReference);
   assert.ok(!result.data.data.files.some(file => file.path === reference));
+  // CRLF line endings from a checkout still count as the bundled copy, and a directory named
+  // usage.md belongs to the user.
+  await rm(reference);
+  await f.file(skill, previous.replace(/\n/g, '\r\n'));
+  await f.file(join(reference, 'notes.md'), 'User notes\n');
+  result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(skill, 'utf8'), bundled);
+  assert.equal(await readFile(join(reference, 'notes.md'), 'utf8'), 'User notes\n');
+  assert.ok(!result.data.data.files.some(file => file.path === reference));
 });
 
 test('additional agents preserve configuration, credentials and reruns in their supported scopes', async t => {
