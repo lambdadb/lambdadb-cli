@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Maintenance
+
+- Update the Homebrew formula to verified stable 0.1.8 and its release-commit
+  lockfile.
+- The Homebrew harness supplies the `test/fixtures` skill copies that the 0.1.8
+  init contract tests read.
+
 ## [0.1.8] - 2026-10-31
 
 ### Added
