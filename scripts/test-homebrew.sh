@@ -77,7 +77,7 @@ const installed = JSON.parse(readFileSync(join(prefix, 'libexec/package.json'), 
 assert.equal(installed.name, released.name);
 assert.equal(installed.version, released.version);
 mkdirSync(harness);
-const archive = execFileSync('git', ['archive', commit, 'test/cli.test.mjs', 'test/init.test.mjs', 'test/terminal-input.mjs', 'examples'], { cwd: repo });
+const archive = execFileSync('git', ['archive', commit, 'test/cli.test.mjs', 'test/init.test.mjs', 'test/terminal-input.mjs', 'test/fixtures', 'examples'], { cwd: repo });
 execFileSync('tar', ['-x', '-C', harness], { input: archive });
 cpSync(join(prefix, 'libexec/package.json'), join(harness, 'package.json'));
 symlinkSync(join(prefix, 'libexec/node_modules'), join(harness, 'node_modules'), 'dir');
