@@ -275,11 +275,10 @@ Use `npm run test:live` with the explicit opt-in settings in
 [CONTRIBUTING.md](CONTRIBUTING.md#live-validation). It exercises ordinary/bulk
 import, query/fetch up to 1000 results/IDs, the server-managed `id` round trip,
 OpenAI and Cohere native embeddings, Bayesian search, and TypeSafe and Cohere
-reranking in temporary Collections, then uses the SDK to delete them and verify
-their absence. Branch, tag and alias commands, `docs list`, `docs update`,
-`docs delete`, `collections delete` and collection settings were verified
-manually against a development project when they were added and are not yet in
-that suite. The normal test suite and PR CI never run it; the publishing
+reranking in temporary Collections, plus collection settings, document listing,
+the branch/tag/alias lifecycle and partial updates and deletes under consistent
+reads, then removes the Collections with `collections delete` and verifies
+their absence. The normal test suite and PR CI never run it; the publishing
 workflow runs it against dedicated smoke projects before every publication and
 release verification
 ([RELEASING.md](RELEASING.md#deployed-live-smoke)).

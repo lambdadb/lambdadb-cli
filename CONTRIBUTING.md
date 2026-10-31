@@ -170,12 +170,20 @@ npm run test:live
 ```
 
 The test fails before API calls when required settings are absent. It creates a
-random temporary collection, imports two 3 MiB documents plus a bulk document,
-accepts and verifies metadata for all 49 fixed analyzer presets, sends the
-described metadata, including the server-managed `id` field, back through update,
-checks exact facet-only and document+facet buckets, and checks committed
+random temporary collection with a description, metadata tag and retention,
+verifies and changes those settings, imports two 3 MiB documents plus a bulk
+document, accepts and verifies metadata for all 49 fixed analyzer presets, sends
+the described metadata, including the server-managed `id` field, back through
+update, checks exact facet-only and document+facet buckets, and checks committed
 query/fetch contents with a maximum 300-second observation window per stage,
-followed by a size-1000 query and a 1000-ID fetch. It also checks native
+followed by a size-1000 query and a 1000-ID fetch. It then lists documents by
+page token, `--all` and extended filter/field selectors, runs the branch, tag
+and alias lifecycle (creation, reads at each ref, branch isolation under
+consistent reads, retargeting, the 409 for a referenced branch and the 400 for
+`main`, deletions), and applies a partial update, a delete by id and a delete by
+filter, each confirmed through consistent fetches within 120 seconds. Temporary
+collections are removed with `collections delete` and their absence is verified
+by HTTP 404. It also checks native
 reranking with TypeSafe default, null and custom criteria and with Cohere,
 including final/retrieval scores and status metadata.
 It creates three additional temporary Collections for OpenAI native
