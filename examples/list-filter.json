@@ -1,0 +1,4 @@
+{
+  "filter": { "queryString": { "query": "category:database" } },
+  "fields": { "include": ["id", "text", "category"] }
+}

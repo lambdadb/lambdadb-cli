@@ -3,7 +3,7 @@ import { Command, CommanderError, Option } from 'commander';
 import { readFileSync } from 'node:fs';
 import { cli } from './command.js';
 import { configPath, integer, name, resolveConfig, saveSettings, settings, type Options } from './config.js';
-import { createInput, parseRef, parseSource, parseTarget, queryInput, readJson, readJsonl, updateInput } from './input.js';
+import { createInput, deleteInput, listSelectors, parseRef, parseSource, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
 import { definitelyRejected, describeError, InputError, ManagementError, isInputError, parseError } from './errors.js';
 import { Output, type Envelope } from './output.js';
@@ -381,7 +381,7 @@ aliases.command('delete')
     });
   });
 
-const docs = program.command('docs').description('Import JSONL and fetch documents by ID');
+const docs = program.command('docs').description('Import, list, fetch, update and delete documents');
 docs.command('import')
   .description('Validate JSONL, submit sequential batches, stop on first error; acceptance is not search readiness')
   .requiredOption('--collection <name>', 'Collection name')
@@ -397,17 +397,95 @@ docs.command('import')
     const batchSize = integer(opts.batchSize, 'Batch size', 1, 10000);
     const maxBytes = integer(opts.batchBytes ?? (bulk ? '16000000' : '4000000'), 'Batch bytes', 64, bulk ? 64000000 : 4000000);
     const rows = await readJsonl(opts.file);
-    const batches = planBatches(rows, branch, batchSize, maxBytes, bulk);
+    const batches = planBatches(rows, branch, batchSize, maxBytes, opts.mode);
     await connected(cmd, async ({ client, options }) => {
       const collection = scoped(cmd);
       target = { ...target, branch };
       output.diagnostic(`Validated ${rows.length} document(s); submitting ${batches.length} batch(es) using ${opts.mode}.`);
-      const imported = await importDocuments(client.collection(collection).docs, batches, branch, bulk, options, batch => {
+      const imported = await importDocuments(client.collection(collection).docs, batches, branch, opts.mode, options, batch => {
         output.diagnostic(`Batch ${batch.batch}: ${batch.state}, ${batch.documents} document(s), lines ${batch.firstLine}–${batch.lastLine}.`);
       });
       const exitCode = imported.state === 'accepted' ? 0 : imported.state === 'unknown' ? 5 : imported.state === 'partial' ? 4 : 3;
       result(imported, `${imported.accepted}/${imported.total} document(s) accepted; search visibility not verified.`, exitCode);
       if (exitCode) output.diagnostic('Import stopped. Inspect batch outcomes and the selected branch before retrying; automatic resume is not supported.');
+    });
+  });
+
+docs.command('list')
+  .description('List documents at an explicit ref, one page by default; a page token is a position, not a snapshot pin')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--ref <kind:name>', 'branch:NAME, tag:NAME or alias:NAME')
+  .option('--size <count>', 'Documents per page, 1–100; pages can be smaller than requested', '20')
+  .option('--page-token <token>', 'Opaque continuation token from the previous page')
+  .option('--all', 'Follow page tokens to the end within the total timeout (results are buffered); use a tag for a stable export')
+  .option('--include-vectors', 'Include vector fields in returned documents')
+  .option('--file <path>', 'Optional JSON object with filter (query DSL), partitionFilter and fields; sends the extended list request')
+  .addHelpText('after', '\nExamples:\n  lambdadb docs list --collection demo-docs --ref branch:main --size 5 --json\n  lambdadb docs list --collection demo-docs --ref tag:release-one --all --json\n  lambdadb docs list --collection demo-docs --ref branch:main --file examples/list-filter.json --json')
+  .action(async (opts, cmd: Command) => {
+    const ref = parseRef(opts.ref);
+    const size = integer(opts.size, 'Page size', 1, 100);
+    const selectors = opts.file ? listSelectors(await readJson(opts.file)) : {};
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, ref };
+      const params = { ...selectors, ref, size, pageToken: opts.pageToken, includeVectors: opts.includeVectors ?? false };
+      if (!opts.all) {
+        const page = await client.collection(collection).docs.list(params, options);
+        const { docsUrl: _signedUrl, ...data } = page;
+        result(data, `${page.docs.length} document(s)${page.nextPageToken ? '; more pages available' : ''}.`);
+      } else {
+        const items = [];
+        for await (const page of client.collection(collection).docs.listPages(params, options)) items.push(...page.docs);
+        result({ docs: items }, `${items.length} document(s).`);
+      }
+    });
+  });
+
+docs.command('update')
+  .description('Merge JSONL field updates into existing documents by id; missing ids fail the batch, acceptance is not visibility')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--branch <name>', 'Explicit writable branch (for example main)')
+  .requiredOption('--file <path>', 'UTF-8 JSONL file of partial documents, each with a nonempty string id; at most 64 MiB and 100000 documents')
+  .option('--batch-size <count>', 'Maximum documents per batch, 1–10000', '1000')
+  .option('--batch-bytes <bytes>', 'Serialized byte cap per batch, 64–4000000', '4000000')
+  .addHelpText('after', '\nOmitted fields are kept, nested objects merge, arrays are replaced, and null is rejected for indexed fields. Use docs import to replace whole documents.\n\nExample:\n  lambdadb docs update --collection demo-docs --branch main --file examples/updates.jsonl --json')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const branch = name(opts.branch, 'Branch name');
+    const batchSize = integer(opts.batchSize, 'Batch size', 1, 10000);
+    const maxBytes = integer(opts.batchBytes, 'Batch bytes', 64, 4000000);
+    const rows = requireIds(await readJsonl(opts.file));
+    const batches = planBatches(rows, branch, batchSize, maxBytes, 'update');
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, branch };
+      output.diagnostic(`Validated ${rows.length} update(s); submitting ${batches.length} batch(es).`);
+      const updated = await importDocuments(client.collection(collection).docs, batches, branch, 'update', options, batch => {
+        output.diagnostic(`Batch ${batch.batch}: ${batch.state}, ${batch.documents} document(s), lines ${batch.firstLine}–${batch.lastLine}.`);
+      });
+      const exitCode = updated.state === 'accepted' ? 0 : updated.state === 'unknown' ? 5 : updated.state === 'partial' ? 4 : 3;
+      result(updated, `${updated.accepted}/${updated.total} update(s) accepted; merged results are not yet verified as visible.`, exitCode);
+      if (exitCode) output.diagnostic('Update stopped. A batch with a missing id is rejected as a whole; inspect batch outcomes and the selected branch before retrying.');
+    });
+  });
+
+docs.command('delete')
+  .description('Delete documents on a writable branch by IDs or by a filter file; acceptance is not visibility')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--branch <name>', 'Explicit writable branch (for example main)')
+  .option('--ids <id...>', 'Document IDs to delete (separate with spaces)')
+  .option('--file <path>', 'JSON object with filter (query DSL) or ids, optional partitionFilter; filter {"queryString":{"query":"*:*"}} deletes every document')
+  .addHelpText('after', '\nExactly one of --ids or --file. Deletion runs without confirmation; preview a filter with docs list --file first.\n\nExamples:\n  lambdadb docs delete --collection demo-docs --branch main --ids doc-1 doc-2 --json\n  lambdadb docs delete --collection demo-docs --branch main --file examples/delete-filter.json --json')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const branch = name(opts.branch, 'Branch name');
+    const input = deleteInput(opts.ids, opts.file ? await readJson(opts.file) : undefined, branch);
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, branch };
+      mutationStarted = true;
+      const deleted = await client.collection(collection).docs.delete(input, { ...options, retries: { strategy: 'none' } });
+      result({ ...deleted, state: 'accepted', searchable: 'not_verified' }, 'Delete request accepted; the documents can remain visible until the write commits.');
     });
   });
 

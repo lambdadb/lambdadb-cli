@@ -4,6 +4,15 @@
 
 ### Added
 
+- `docs list` pages through documents at an explicit `--ref` (`--size`,
+  `--page-token`, `--all`, `--include-vectors`), with an optional `--file`
+  carrying `filter`, `partitionFilter` and `fields` through the extended list
+  route. `docs update` merges JSONL rows with required ids into existing
+  documents in sequential batches with import's result fields and exit codes.
+  `docs delete` removes documents on a writable branch by `--ids` or by a
+  `--file` with `ids` or `filter` plus an optional `partitionFilter`, exactly one
+  selector, reporting acceptance only. New `examples/list-filter.json`,
+  `examples/delete-filter.json` and `examples/updates.jsonl`.
 - `branches list|create|delete`, `tags list|create|delete` and
   `aliases list|create|retarget|delete` manage data versioning refs through the
   SDK. Sources and targets use the same `kind:NAME` grammar as `--ref`;

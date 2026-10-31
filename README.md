@@ -142,7 +142,8 @@ Only `init` prompts for choices. All other commands require explicit arguments;
 | List, inspect or configure collections | `lambdadb collections list` / `describe` / `create` / `update` | [Collections](docs/data.md#collections) |
 | Manage branches, tags and aliases | `lambdadb branches` / `tags` / `aliases` | [Data versioning](docs/data.md#branches-tags-and-aliases) |
 | Import documents | `lambdadb docs import` | [JSONL imports and outcomes](docs/data.md#import-jsonl) |
-| Search or fetch documents | `lambdadb query` / `docs fetch` | [Queries and explicit refs](docs/data.md#query-and-fetch-at-explicit-refs) |
+| Update or delete documents | `lambdadb docs update` / `docs delete` | [Partial updates and deletes](docs/data.md#update-and-delete-documents) |
+| Search, list or fetch documents | `lambdadb query` / `docs list` / `docs fetch` | [Queries and explicit refs](docs/data.md#query-and-fetch-at-explicit-refs) |
 
 Use `lambdadb --help` or `lambdadb <command> --help` for exact flags. For automation,
 use `--json`; see [output, deadlines and exit codes](docs/data.md#output-deadlines-and-exit-codes).

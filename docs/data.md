@@ -273,6 +273,33 @@ write retries or server mutation receipts. Inspect the selected branch and batch
 line ranges before constructing a deliberate retry. Do not treat accepted counts
 as a readiness check. A hard process kill may prevent any final report.
 
+### Update and delete documents
+
+```sh
+lambdadb docs update --collection cli-demo-docs --branch main --file examples/updates.jsonl --json
+lambdadb docs delete --collection cli-demo-docs --branch main --ids doc-2 --json
+lambdadb docs delete --collection cli-demo-docs --branch main --file examples/delete-filter.json --json
+```
+
+`docs update` takes the same JSONL input as import, but every row must carry a
+nonempty string `id` naming an existing document. The server merges each row
+into the stored document: omitted fields are kept, nested objects merge, arrays
+are replaced, and `null` is rejected for indexed fields. A row whose `id` does
+not exist rejects its whole batch; to insert or replace complete documents use
+`docs import`. Batches run sequentially and stop on the first failure, with the
+same result fields, counts and exit codes as import; the serialized batch cap
+is 4,000,000 bytes.
+
+`docs delete` takes exactly one selector: `--ids` on the command line, or a
+`--file` JSON object with `ids` or `filter` (the query DSL, for example
+`{"filter":{"queryString":{"query":"category:draft"}}}`) and an optional
+`partitionFilter`, which only narrows the selector. A file `branch` must match
+`--branch`. `{"filter":{"queryString":{"query":"*:*"}}}` deletes every document
+on the branch while keeping the collection. Deletion runs without
+confirmation; preview a filter with `docs list --file` using the same `filter`
+first. The response is an acceptance (`state: "accepted"`, `searchable:
+"not_verified"`): deleted documents can remain visible until the write commits.
+
 ### Branches, tags and aliases
 
 ```sh
@@ -312,9 +339,23 @@ for the full semantics.
 
 ```sh
 lambdadb query --collection cli-demo-docs --ref tag:release-one --file examples/query.json --json
+lambdadb docs list --collection cli-demo-docs --ref branch:main --size 5 --json
+lambdadb docs list --collection cli-demo-docs --ref tag:release-one --all --json
+lambdadb docs list --collection cli-demo-docs --ref branch:main --file examples/list-filter.json --json
 lambdadb docs fetch --collection cli-demo-docs --ref alias:production --ids doc-1 --json
 lambdadb docs fetch --collection cli-demo-docs --ref branch:main --ids doc-1 --consistent-read --json
 ```
+
+`docs list` pages through documents without ranking. One page is the default;
+`--size` accepts 1–100, pages can hold fewer documents than requested because
+the server bounds payload size, and `nextPageToken` is an opaque position, not
+a snapshot pin. `--all` follows tokens to the end within the total timeout and
+buffers the result; use a tag for a stable export because a branch can advance
+and an alias can be retargeted between pages. An optional `--file` holds
+`filter` (the query DSL), `partitionFilter` and `fields`; paging, vectors and
+the ref stay on flags, and the request then uses the extended list route. List
+does not support consistent reads. The returned `total` counts the page, not
+the collection.
 
 These examples require the named ref to exist. Query files use the SDK/API
 request body, with optional `query`, `facets`, `size`, `sort`, `fields`,

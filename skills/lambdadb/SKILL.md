@@ -37,9 +37,9 @@ branches, tags and aliases.
    server-managed `id` field can appear as `{"type":"keyword"}`; native
    embedding vector fields carry an `embedding` block naming the provider, model
    and source text field.
-3. Read a small sample at the intended ref with `query` omitted, for example
-   `{"size": 5}`. CLI reads require `--ref`; MCP reads should pass `ref`
-   explicitly. Use `branch:main` for a first sample only when no other ref is
+3. Read a small sample at the intended ref: CLI `docs list --ref branch:main
+   --size 5`, or a query with `query` omitted such as `{"size": 5}`. CLI reads
+   require `--ref`; MCP reads should pass `ref` explicitly. Use `branch:main` for a first sample only when no other ref is
    intended. Result entries wrap document fields under `doc`, so the example ID
    is `docs[0].doc.id`. Keep scores and response metadata separate from document
    fields.
@@ -75,8 +75,8 @@ retrying it unchanged.
 
 The same rule applies to collections, refs and writes, which the CLI
 (`collections create`, `collections update`, `branches`, `tags`, `aliases`,
-`docs import`, `docs fetch`) and the MCP write tools can perform when the user
-asks:
+`docs import`, `docs update`, `docs delete`, `docs list`, `docs fetch`) and the
+MCP write tools can perform when the user asks:
 
 | Task | Read |
 | --- | --- |
@@ -86,9 +86,9 @@ asks:
 | What a branch, tag or alias ref means, how reads select one, and creating, pinning, retargeting or deleting refs (`branches`, `tags`, `aliases` commands take `--source`/`--target` as `kind:NAME`) | https://docs.lambdadb.ai/guides/data-versioning/branches-tags-aliases.md |
 | Upsert documents (`docs import --mode upsert`, MCP upsert) | https://docs.lambdadb.ai/guides/documents/upsert-data.md |
 | Bulk upsert (`docs import --mode bulk`) and its exclusions | https://docs.lambdadb.ai/guides/documents/bulk-upsert-data.md |
-| Update fields of existing documents by ID | https://docs.lambdadb.ai/guides/documents/update-data.md |
-| Fetch by ID or list documents, with consistent reads | https://docs.lambdadb.ai/guides/documents/fetch-data.md and https://docs.lambdadb.ai/guides/documents/list-data.md |
-| Delete documents | https://docs.lambdadb.ai/guides/documents/delete-data.md |
+| Update fields of existing documents by ID (`docs update`, MCP update) | https://docs.lambdadb.ai/guides/documents/update-data.md |
+| Fetch by ID or list documents (`docs fetch`, `docs list`), with consistent reads | https://docs.lambdadb.ai/guides/documents/fetch-data.md and https://docs.lambdadb.ai/guides/documents/list-data.md |
+| Delete documents by IDs or filter (`docs delete`, MCP delete) | https://docs.lambdadb.ai/guides/documents/delete-data.md |
 | How reads, writes, storage and inference are billed | https://docs.lambdadb.ai/guides/costs/understanding-costs.md |
 
 The full page index is https://docs.lambdadb.ai/llms.txt. When pages cannot be

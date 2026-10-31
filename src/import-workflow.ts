@@ -13,8 +13,10 @@ export type ImportResult = {
   searchable: 'not_verified'; batches: BatchResult[];
 };
 
-export function planBatches(rows: DocumentRow[], branch: string, batchSize: number, maxBytes: number, bulk: boolean): Batch[] {
-  const overhead = Buffer.byteLength(JSON.stringify(bulk ? { docs: [] } : { docs: [], branch }));
+export type WriteMode = 'upsert' | 'bulk' | 'update';
+
+export function planBatches(rows: DocumentRow[], branch: string, batchSize: number, maxBytes: number, mode: WriteMode): Batch[] {
+  const overhead = Buffer.byteLength(JSON.stringify(mode === 'bulk' ? { docs: [] } : { docs: [], branch }));
   const batches: Batch[] = [];
   let current: Batch = { rows: [], bytes: overhead };
   for (const row of rows) {
@@ -32,8 +34,8 @@ export function planBatches(rows: DocumentRow[], branch: string, batchSize: numb
 
 // Domain workflow: no terminal I/O. Stop on the first failure, preserving acknowledged progress.
 export async function importDocuments(
-  docs: Pick<CollectionDocs, 'upsert' | 'bulkUpsertDocs'>,
-  batches: Batch[], branch: string, bulk: boolean, options: ClientRequestOptions,
+  docs: Pick<CollectionDocs, 'upsert' | 'bulkUpsertDocs' | 'update'>,
+  batches: Batch[], branch: string, mode: WriteMode, options: ClientRequestOptions,
   progress: (batch: BatchResult) => void = () => {},
 ): Promise<ImportResult> {
   const total = batches.reduce((sum, b) => sum + b.rows.length, 0);
@@ -54,7 +56,8 @@ export async function importDocuments(
       const body = { docs: batch.rows.map(row => row.doc), branch };
       // Mutations are never automatically retried: no public idempotency/receipt contract.
       const requestOptions: ClientRequestOptions = { ...options, retries: { strategy: 'none' } };
-      if (bulk) await docs.bulkUpsertDocs(body, requestOptions);
+      if (mode === 'bulk') await docs.bulkUpsertDocs(body, requestOptions);
+      else if (mode === 'update') await docs.update(body, requestOptions);
       else await docs.upsert(body, requestOptions);
     } catch (error) {
       item.state = definitelyRejected(error) ? 'failed' : 'unknown';
