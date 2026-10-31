@@ -1079,7 +1079,7 @@ test('invalid ref sources, targets, names and as-of values fail before any versi
     [['branches', 'create', '--branch', 'candidate', '--source', 'main'], 'Ref must be branch:NAME, tag:NAME or alias:NAME.'],
     // Impossible calendar values must not be normalized into a different snapshot cutoff.
     ...['2026-13-01', '2026-02-30T00:00:00Z', '2026-10-01T24:00:00Z', '2026-10-01T00:60:00Z', '2026-10-01 00:00:00', '2026-10-01T00:00:00',
-      '2026-10-01T00:00:00+15:00', '0', '-1', '1e12', 'yesterday'].map(asOf =>
+      '2026-10-01T00:00:00+15:00', '2026-10-01T00:00:00+00:99', '2026-10-01T00:00:00+0900', '2026-10-01T00:00:00+9:00', '0', '-1', '1e12', 'yesterday'].map(asOf =>
       [['branches', 'create', '--branch', 'candidate', '--as-of', asOf], '--as-of must be Unix epoch milliseconds or an ISO 8601 time.']),
     [['branches', 'create', '--branch', 'no'], 'Branch name must contain 3–52 letters, digits, underscores or hyphens.'],
     [['branches', 'delete', '--branch', 'bad name'], 'Branch name must contain 3–52 letters, digits, underscores or hyphens.'],
