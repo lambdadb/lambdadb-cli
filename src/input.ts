@@ -1,7 +1,7 @@
 import { open } from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
-import type { AliasTarget, BranchSource, CreateCollectionInput, QueryCollectionInput, ReadRef, RefSource, UpdateCollectionInput } from '@functional-systems/lambdadb';
-import { createCollectionRequestToJSON, queryCollectionRequestBodyToJSON, updateCollectionRequestBodyToJSON } from '@functional-systems/lambdadb/models/operations';
+import type { AliasTarget, BranchSource, CreateCollectionInput, DeleteDocsInput, ListDocsInput, QueryCollectionInput, ReadRef, RefSource, UpdateCollectionInput } from '@functional-systems/lambdadb';
+import { createCollectionRequestToJSON, deleteDocsRequestBodyToJSON, listDocsExtendedRequestBodyToJSON, queryCollectionRequestBodyToJSON, updateCollectionRequestBodyToJSON } from '@functional-systems/lambdadb/models/operations';
 import { InputError } from './errors.js';
 import { name } from './config.js';
 
@@ -110,6 +110,43 @@ export function queryInput(body: Record<string, unknown>, ref: ReadRef): QueryCo
   try { queryCollectionRequestBodyToJSON(input as QueryCollectionInput); }
   catch { throw new InputError('Invalid query request. Check fields, types and rerank settings; size:0 requires facets, rerank requires a scoring query without sort, and consistentRead:true requires a branch ref.'); }
   return input as QueryCollectionInput;
+}
+
+// The list file carries only the selectors the flags cannot express; paging and vectors stay on flags.
+export type ListSelectors = Pick<ListDocsInput, 'filter' | 'partitionFilter' | 'fields'>;
+export function listSelectors(body: Record<string, unknown>): ListSelectors {
+  const unknown = Object.keys(body).filter(key => !['filter', 'partitionFilter', 'fields'].includes(key));
+  if (unknown.length) throw new InputError(`List file accepts only filter, partitionFilter and fields; use --size, --page-token, --include-vectors and --ref for the rest. Unknown: ${unknown.join(', ')}.`);
+  try { listDocsExtendedRequestBodyToJSON(body as ListSelectors); }
+  catch { throw new InputError('Invalid list request. filter takes the query DSL (queryString or bool), partitionFilter a partition selection and fields an include/exclude selector.'); }
+  return body as ListSelectors;
+}
+
+// Partial updates address existing documents, so every row needs its id.
+export function requireIds(rows: DocumentRow[]): DocumentRow[] {
+  const missing = rows.find(row => typeof row.doc.id !== 'string');
+  if (missing) throw new InputError(`JSONL line ${missing.line} has no id; updates address existing documents by a nonempty string id.`);
+  return rows;
+}
+
+// Exactly one of ids or filter selects the documents; partitionFilter only narrows that selector.
+export function deleteInput(ids: string[] | undefined, body: Record<string, unknown> | undefined, branch: string): DeleteDocsInput {
+  const selectors = 'Delete requires exactly one selector: --ids, or a --file with ids or filter and an optional partitionFilter.';
+  if ((ids === undefined) === (body === undefined)) throw new InputError(selectors);
+  if (ids && ids.some(id => !id)) throw new InputError('Delete IDs must be nonempty strings.');
+  const input: Record<string, unknown> = ids ? { ids, branch } : { ...body, branch };
+  if (body) {
+    const unknown = Object.keys(body).filter(key => !['ids', 'filter', 'partitionFilter', 'branch'].includes(key));
+    if (unknown.length) throw new InputError(`Delete file accepts ids or filter, partitionFilter and branch. Unknown: ${unknown.join(', ')}.`);
+    if (body.branch !== undefined && body.branch !== branch) throw new InputError('File branch conflicts with --branch. Use the same explicit branch in both.');
+    if ((body.ids === undefined) === (body.filter === undefined)) throw new InputError(selectors);
+  }
+  const invalid = new InputError('Invalid delete request. ids must be a nonempty string array and filter must use the query DSL (queryString or bool).');
+  // The SDK schema accepts an empty id list, which would be a selector that selects nothing.
+  if (input.ids !== undefined && (!Array.isArray(input.ids) || input.ids.length === 0 || input.ids.some(id => typeof id !== 'string' || !id))) throw invalid;
+  try { deleteDocsRequestBodyToJSON(input as DeleteDocsInput); }
+  catch { throw invalid; }
+  return input as DeleteDocsInput;
 }
 
 const invalidIndexConfig = 'Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract: vector dimensions 64–4096, similarity cosine or euclidean, and exactly one embedding sourceField or sources.';

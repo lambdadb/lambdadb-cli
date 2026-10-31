@@ -1124,3 +1124,144 @@ test('ref mutations keep definite rejections distinct from uncertain outcomes an
   assert.equal(read.code, 3); assert.equal(read.json.data, undefined);
   assert.ok(f.requests.length > 1, 'reads keep SDK retries');
 });
+
+test('docs list forwards refs, paging and vectors on the GET route and selectors on the extended route; --all follows tokens', async t => {
+  const page = (docs, next) => ({ total: docs.length, isDocsInline: true, docs: docs.map(doc => ({ collection: 'demo-docs', doc })), ...(next ? { nextPageToken: next } : {}) });
+  const f = await fixture(t, (r, send, _req, _res, base) => {
+    if (r.url.pathname === '/download') return send(200, [{ collection: 'demo-docs', doc: { id: 'doc-9' } }]);
+    if (r.method === 'POST') return send(200, { total: 0, isDocsInline: false, docs: [], docsUrl: `${base}/download?signature=private-url` });
+    const token = r.url.searchParams.get('pageToken');
+    return send(200, token === 'second' ? page([{ id: 'doc-3' }]) : page([{ id: 'doc-1' }, { id: 'doc-2' }], 'second'));
+  });
+  const base = ['--collection', 'demo-docs', '--json'];
+  let r = await f.run(['docs', 'list', '--ref', 'alias:production', ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  let request = f.requests.at(-1);
+  assert.equal(request.method, 'GET');
+  assert.equal(request.url.pathname, '/projects/dev-project/collections/demo-docs/docs');
+  assert.deepEqual(Object.fromEntries(request.url.searchParams), { size: '20', includeVectors: 'false', refKind: 'alias', refName: 'production' });
+  assert.deepEqual(r.json.target.ref, { kind: 'alias', name: 'production' });
+  assert.deepEqual(r.json.data.docs.map(item => item.doc.id), ['doc-1', 'doc-2']);
+  assert.equal(r.json.data.nextPageToken, 'second');
+  const human = await f.run(['docs', 'list', '--ref', 'alias:production', '--collection', 'demo-docs']);
+  assert.equal(human.code, 0); assert.match(human.stdout, /2 document\(s\); more pages available/);
+
+  r = await f.run(['docs', 'list', '--ref', 'tag:release-one', '--size', '1', '--page-token', 'second', '--include-vectors', ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(Object.fromEntries(f.requests.at(-1).url.searchParams), { size: '1', pageToken: 'second', includeVectors: 'true', refKind: 'tag', refName: 'release-one' });
+  assert.deepEqual(r.json.data.docs.map(item => item.doc.id), ['doc-3']);
+
+  const before = f.requests.length;
+  r = await f.run(['docs', 'list', '--ref', 'branch:main', '--all', ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(f.requests.length, before + 2);
+  assert.deepEqual(r.json.data, { docs: [{ collection: 'demo-docs', doc: { id: 'doc-1' } }, { collection: 'demo-docs', doc: { id: 'doc-2' } }, { collection: 'demo-docs', doc: { id: 'doc-3' } }] });
+
+  r = await f.run(['docs', 'list', '--ref', 'branch:main', '--size', '5', '--file', resolve('examples/list-filter.json'), ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  request = f.requests.at(-2);
+  assert.equal(request.method, 'POST');
+  assert.equal(request.url.pathname, '/projects/dev-project/collections/demo-docs/docs/list');
+  assert.deepEqual(request.body, { size: 5, includeVectors: false, ref: { kind: 'branch', name: 'main' }, filter: { queryString: { query: 'category:database' } }, fields: { include: ['id', 'text', 'category'] } });
+  assert.equal(request.headers['x-api-key'], secret);
+  assert.ok(!Object.values(f.requests.at(-1).headers).includes(secret), 'download must not use API authentication');
+  assert.deepEqual(r.json.data.docs, [{ collection: 'demo-docs', doc: { id: 'doc-9' } }]);
+  assert.ok(!r.stdout.includes('private-url'));
+  assert.equal(r.json.data.isDocsInline, true);
+});
+
+test('docs update merges JSONL rows in sequential batches with the branch and stops on the first rejection', async t => {
+  // A batch whose first row is doc-2 stands in for a batch with a missing id.
+  const f = await fixture(t, (r, send) => r.body.docs[0].id === 'doc-2' ? send(400, { message: 'missing id' }) : send(202, { message: 'accepted' }));
+  const base = ['--collection', 'demo-docs', '--branch', 'edits', '--json'];
+  let r = await f.run(['docs', 'update', '--file', resolve('examples/updates.jsonl'), ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  const request = f.requests.at(-1);
+  assert.equal(request.method, 'POST');
+  assert.equal(request.url.pathname, '/projects/dev-project/collections/demo-docs/docs/update');
+  assert.deepEqual(request.body, { docs: [{ id: 'doc-1', category: 'database', metadata: { reviewed: true } }, { id: 'doc-2', category: 'developer-tools' }], branch: 'edits' });
+  assert.deepEqual(r.json.target, { endpoint: f.base, project: 'dev-project', collection: 'demo-docs', branch: 'edits' });
+  assert.deepEqual([r.json.data.state, r.json.data.accepted, r.json.data.total, r.json.data.searchable], ['accepted', 2, 2, 'not_verified']);
+  assert.match(r.stderr, /Batch 1: accepted, 2 document\(s\), lines 1–2/);
+
+  r = await f.run(['docs', 'update', '--file', resolve('examples/updates.jsonl'), '--batch-size', '1', ...base]);
+  assert.equal(r.code, 4, r.stdout);
+  assert.deepEqual([r.json.data.accepted, r.json.data.failed, r.json.data.notAttempted], [1, 1, 0]);
+  assert.equal(r.json.data.batches[1].error.httpStatus, 400);
+  assert.match(r.stderr, /missing id is rejected as a whole/);
+
+  const before = f.requests.length;
+  for (const [content, message] of [
+    ['{"id":"doc-1","title":"x"}\n{"title":"no id"}\n', 'JSONL line 2 has no id; updates address existing documents by a nonempty string id.'],
+    ['{"id":"","title":"x"}\n', 'JSONL line 1 has an invalid id; use a nonempty string or omit it.'],
+  ]) {
+    r = await f.run(['docs', 'update', '--file', await f.file('patch.jsonl', content), ...base]);
+    assert.equal(r.code, 2, r.stdout);
+    assert.equal(r.json.error.message, message);
+  }
+  r = await f.run(['docs', 'update', '--file', resolve('examples/updates.jsonl'), '--batch-bytes', '4000001', ...base]);
+  assert.equal(r.code, 2); assert.match(r.json.error.message, /Batch bytes must be an integer from 64 to 4000000/);
+  assert.equal(f.requests.length, before);
+});
+
+test('docs delete requires exactly one selector, forwards ids or filter with the branch, and reports acceptance only', async t => {
+  const f = await fixture(t, (_r, send) => send(202, { message: 'Delete request is accepted' }));
+  const base = ['--collection', 'demo-docs', '--branch', 'main', '--json'];
+  let r = await f.run(['docs', 'delete', '--ids', 'doc-1', 'doc-2', ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  let request = f.requests.at(-1);
+  assert.equal(request.method, 'POST');
+  assert.equal(request.url.pathname, '/projects/dev-project/collections/demo-docs/docs/delete');
+  assert.deepEqual(request.body, { ids: ['doc-1', 'doc-2'], branch: 'main' });
+  assert.deepEqual(r.json.target, { endpoint: f.base, project: 'dev-project', collection: 'demo-docs', branch: 'main' });
+  assert.deepEqual(r.json.data, { message: 'Delete request is accepted', state: 'accepted', searchable: 'not_verified' });
+
+  r = await f.run(['docs', 'delete', '--file', resolve('examples/delete-filter.json'), ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(f.requests.at(-1).body, { filter: { queryString: { query: 'category:developer-tools' } }, branch: 'main' });
+
+  const partitioned = await f.file('delete-ids.json', { ids: ['doc-3'], partitionFilter: { field: 'tenant', in: ['acme'] }, branch: 'main' });
+  r = await f.run(['docs', 'delete', '--file', partitioned, ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(f.requests.at(-1).body, { ids: ['doc-3'], partitionFilter: { field: 'tenant', in: ['acme'] }, branch: 'main' });
+
+  const before = f.requests.length;
+  const selectors = 'Delete requires exactly one selector: --ids, or a --file with ids or filter and an optional partitionFilter.';
+  for (const [args, message] of [
+    [['docs', 'delete'], selectors],
+    [['docs', 'delete', '--ids', 'doc-1', '--file', resolve('examples/delete-filter.json')], selectors],
+    [['docs', 'delete', '--file', await f.file('both.json', { ids: ['doc-1'], filter: { queryString: { query: '*:*' } } })], selectors],
+    [['docs', 'delete', '--file', await f.file('partition-only.json', { partitionFilter: { field: 'tenant', in: ['acme'] } })], selectors],
+    [['docs', 'delete', '--file', await f.file('other-branch.json', { ids: ['doc-1'], branch: 'other' })], 'File branch conflicts with --branch. Use the same explicit branch in both.'],
+    [['docs', 'delete', '--file', await f.file('unknown.json', { ids: ['doc-1'], size: 1 })], 'Delete file accepts ids or filter, partitionFilter and branch. Unknown: size.'],
+    [['docs', 'delete', '--file', await f.file('empty-ids.json', { ids: [] })], 'Invalid delete request. ids must be a nonempty string array and filter must use the query DSL (queryString or bool).'],
+    [['docs', 'delete', '--file', await f.file('blank-id.json', { ids: ['doc-1', ''] })], 'Invalid delete request. ids must be a nonempty string array and filter must use the query DSL (queryString or bool).'],
+    [['docs', 'delete', '--file', await f.file('bad-filter.json', { filter: 'category:x' })], 'Invalid delete request. ids must be a nonempty string array and filter must use the query DSL (queryString or bool).'],
+    [['docs', 'delete', '--ids', ''], 'Delete IDs must be nonempty strings.'],
+  ]) {
+    r = await f.run([...args, ...base]);
+    assert.equal(r.code, 2, `${args.join(' ')}: ${r.stdout}`);
+    assert.equal(r.json.error.message, message, args.join(' '));
+  }
+  for (const [args, message] of [
+    [['docs', 'list', '--ref', 'branch:main', '--file', await f.file('list-size.json', { filter: {}, size: 5 })], /accepts only filter, partitionFilter and fields/],
+    [['docs', 'list', '--ref', 'branch:main', '--file', await f.file('list-bad.json', { fields: 'id' })], /Invalid list request/],
+    [['docs', 'list', '--ref', 'branch:main', '--size', '101'], /Page size must be an integer from 1 to 100/],
+    [['docs', 'list', '--ref', 'main'], /Ref must be branch:NAME, tag:NAME or alias:NAME/],
+  ]) {
+    r = await f.run([...args, '--collection', 'demo-docs', '--json']);
+    assert.equal(r.code, 2, `${args.join(' ')}: ${r.stdout}`);
+    assert.match(r.json.error.message, message);
+  }
+  assert.equal(f.requests.length, before);
+
+  // 202 is the real acceptance status; an empty body there is an unverifiable success.
+  for (const [status, code, error] of [[400, 3, 'API_ERROR'], [404, 3, 'API_ERROR'], [503, 5, 'API_ERROR'], [202, 5, 'INVALID_RESPONSE']]) {
+    const g = await fixture(t, (_r, send) => send(status, {}));
+    r = await g.run(['docs', 'delete', '--ids', 'doc-1', ...base]);
+    assert.equal(r.code, code, `${status}: ${r.stdout}`);
+    assert.equal(r.json.error.code, error);
+    assert.equal(r.json.data?.state, code === 5 ? 'unknown' : undefined);
+    assert.equal(g.requests.length, 1, 'deletes are never retried');
+  }
+});
