@@ -273,6 +273,41 @@ write retries or server mutation receipts. Inspect the selected branch and batch
 line ranges before constructing a deliberate retry. Do not treat accepted counts
 as a readiness check. A hard process kill may prevent any final report.
 
+### Branches, tags and aliases
+
+```sh
+lambdadb branches list --collection cli-demo-docs --json
+lambdadb branches create --collection cli-demo-docs --branch candidate --json
+lambdadb branches create --collection cli-demo-docs --branch replay --source branch:main --as-of 2026-10-01T00:00:00Z --json
+lambdadb tags create --collection cli-demo-docs --tag release-one --source branch:candidate --json
+lambdadb aliases create --collection cli-demo-docs --alias production --target tag:release-one --json
+lambdadb aliases retarget --collection cli-demo-docs --alias production --target branch:main --json
+lambdadb aliases delete --collection cli-demo-docs --alias production --json
+lambdadb tags delete --collection cli-demo-docs --tag release-one --json
+lambdadb branches delete --collection cli-demo-docs --branch candidate --json
+```
+
+Every collection has a `main` branch. `branches create` copies the committed
+state of a branch (`--source branch:NAME`, default `main`); pending writes are
+not copied, and tags or aliases are rejected as sources before any request.
+`tags create` pins the committed snapshot of a branch or tag (`--source
+branch:NAME` or `tag:NAME`, default `main`); an empty head is rejected by the
+server, and accepted but uncommitted writes are not included. `--as-of` takes
+Unix epoch milliseconds or an ISO 8601 time and selects the retained committed
+snapshot at or before it; it applies to branch sources only. Aliases are read
+names for a branch or tag (`--target`), never write targets and never targets
+of other aliases; `retarget` changes what every reader of the alias sees
+immediately. Names use 3–52 letters, digits, underscores or hyphens.
+
+Deletes take effect without confirmation, like every non-`init` command. The
+server refuses to delete `main` (HTTP 400) and refuses to delete a branch or
+tag while an alias references it (HTTP 409): list aliases, then retarget or
+delete them first. Mutations are never retried; an unverifiable outcome exits
+with code 5 and `state: "unknown"`, so list the refs before retrying. Creation
+times are printed as ISO 8601 because the SDK converts them to `Date`. See
+[Branches, tags, and aliases](https://docs.lambdadb.ai/guides/data-versioning/branches-tags-aliases.md)
+for the full semantics.
+
 ### Query and fetch at explicit refs
 
 ```sh

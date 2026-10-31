@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- `branches list|create|delete`, `tags list|create|delete` and
+  `aliases list|create|retarget|delete` manage data versioning refs through the
+  SDK. Sources and targets use the same `kind:NAME` grammar as `--ref`;
+  `--as-of` accepts Unix epoch milliseconds or an ISO 8601 time for branch
+  sources. Alias sources, tag sources for branches, `--as-of` on tag sources and
+  alias-to-alias targets are rejected before any request. Mutations are never
+  retried, report `state`, and use the existing unknown-outcome exit code 5.
+  The HTTP 409 hint now also names a referencing alias as a cause.
+
 ### Changed
 
 - The bundled agent skill is one `SKILL.md` that routes each query task to the

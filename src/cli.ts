@@ -3,7 +3,7 @@ import { Command, CommanderError, Option } from 'commander';
 import { readFileSync } from 'node:fs';
 import { cli } from './command.js';
 import { configPath, integer, name, resolveConfig, saveSettings, settings, type Options } from './config.js';
-import { createInput, parseRef, queryInput, readJson, readJsonl, updateInput } from './input.js';
+import { createInput, parseRef, parseSource, parseTarget, queryInput, readJson, readJsonl, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
 import { definitelyRejected, describeError, InputError, ManagementError, isInputError, parseError } from './errors.js';
 import { Output, type Envelope } from './output.js';
@@ -221,6 +221,163 @@ collections.command('update')
       mutationStarted = true;
       const updated = await client.collection(collection).update(input, { ...options, retries: { strategy: 'none' } });
       result({ ...updated, state: 'updated', searchable: 'not_verified' }, 'Collection updated; query-serving readiness has not been verified.');
+    });
+  });
+
+// Branch, tag and alias commands take refs as kind:NAME like --ref, so one grammar covers reads and writes.
+const branches = program.command('branches').description('List, create and delete writable branches of a collection');
+branches.command('list')
+  .description('List branches with parent, head and fork snapshot metadata')
+  .requiredOption('--collection <name>', 'Collection name')
+  .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
+    const collection = scoped(cmd);
+    const listed = await client.collection(collection).branches.list(options);
+    result(listed, `${listed.branches.length} branch(es).`);
+  }));
+
+branches.command('create')
+  .description('Create a branch from the committed state of another branch; pending writes are not copied')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--branch <name>', 'New branch name')
+  .option('--source <kind:name>', 'branch:NAME to copy (default branch:main); tags and aliases cannot be sources')
+  .option('--as-of <time>', 'Copy the retained committed snapshot at or before this Unix-millisecond or ISO 8601 time')
+  .addHelpText('after', '\nExamples:\n  lambdadb branches create --collection demo-docs --branch candidate --json\n  lambdadb branches create --collection demo-docs --branch replay --source branch:main --as-of 2026-10-01T00:00:00Z --json')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const branch = name(opts.branch, 'Branch name');
+    const source = parseSource(opts.source, opts.asOf, false);
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, branch };
+      mutationStarted = true;
+      const created = await client.collection(collection).branches.create({ branchName: branch, ...(source ? { source } : {}) }, { ...options, retries: { strategy: 'none' } });
+      result({ ...created, state: 'created' }, 'Branch created from committed source state; pending source writes were not copied.');
+    });
+  });
+
+branches.command('delete')
+  .description('Delete a branch and its data; main and alias-referenced branches are rejected by the server')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--branch <name>', 'Existing branch name')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const branch = name(opts.branch, 'Branch name');
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, branch };
+      mutationStarted = true;
+      const deleted = await client.collection(collection).branches.delete(branch, { ...options, retries: { strategy: 'none' } });
+      result({ ...deleted, state: 'deleted' }, 'Branch deleted.');
+    });
+  });
+
+const tags = program.command('tags').description('List, create and delete immutable tags of a collection');
+tags.command('list')
+  .description('List tags with their pinned snapshot metadata')
+  .requiredOption('--collection <name>', 'Collection name')
+  .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
+    const collection = scoped(cmd);
+    const listed = await client.collection(collection).tags.list(options);
+    result(listed, `${listed.tags.length} tag(s).`);
+  }));
+
+tags.command('create')
+  .description('Pin the committed snapshot of a branch or tag as an immutable tag; an empty head is rejected')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--tag <name>', 'New tag name')
+  .option('--source <kind:name>', 'branch:NAME or tag:NAME to pin (default branch:main); aliases cannot be sources')
+  .option('--as-of <time>', 'Pin the retained committed snapshot at or before this Unix-millisecond or ISO 8601 time; branch sources only')
+  .addHelpText('after', '\nExamples:\n  lambdadb tags create --collection demo-docs --tag release-one --json\n  lambdadb tags create --collection demo-docs --tag release-two --source branch:candidate --json')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const tag = name(opts.tag, 'Tag name');
+    const source = parseSource(opts.source, opts.asOf, true);
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, tag };
+      mutationStarted = true;
+      const created = await client.collection(collection).tags.create({ tagName: tag, ...(source ? { source } : {}) }, { ...options, retries: { strategy: 'none' } });
+      result({ ...created, state: 'created' }, 'Tag created from the committed snapshot; accepted but uncommitted writes are not included.');
+    });
+  });
+
+tags.command('delete')
+  .description('Delete a tag; alias-referenced tags are rejected by the server')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--tag <name>', 'Existing tag name')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const tag = name(opts.tag, 'Tag name');
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, tag };
+      mutationStarted = true;
+      const deleted = await client.collection(collection).tags.delete(tag, { ...options, retries: { strategy: 'none' } });
+      result({ ...deleted, state: 'deleted' }, 'Tag deleted.');
+    });
+  });
+
+const aliases = program.command('aliases').description('List, create, retarget and delete read aliases of a collection');
+aliases.command('list')
+  .description('List aliases with their current branch or tag targets')
+  .requiredOption('--collection <name>', 'Collection name')
+  .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
+    const collection = scoped(cmd);
+    const listed = await client.collection(collection).aliases.list(options);
+    result(listed, `${listed.aliases.length} alias(es).`);
+  }));
+
+aliases.command('create')
+  .description('Create a read alias for a branch or tag; aliases are not write targets')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--alias <name>', 'New alias name')
+  .requiredOption('--target <kind:name>', 'branch:NAME or tag:NAME in this collection')
+  .addHelpText('after', '\nExample:\n  lambdadb aliases create --collection demo-docs --alias production --target tag:release-one --json')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const alias = name(opts.alias, 'Alias name');
+    const aliasTarget = parseTarget(opts.target);
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, alias };
+      mutationStarted = true;
+      const created = await client.collection(collection).aliases.create({ aliasName: alias, target: aliasTarget }, { ...options, retries: { strategy: 'none' } });
+      result({ ...created, state: 'created' }, 'Alias created.');
+    });
+  });
+
+aliases.command('retarget')
+  .description('Point an existing alias at another branch or tag; every reader of the alias sees the new target immediately')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--alias <name>', 'Existing alias name')
+  .requiredOption('--target <kind:name>', 'branch:NAME or tag:NAME in this collection')
+  .addHelpText('after', '\nExample:\n  lambdadb aliases retarget --collection demo-docs --alias production --target tag:release-two --json')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const alias = name(opts.alias, 'Alias name');
+    const aliasTarget = parseTarget(opts.target);
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, alias };
+      mutationStarted = true;
+      const retargeted = await client.collection(collection).aliases.retarget(alias, { target: aliasTarget }, { ...options, retries: { strategy: 'none' } });
+      result({ ...retargeted, state: 'retargeted' }, 'Alias retargeted; reads through it now use the new target.');
+    });
+  });
+
+aliases.command('delete')
+  .description('Delete an alias; its target branch or tag is kept')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--alias <name>', 'Existing alias name')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const alias = name(opts.alias, 'Alias name');
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, alias };
+      mutationStarted = true;
+      const deleted = await client.collection(collection).aliases.delete(alias, { ...options, retries: { strategy: 'none' } });
+      result({ ...deleted, state: 'deleted' }, 'Alias deleted; its target was kept.');
     });
   });
 
