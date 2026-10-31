@@ -96,8 +96,10 @@ use different configuration locations and are outside this adapter's scope.
 The installed skill prefers an available, authenticated CLI and keeps the same
 target when using MCP instead. It covers recent-write visibility, pagination,
 result interpretation and error recovery, and routes each query task (query
-string, boolean, vector, sparse vector, hybrid, reranking, facets, limits) to the
-matching docs.lambdadb.ai page instead of restating the query DSL. CLI defaults
+string, boolean, vector, sparse vector, hybrid, reranking, facets, limits) and
+each collection, document and branch/tag/alias task to the matching
+docs.lambdadb.ai page instead of restating the query DSL. It names the CLI
+commands for those tasks and performs writes only when the user asks. CLI defaults
 can differ from an existing MCP entry; check the target before switching. A recent
 empty read is not by itself an error: eligible ordinary writes can be read with
 `consistentRead:true` on a direct branch, separately from committed index checks.

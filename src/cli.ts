@@ -40,7 +40,7 @@ const program = new Command()
   .exitOverride()
   // Parse errors are reported through the CLI envelope; help for a missing subcommand still prints.
   .configureOutput({ outputError: () => {} })
-  .addHelpText('after', '\nExamples:\n  lambdadb init\n  lambdadb doctor --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query.json --json\n\nExit codes: 0 success, 2 input/config error, 3 API/request failure, 4 partial import, 5 unknown write outcome.');
+  .addHelpText('after', '\nExamples:\n  lambdadb init\n  lambdadb doctor --json\n  lambdadb docs list --collection demo-docs --ref branch:main --size 5 --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query.json --json\n  lambdadb branches list --collection demo-docs --json\n\nExit codes: 0 success, 2 input/config error, 3 API/request failure, 4 partial import, 5 unknown write outcome.');
 
 function result(data: unknown, summary: string, exitCode = 0) {
   const envelope: Envelope = { schemaVersion: 1, command: commandName, ok: exitCode === 0, target, data };
