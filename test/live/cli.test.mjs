@@ -30,11 +30,14 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   t.after(async () => {
     const unconfirmed = [];
     for (const name of temporaryCollections) {
-      const deleted = await run(['collections', 'delete', '--collection', name]);
-      const gone = deleted.code === 0 || (deleted.code === 3 && deleted.result.error?.httpStatus === 404)
-        ? await run(['collections', 'describe', '--collection', name]) : deleted;
-      if (gone.code === 3 && gone.result.error?.httpStatus === 404) t.diagnostic(`Cleanup verified by HTTP 404 for temporary collection ${name}.`);
-      else unconfirmed.push(name);
+      // A killed or incomplete CLI process must not stop the remaining removals.
+      try {
+        const deleted = await run(['collections', 'delete', '--collection', name]);
+        const gone = deleted.code === 0 || (deleted.code === 3 && deleted.result.error?.httpStatus === 404)
+          ? await run(['collections', 'describe', '--collection', name]) : deleted;
+        if (gone.code === 3 && gone.result.error?.httpStatus === 404) t.diagnostic(`Cleanup verified by HTTP 404 for temporary collection ${name}.`);
+        else unconfirmed.push(name);
+      } catch { unconfirmed.push(name); }
     }
     await rm(temp, { recursive: true, force: true });
     if (unconfirmed.length) throw new Error(`Cleanup failed or is unconfirmed; inspect temporary collection(s) ${unconfirmed.join(', ')}.`);
