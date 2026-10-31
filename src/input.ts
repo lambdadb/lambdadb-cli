@@ -161,6 +161,8 @@ export function parseTags(values: string[] | undefined): Record<string, string> 
     const separator = value.indexOf('=');
     if (separator <= 0) throw new InputError('Each --tag must be KEY=VALUE.');
     const key = value.slice(0, separator);
+    // The SDK's schema parser rebuilds records on plain objects, where this key would set the prototype and vanish.
+    if (key === '__proto__') throw new InputError('Tag key "__proto__" is not supported.');
     if (Object.hasOwn(tags, key)) throw new InputError(`Tag key ${JSON.stringify(key)} is repeated.`);
     tags[key] = value.slice(separator + 1);
   }

@@ -1259,6 +1259,13 @@ test('docs delete requires exactly one selector, forwards ids or filter with the
   for (const [status, code, error] of [[400, 3, 'API_ERROR'], [404, 3, 'API_ERROR'], [503, 5, 'API_ERROR'], [202, 5, 'INVALID_RESPONSE']]) {
     const g = await fixture(t, (_r, send) => send(status, {}));
     r = await g.run(['docs', 'delete', '--ids', 'doc-1', ...base]);
+    assert.equal(r.code, code, `${status}: ${r.stdout}`);
+    assert.equal(r.json.error.code, error);
+    assert.equal(r.json.data?.state, code === 5 ? 'unknown' : undefined);
+    assert.equal(g.requests.length, 1, 'deletes are never retried');
+  }
+});
+
 test('collection create and update forward description, metadata tags, partitioning and retention; update needs one change', async t => {
   const f = await fixture(t, (req, send) => send(req.method === 'POST' ? 201 : 200, { collection: req.method === 'POST' ? created : metadata }));
   const index = await f.file('index.json', indexConfigs);
@@ -1276,7 +1283,7 @@ test('collection create and update forward description, metadata tags, partition
     [['--description', ''], { description: '' }],
     [['--tag', 'team=search', '--tag', 'owner=a=b'], { tags: { team: 'search', owner: 'a=b' } }],
     // Keys that exist on Object.prototype are ordinary tag keys.
-    [['--tag', 'constructor=search', '--tag', 'toString=x', '--tag', '__proto__=y'], { tags: JSON.parse('{"constructor":"search","toString":"x","__proto__":"y"}') }],
+    [['--tag', 'constructor=search', '--tag', 'toString=x', '--tag', 'hasOwnProperty=z'], { tags: { constructor: 'search', toString: 'x', hasOwnProperty: 'z' } }],
     [['--clear-tags'], { tags: {} }],
     [['--snapshot-retention-days', '31'], { snapshotRetentionInDays: 31 }],
     [['--index-config', index, '--description', 'x', '--clear-tags', '--snapshot-retention-days', '1'], { indexConfigs, description: 'x', tags: {}, snapshotRetentionInDays: 1 }],
@@ -1296,6 +1303,8 @@ test('collection create and update forward description, metadata tags, partition
     [['collections', 'update', '--collection', 'demo-docs', '--tag', 'novalue'], /Each --tag must be KEY=VALUE/],
     [['collections', 'update', '--collection', 'demo-docs', '--tag', '=value'], /Each --tag must be KEY=VALUE/],
     [['collections', 'update', '--collection', 'demo-docs', '--tag', 'a=1', '--tag', 'a=2'], /Tag key "a" is repeated/],
+    [['collections', 'update', '--collection', 'demo-docs', '--tag', 'constructor=1', '--tag', 'constructor=2'], /Tag key "constructor" is repeated/],
+    [['collections', 'update', '--collection', 'demo-docs', '--tag', '__proto__=y'], /Tag key "__proto__" is not supported/],
     [['collections', 'update', '--collection', 'demo-docs', '--snapshot-retention-days', '0'], /Snapshot retention must be an integer from 1 to 31/],
     [['collections', 'create', '--collection', 'demo-docs', '--index-config', index, '--snapshot-retention-days', '32'], /Snapshot retention must be an integer from 1 to 31/],
     [['collections', 'create', '--collection', 'demo-docs', '--index-config', index, '--description', 'x'.repeat(256)], metadataMessage],
