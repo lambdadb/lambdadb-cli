@@ -50,11 +50,27 @@ export function parseRef(value: string): ReadRef {
 }
 
 // Unix epoch milliseconds or an ISO 8601 time, forwarded as the API's millisecond cutoff.
+// Date.parse normalizes impossible calendar values (February 30 becomes March 2) and
+// accepts loose formats, so the ISO form is matched and its fields are checked instead.
+const isoTime = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2}))?$/;
 export function parseAsOf(value: string): number {
-  const milliseconds = /^\d+$/.test(value) ? Number(value) : Date.parse(value);
-  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
-    throw new InputError('--as-of must be Unix epoch milliseconds or an ISO 8601 time.');
+  const invalid = new InputError('--as-of must be Unix epoch milliseconds or an ISO 8601 time.');
+  if (/^\d+$/.test(value)) {
+    const milliseconds = Number(value);
+    if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) throw invalid;
+    return milliseconds;
   }
+  const match = isoTime.exec(value);
+  if (!match) throw invalid;
+  const [year, month, day, hour = '0', minute = '0', second = '0', fraction = '0', zone = 'Z'] = match.slice(1);
+  const fields: [number, number, number, number, number, number, number] = [Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), Number(fraction.padEnd(3, '0'))];
+  const local = new Date(Date.UTC(...fields));
+  const roundTrip = [local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), local.getUTCHours(), local.getUTCMinutes(), local.getUTCSeconds(), local.getUTCMilliseconds()];
+  if (roundTrip.some((field, index) => field !== fields[index])) throw invalid;
+  const offsetMinutes = zone === 'Z' ? 0 : (zone.startsWith('-') ? -1 : 1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(4, 6)));
+  if (Math.abs(offsetMinutes) > 14 * 60) throw invalid;
+  const milliseconds = local.getTime() - offsetMinutes * 60_000;
+  if (milliseconds <= 0) throw invalid;
   return milliseconds;
 }
 
