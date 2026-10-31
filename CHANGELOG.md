@@ -90,6 +90,9 @@
   bridge API key fix.
 - The Homebrew harness supplies the terminal input helper and the packaged agent
   skills that the 0.1.7 init contract tests read.
+- The live smoke suite covers collection settings, `docs list`, the branch, tag
+  and alias lifecycle, `docs update`, `docs delete` and removes its temporary
+  collections through `collections delete`.
 
 ## [0.1.7] - 2026-10-30
 

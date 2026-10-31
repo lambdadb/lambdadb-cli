@@ -6,7 +6,6 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { LambdaDBClient } from '@functional-systems/lambdadb';
 import { Analyzer } from '@functional-systems/lambdadb/models';
 import { observeWithin } from '../helpers/observation.mjs';
 import { rerankWithRetry } from '../helpers/rerank.mjs';
@@ -25,7 +24,22 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   const startedAt = Date.now();
   const progress = message => console.info(`[live +${Math.round((Date.now() - startedAt) / 1000)}s] ${message}`);
   const temp = await mkdtemp(join(tmpdir(), 'lambdadb-live-'));
-  t.after(() => rm(temp, { recursive: true, force: true }));
+  // One hook removes temporary collections through the CLI, which still needs the temp config,
+  // and only then the temp directory. Every removal is verified by HTTP 404 before the hook fails.
+  const temporaryCollections = [];
+  t.after(async () => {
+    const unconfirmed = [];
+    for (const name of temporaryCollections) {
+      const deleted = await run(['collections', 'delete', '--collection', name]);
+      const gone = deleted.code === 0 || (deleted.code === 3 && deleted.result.error?.httpStatus === 404)
+        ? await run(['collections', 'describe', '--collection', name]) : deleted;
+      if (gone.code === 3 && gone.result.error?.httpStatus === 404) t.diagnostic(`Cleanup verified by HTTP 404 for temporary collection ${name}.`);
+      else unconfirmed.push(name);
+    }
+    await rm(temp, { recursive: true, force: true });
+    if (unconfirmed.length) throw new Error(`Cleanup failed or is unconfirmed; inspect temporary collection(s) ${unconfirmed.join(', ')}.`);
+  });
+  const removeAfterwards = name => temporaryCollections.push(name);
   const env = { ...process.env, LAMBDADB_API_KEY_ENV: 'LAMBDADB_API_KEY' };
   delete env.LAMBDADB_DEBUG;
   delete process.env.LAMBDADB_DEBUG;
@@ -56,23 +70,18 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   };
   assert.equal(Object.values(Analyzer).length, 49);
   await writeFile(indexFile, JSON.stringify(indexConfigs));
-  const created = await run(['collections', 'create', '--collection', collection, '--index-config', indexFile]);
-  if (created.code === 0 || created.code === 5) {
-    t.after(async () => {
-      const client = new LambdaDBClient({ baseUrl: endpoint.origin, projectName: process.env.LAMBDADB_PROJECT, projectApiKey: process.env.LAMBDADB_API_KEY });
-      try {
-        await client.collection(collection).delete({ timeoutMs: 15000, retries: { strategy: 'none' } });
-        await assert.rejects(client.collection(collection).get({ timeoutMs: 15000, retries: { strategy: 'none' } }),
-          error => error.statusCode === 404);
-        t.diagnostic(`Cleanup verified by HTTP 404 for temporary collection ${collection}.`);
-      } catch {
-        throw new Error(`Cleanup failed or is unconfirmed; inspect temporary collection ${collection}.`);
-      }
-    });
-  }
-  success(created, 'create');
-  progress(`Created temporary collection ${collection}.`);
+  const created = await run(['collections', 'create', '--collection', collection, '--index-config', indexFile,
+    '--description', 'CLI live smoke', '--tag', 'suite=cli-smoke', '--snapshot-retention-days', '7']);
+  if (created.code === 0 || created.code === 5) removeAfterwards(collection);
+  const createdCollection = success(created, 'create').collection;
+  assert.deepEqual([createdCollection.description, createdCollection.tags, createdCollection.snapshotRetentionInDays], ['CLI live smoke', { suite: 'cli-smoke' }, 7]);
+  progress(`Created temporary collection ${collection} with description, metadata tag and 7-day retention.`);
   const described = success(await run(['collections', 'describe', '--collection', collection]), 'describe analyzers');
+  assert.deepEqual([described.collection.description, described.collection.tags, described.collection.snapshotRetentionInDays], ['CLI live smoke', { suite: 'cli-smoke' }, 7]);
+  const settings = success(await run(['collections', 'update', '--collection', collection, '--description', '', '--tag', 'suite=cli-smoke', '--tag', 'stage=updated', '--snapshot-retention-days', '3']), 'update settings');
+  assert.deepEqual([settings.collection.description, settings.collection.tags, settings.collection.snapshotRetentionInDays], ['', { suite: 'cli-smoke', stage: 'updated' }, 3]);
+  assert.deepEqual(success(await run(['collections', 'update', '--collection', collection, '--clear-tags']), 'clear tags').collection.tags, {});
+  progress('Collection settings update verified: description cleared, tags replaced then cleared, retention lowered.');
   assert.ok(Object.entries(indexConfigs).every(([field, config]) => isDeepStrictEqual(described.collection?.indexConfigs?.[field], config)),
     'Collection metadata must preserve every requested analyzer preset.');
   assert.deepEqual(described.collection.indexConfigs.id, { type: 'keyword' }, 'Described metadata must include the server-managed id field.');
@@ -145,6 +154,54 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     ]);
     progress(`${file}: document count and exact facet buckets verified.`);
   }
+  const idsOnly = join(temp, 'list-ids.json');
+  await writeFile(idsOnly, JSON.stringify({ fields: { include: ['id'] } }));
+  const firstPage = success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--size', '2', '--file', idsOnly]), 'list page 1');
+  assert.equal(firstPage.docs.length, 2);
+  assert.ok(firstPage.nextPageToken, 'A two-document page of three documents must carry a page token.');
+  assert.ok(firstPage.docs.every(hit => Object.keys(hit.doc).join() === 'id'), 'fields.include must limit returned fields.');
+  const secondPage = success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--size', '2', '--file', idsOnly, '--page-token', firstPage.nextPageToken]), 'list page 2');
+  assert.deepEqual([...firstPage.docs, ...secondPage.docs].map(hit => hit.doc.id).sort(), expected.map(row => row.id).sort());
+  assert.deepEqual(success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--size', '1', '--all', '--file', idsOnly]), 'list all').docs.map(hit => hit.doc.id).sort(), expected.map(row => row.id).sort());
+  const filterFile = join(temp, 'list-filter.json');
+  await writeFile(filterFile, JSON.stringify({ filter: { queryString: { query: 'category:database' } }, fields: { include: ['id', 'category'] } }));
+  const filtered = success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--file', filterFile]), 'list filter');
+  assert.deepEqual(filtered.docs.map(hit => hit.doc.id).sort(), ['large-1', 'large-2']);
+  assert.equal(success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--size', '1']), 'list GET route').docs.length, 1);
+  progress('Document listing verified: paging with a token, --all, extended filter/fields selectors and the plain route.');
+
+  const branch = success(await run(['branches', 'create', '--collection', collection, '--branch', 'smoke-branch']), 'branch create');
+  assert.equal(branch.state, 'created');
+  assert.equal(branch.branch.parentBranch?.name, 'main');
+  assert.ok(branch.branch.headSnapshot?.snapshotId, 'A branch from committed main must have a head snapshot.');
+  assert.deepEqual(success(await run(['branches', 'list', '--collection', collection]), 'branch list').branches.map(item => item.name).sort(), ['main', 'smoke-branch']);
+  const tag = success(await run(['tags', 'create', '--collection', collection, '--tag', 'smoke-tag', '--source', 'branch:main']), 'tag create');
+  // The SDK converts snapshot and creation times to Date, printed as ISO 8601.
+  assert.ok(tag.tag.snapshotId && Number.isFinite(Date.parse(tag.tag.snapshotCommittedAt)));
+  assert.deepEqual(success(await run(['tags', 'list', '--collection', collection]), 'tag list').tags.map(item => item.name), ['smoke-tag']);
+  const alias = success(await run(['aliases', 'create', '--collection', collection, '--alias', 'smoke-alias', '--target', 'tag:smoke-tag']), 'alias create');
+  assert.deepEqual([alias.alias.targetKind, alias.alias.targetName], ['TAG', 'smoke-tag']);
+  for (const ref of ['tag:smoke-tag', 'alias:smoke-alias', 'branch:smoke-branch']) {
+    const pinned = success(await run(['docs', 'fetch', '--collection', collection, '--ref', ref, '--ids', ...expected.map(row => row.id)]), `fetch at ${ref}`);
+    assert.deepEqual(pinned.docs.map(hit => hit.doc.id).sort(), expected.map(row => row.id).sort(), `${ref} must expose the committed documents.`);
+  }
+  const branchDoc = join(temp, 'branch-doc.jsonl');
+  await writeFile(branchDoc, JSON.stringify({ id: 'branch-only', text: 'branch only', category: 'database' }) + '\n');
+  assert.equal(success(await run(['docs', 'import', '--collection', collection, '--branch', 'smoke-branch', '--file', branchDoc]), 'branch import').accepted, 1);
+  assert.deepEqual(success(await run(['docs', 'fetch', '--collection', collection, '--ref', 'branch:smoke-branch', '--ids', 'branch-only', '--consistent-read']), 'branch consistent fetch').missingIds, []);
+  assert.deepEqual(success(await run(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', 'branch-only', '--consistent-read']), 'main isolation').missingIds, ['branch-only']);
+  const retargeted = success(await run(['aliases', 'retarget', '--collection', collection, '--alias', 'smoke-alias', '--target', 'branch:smoke-branch']), 'alias retarget');
+  assert.deepEqual([retargeted.alias.targetKind, retargeted.alias.targetName, retargeted.alias.aliasRevision > alias.alias.aliasRevision], ['BRANCH', 'smoke-branch', true]);
+  const referenced = await run(['branches', 'delete', '--collection', collection, '--branch', 'smoke-branch']);
+  assert.deepEqual([referenced.code, referenced.result.error?.httpStatus], [3, 409], 'Deleting an alias-referenced branch must be refused.');
+  assert.equal(success(await run(['aliases', 'delete', '--collection', collection, '--alias', 'smoke-alias']), 'alias delete').state, 'deleted');
+  assert.equal(success(await run(['tags', 'delete', '--collection', collection, '--tag', 'smoke-tag']), 'tag delete').state, 'deleted');
+  assert.equal(success(await run(['branches', 'delete', '--collection', collection, '--branch', 'smoke-branch']), 'branch delete').state, 'deleted');
+  const protectedMain = await run(['branches', 'delete', '--collection', collection, '--branch', 'main']);
+  assert.deepEqual([protectedMain.code, protectedMain.result.error?.httpStatus], [3, 400], 'Deleting main must be refused.');
+  assert.deepEqual(success(await run(['branches', 'list', '--collection', collection]), 'branch list after cleanup').branches.map(item => item.name), ['main']);
+  progress('Refs verified: branch from main, tag pinned, alias created and retargeted, reads at tag/alias/branch, branch isolation under consistent reads, 409 for a referenced branch, 400 for main, and deletions.');
+
   const baseline = JSON.parse(await readFile(resolve('examples/query.json'), 'utf8'));
   for (const variant of ['default', 'null', 'custom', 'cohere']) {
     const rerank = variant === 'null' ? null : {
@@ -178,6 +235,25 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     }
     progress(`Native reranking ${variant}: document envelopes and status metadata verified.`);
   }
+  async function waitForFetch(args, check, stage) {
+    assert.ok(await observeWithin({ timeoutMs: 120000, intervalMs: 2000, poll: async remainingMs => check(success(await run(args, remainingMs), stage)) }),
+      `${stage} did not reach the expected state within 120 seconds.`);
+    progress(`${stage} verified.`);
+  }
+  const patchFile = join(temp, 'updates.jsonl');
+  await writeFile(patchFile, JSON.stringify({ id: 'bulk-1', note: 'updated by docs update' }) + '\n');
+  const patched = success(await run(['docs', 'update', '--collection', collection, '--branch', 'main', '--file', patchFile]), 'docs update');
+  assert.deepEqual([patched.state, patched.accepted, patched.searchable], ['accepted', 1, 'not_verified']);
+  await waitForFetch(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', 'bulk-1', '--consistent-read'],
+    data => data.docs[0]?.doc.note === 'updated by docs update' && data.docs[0].doc.category === bulkRow.category && data.docs[0].doc.text === bulkRow.text, 'merged update');
+  assert.equal(success(await run(['docs', 'delete', '--collection', collection, '--branch', 'main', '--ids', 'bulk-1']), 'delete by id').state, 'accepted');
+  await waitForFetch(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', 'bulk-1', '--consistent-read'],
+    data => isDeepStrictEqual(data.missingIds, ['bulk-1']), 'delete by id');
+  const deleteFilter = join(temp, 'delete-filter.json');
+  await writeFile(deleteFilter, JSON.stringify({ filter: { queryString: { query: 'category:database' } } }));
+  assert.equal(success(await run(['docs', 'delete', '--collection', collection, '--branch', 'main', '--file', deleteFilter]), 'delete by filter').state, 'accepted');
+  await waitForFetch(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', 'large-1', 'large-2', '--consistent-read'],
+    data => isDeepStrictEqual(data.missingIds, ['large-1', 'large-2']), 'delete by filter');
   for (const variant of ['openai', 'openai-legacy', 'cohere-sources']) {
     const legacy = variant === 'openai-legacy';
     const nativeCollection = `cli-native-${randomUUID()}`;
@@ -188,16 +264,7 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     const configFile = join(temp, `native-${variant}.json`);
     await writeFile(configFile, JSON.stringify(nativeConfigs));
     const nativeCreated = await run(['collections', 'create', '--collection', nativeCollection, '--index-config', configFile]);
-    if (nativeCreated.code === 0 || nativeCreated.code === 5) {
-      t.after(async () => {
-        const client = new LambdaDBClient({ baseUrl: endpoint.origin, projectName: process.env.LAMBDADB_PROJECT, projectApiKey: process.env.LAMBDADB_API_KEY });
-        try {
-          await client.collection(nativeCollection).delete({ timeoutMs: 15000, retries: { strategy: 'none' } });
-          await assert.rejects(client.collection(nativeCollection).get({ timeoutMs: 15000, retries: { strategy: 'none' } }), error => error.statusCode === 404);
-          t.diagnostic(`Cleanup verified by HTTP 404 for temporary collection ${nativeCollection}.`);
-        } catch { throw new Error(`Cleanup failed or is unconfirmed; inspect temporary collection ${nativeCollection}.`); }
-      });
-    }
+    if (nativeCreated.code === 0 || nativeCreated.code === 5) removeAfterwards(nativeCollection);
     success(nativeCreated, 'native create');
     const updated = success(await run(['collections', 'update', '--collection', nativeCollection, '--index-config', configFile]), 'native update');
     assert.equal(updated.state, 'updated');
@@ -274,5 +341,5 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
     }
     progress(`Native embedding ${variant}: create/update, actual embeddings, ordinary and queryInputs retrieval, Bayesian budgets, default/explicit rerank and ${invalid.length} HTTP 400 rejections passed.`);
   }
-  t.diagnostic('Doctor, all 49 analyzer preset metadata, id round trip, ordinary/bulk acceptance, committed query/fetch including the 1000 limits, facets, native reranking default/null/custom/Cohere and OpenAI/legacy/Cohere native embeddings passed. This is a bounded development sample, not a production readiness or search-quality guarantee.');
+  t.diagnostic('Doctor, collection settings, all 49 analyzer preset metadata, id round trip, ordinary/bulk acceptance, committed query/fetch including the 1000 limits, facets, document listing, branch/tag/alias lifecycle, partial update and deletes under consistent reads, native reranking default/null/custom/Cohere, OpenAI/legacy/Cohere native embeddings and CLI collection deletion passed. This is a bounded development sample, not a production readiness or search-quality guarantee.');
 });
