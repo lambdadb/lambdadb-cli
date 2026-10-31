@@ -201,7 +201,7 @@ verification.
 | [Setup and configuration](docs/setup.md) | First use, project limits, non-interactive setup, safe reruns, OS stores, environment variables and precedence |
 | [Coding agent setup](docs/agents.md) | MCP/skill paths, agent overrides, credential forwarding and reload steps |
 | [Account, projects and usage](docs/account.md) | Explicit management commands, Free quotas, paid estimates, timeouts and session recovery |
-| [Data commands and output](docs/data.md) | First reads, sample writes, collections, embeddings, reranking, imports, facets, JSON and exit codes |
+| [Data commands and output](docs/data.md) | First reads, sample writes, collections and their settings, embeddings, reranking, imports, updates and deletes, branches/tags/aliases, listing and fetching, facets, JSON and exit codes |
 
 ## Development and boundaries
 
@@ -261,12 +261,13 @@ methods and their limits.
 
 ### Scope and live validation
 
-The CLI supports account login and Org/project setup, plus collection and document
-commands for the selected LambdaDB project. Billing, membership management and
-account deletion stay in Console.
-Branch/Tag/Alias management, remote MCP, Git collection, chunking, code-search
-workflows, data deletion and plugins are outside this CLI's current scope. Reads
-can select existing refs. This change does not modify the SDK or MCP package.
+The CLI supports account login and Org/project setup, plus collection, document
+and data-versioning commands (branches, tags and aliases) for the selected
+LambdaDB project. Billing, membership management and account deletion stay in
+Console. Remote MCP, Git collection, chunking, code-search workflows and plugins
+are outside this CLI's current scope. The CLI does not modify the SDK or MCP
+package; `lambdadb mcp` launches the pinned MCP package with forwarded
+credentials.
 
 Live verification requires an explicitly designated development project, endpoint
 and project key. Do not discover or borrow credentials from another repository.
@@ -275,7 +276,10 @@ Use `npm run test:live` with the explicit opt-in settings in
 import, query/fetch up to 1000 results/IDs, the server-managed `id` round trip,
 OpenAI and Cohere native embeddings, Bayesian search, and TypeSafe and Cohere
 reranking in temporary Collections, then uses the SDK to delete them and verify
-their absence. The normal test suite and PR CI never run it; the publishing
+their absence. Branch, tag and alias commands, `docs list`, `docs update`,
+`docs delete`, `collections delete` and collection settings were verified
+manually against a development project when they were added and are not yet in
+that suite. The normal test suite and PR CI never run it; the publishing
 workflow runs it against dedicated smoke projects before every publication and
 release verification
 ([RELEASING.md](RELEASING.md#deployed-live-smoke)).

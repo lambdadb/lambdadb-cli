@@ -14,14 +14,16 @@ lambdadb collections list --json
 lambdadb collections describe --collection YOUR_COLLECTION --json
 ```
 
-Save `{"size":5}` in `first-query.json`, then read up to five documents:
+Then read up to five documents at the intended ref:
 
 ```sh
-lambdadb query --collection YOUR_COLLECTION --ref branch:main --file first-query.json --json
+lambdadb docs list --collection YOUR_COLLECTION --ref branch:main --size 5 --json
 ```
 
-Omitting `query` reads sample documents. Inspect the index configuration before
-searching an actual indexed field.
+A query file with `query` omitted (for example `{"size":5}`) reads a sample the
+same way through `lambdadb query`. Inspect the index configuration before
+searching an actual indexed field, and list refs with `branches list`,
+`tags list` or `aliases list` when `main` is not the intended target.
 
 An empty project needs deliberately supplied data outside init. Empty results
 are not evidence of indexing failure or readiness.
@@ -46,9 +48,11 @@ lambdadb collections describe --collection cli-demo-docs
 lambdadb docs import --collection cli-demo-docs --branch main --file examples/documents.jsonl
 lambdadb query --collection cli-demo-docs --ref branch:main --file examples/query.json
 lambdadb docs fetch --collection cli-demo-docs --ref branch:main --ids doc-1 doc-2 doc-3
+lambdadb collections delete --collection cli-demo-docs
 ```
 
-Collection creation returns `state: "created"`. Import returns accepted counts,
+The last line removes the sample collection again; it is permanent and runs
+without confirmation. Collection creation returns `state: "created"`. Import returns accepted counts,
 not committed or searchable counts. Both explicitly report
 `searchable: "not_verified"`. The sample query uses `consistentRead: false`.
 The first query/fetch can therefore be empty or encounter a transient loading

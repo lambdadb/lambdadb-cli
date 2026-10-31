@@ -1,6 +1,6 @@
 ---
 name: lambdadb
-description: Inspect and search an existing LambdaDB project through the LambdaDB CLI or MCP server. Use for LambdaDB collections, branches, tags and aliases, document reads, query request JSON (queryString, bool, knn, sparse vector, hybrid fusion, reranking, facets), consistent reads after writes, and CLI/MCP error recovery.
+description: Work with a LambdaDB project through the LambdaDB CLI or MCP server. Use for inspecting and searching collections, query request JSON (queryString, bool, knn, sparse vector, hybrid fusion, reranking, facets), listing and fetching documents, consistent reads after writes, CLI/MCP error recovery, and, when the user asks, creating, updating or deleting collections, importing, updating or deleting documents, and managing branches, tags and aliases.
 ---
 
 # LambdaDB
@@ -39,10 +39,10 @@ branches, tags and aliases.
    and source text field.
 3. Read a small sample at the intended ref: CLI `docs list --ref branch:main
    --size 5`, or a query with `query` omitted such as `{"size": 5}`. CLI reads
-   require `--ref`; MCP reads should pass `ref` explicitly. Use `branch:main` for a first sample only when no other ref is
-   intended. Result entries wrap document fields under `doc`, so the example ID
-   is `docs[0].doc.id`. Keep scores and response metadata separate from document
-   fields.
+   require `--ref`; MCP reads should pass `ref` explicitly. Use `branch:main`
+   for a first sample only when no other ref is intended. Result entries wrap
+   document fields under `doc`, so the example ID is `docs[0].doc.id`. Keep
+   scores and response metadata separate from document fields.
 4. Build the query from the actual index types and observed document structure:
    analyzed `text`, literal `keyword`, or an existing vector field. Do not invent
    vector dimensions, embedding providers, field names or server capabilities.
@@ -140,8 +140,11 @@ configuration.
 ## Read after a recent write
 
 Write acceptance, pending-write visibility and committed search visibility are
-different observations. A successful import or `doctor` does not prove search
-readiness, and an empty result alone is not an error or proof of indexing delay.
+different observations. A successful import, `docs update`, `docs delete` or
+`doctor` does not prove search readiness (the CLI reports those writes as
+`accepted` with `searchable: "not_verified"`), and an empty result alone is not
+an error or proof of indexing delay. A deleted document can stay visible until
+the write commits.
 
 - Confirm the endpoint/project, collection, branch and expected document IDs
   before retrying.

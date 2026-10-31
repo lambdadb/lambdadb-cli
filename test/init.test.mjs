@@ -742,7 +742,8 @@ test('npx runs suggest CLI commands that work without a global install', async t
   assert.equal(json.code, 0, json.stderr);
   const reads = JSON.parse(json.stdout).data.nextSteps.find(step => step.startsWith('CLI reads:'));
   assert.ok(reads.includes(`run ${command} collections list --json`), reads);
-  assert.ok(!/(^|[^-])lambdadb (collections|query)/.test(reads), reads);
+  assert.ok(reads.includes(`${command} docs list --collection NAME --ref branch:main --size 5 --json`), reads);
+  assert.ok(!/(^|[^-])lambdadb (collections|docs|query)/.test(reads), reads);
   const result = await f.run(['init', '--agents', 'none'], { npm_command: 'exec' }, [['Connection', enter]]);
   assert.equal(result.code, 0, result.stderr);
   assert.ok(result.stdout.includes(`${command} collections list --json`), result.stdout);

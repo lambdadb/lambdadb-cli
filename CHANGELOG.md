@@ -31,6 +31,11 @@
 
 ### Changed
 
+- First-read guidance in `init` output, `--help` examples and the data guide uses
+  `docs list --size 5` instead of a saved `{"size":5}` query file. The skill
+  description now names the write and data-versioning tasks it covers, and the
+  README scope statement no longer lists branch, tag, alias management or data
+  deletion as unsupported.
 - The bundled agent skill is one `SKILL.md` that routes each query task to the
   matching docs.lambdadb.ai page (query string, boolean, vector, sparse vector,
   hybrid, reranking, sort, facets, limits, index types, native embeddings) and
