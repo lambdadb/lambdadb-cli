@@ -150,19 +150,51 @@ export function deleteInput(ids: string[] | undefined, body: Record<string, unkn
 }
 
 const invalidIndexConfig = 'Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract: vector dimensions 64–4096, similarity cosine or euclidean, and exactly one embedding sourceField or sources.';
+const invalidMetadata = 'Invalid collection settings. description takes at most 255 characters; up to five tags with keys of 1–63 letters, digits, dots, underscores or hyphens and nonblank values of at most 127 characters without ":", "#" or ","; snapshot retention is 1–31 days; partitionConfig needs fieldName, dataType keyword and numPartitions.';
 
-export function createInput(collectionName: string, indexConfigs: Record<string, unknown>): CreateCollectionInput {
-  const input = { collectionName, indexConfigs } as CreateCollectionInput;
-  try { createCollectionRequestToJSON(input); }
+// Repeated --tag KEY=VALUE flags become the metadata tag map; the server validates key and value rules.
+export function parseTags(values: string[] | undefined): Record<string, string> | undefined {
+  if (!values) return undefined;
+  // A prototype-free map keeps keys such as constructor or __proto__ ordinary data.
+  const tags: Record<string, string> = Object.create(null);
+  for (const value of values) {
+    const separator = value.indexOf('=');
+    if (separator <= 0) throw new InputError('Each --tag must be KEY=VALUE.');
+    const key = value.slice(0, separator);
+    // The SDK's schema parser rebuilds records on plain objects, where this key would set the prototype and vanish.
+    if (key === '__proto__') throw new InputError('Tag key "__proto__" is not supported.');
+    if (Object.hasOwn(tags, key)) throw new InputError(`Tag key ${JSON.stringify(key)} is repeated.`);
+    tags[key] = value.slice(separator + 1);
+  }
+  return tags;
+}
+
+export type CollectionSettings = { description?: string; tags?: Record<string, string>; snapshotRetentionInDays?: number };
+
+export function createInput(collectionName: string, indexConfigs: Record<string, unknown>, settings: CollectionSettings & { partitionConfig?: Record<string, unknown> } = {}): CreateCollectionInput {
+  // Validate the index map alone first so its message stays specific.
+  try { createCollectionRequestToJSON({ collectionName, indexConfigs } as CreateCollectionInput); }
   catch { throw new InputError(invalidIndexConfig); }
+  const input = { collectionName, indexConfigs, ...defined(settings) } as CreateCollectionInput;
+  try { createCollectionRequestToJSON(input); }
+  catch { throw new InputError(invalidMetadata); }
   return input;
 }
 
-export function updateInput(indexConfigs: Record<string, unknown>): UpdateCollectionInput {
-  const input = { indexConfigs } as UpdateCollectionInput;
-  try { updateCollectionRequestBodyToJSON(input); }
-  catch { throw new InputError(invalidIndexConfig); }
-  return input;
+export function updateInput(indexConfigs: Record<string, unknown> | undefined, settings: CollectionSettings = {}): UpdateCollectionInput {
+  if (indexConfigs !== undefined) {
+    try { updateCollectionRequestBodyToJSON({ indexConfigs } as UpdateCollectionInput); }
+    catch { throw new InputError(invalidIndexConfig); }
+  }
+  const input = { ...(indexConfigs === undefined ? {} : { indexConfigs }), ...defined(settings) };
+  if (Object.keys(input).length === 0) throw new InputError('Update needs at least one change: --index-config, --description, --tag, --clear-tags or --snapshot-retention-days.');
+  try { updateCollectionRequestBodyToJSON(input as UpdateCollectionInput); }
+  catch { throw new InputError(invalidMetadata); }
+  return input as UpdateCollectionInput;
+}
+
+function defined<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
 export type DocumentRow = { line: number; doc: Record<string, unknown>; bytes: number };

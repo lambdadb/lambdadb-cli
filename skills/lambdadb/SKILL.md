@@ -74,14 +74,15 @@ retrying it unchanged.
 | Query limits and large results | https://docs.lambdadb.ai/guides/search/limits.md |
 
 The same rule applies to collections, refs and writes, which the CLI
-(`collections create`, `collections update`, `branches`, `tags`, `aliases`,
-`docs import`, `docs update`, `docs delete`, `docs list`, `docs fetch`) and the
-MCP write tools can perform when the user asks:
+(`collections create`, `collections update`, `collections delete`, `branches`,
+`tags`, `aliases`, `docs import`, `docs update`, `docs delete`, `docs list`,
+`docs fetch`) and the MCP write tools can perform when the user asks:
 
 | Task | Read |
 | --- | --- |
 | Index types and analyzers for an index configuration | https://docs.lambdadb.ai/guides/collections/index-types.md and https://docs.lambdadb.ai/guides/collections/choose-text-analyzers.md |
-| Create a collection: index config, tags, partitioning, retention | https://docs.lambdadb.ai/guides/collections/create-a-collection.md |
+| Create a collection: index config, description, metadata tags, partitioning, retention (`collections create` flags) | https://docs.lambdadb.ai/guides/collections/create-a-collection.md |
+| Change or delete a collection: added index fields, description, tags, retention (`collections update`, `collections delete`) | https://docs.lambdadb.ai/guides/collections/manage-collections.md |
 | Native embedding fields: providers, models, dimensions, write rules | https://docs.lambdadb.ai/guides/collections/native-embeddings.md |
 | What a branch, tag or alias ref means, how reads select one, and creating, pinning, retargeting or deleting refs (`branches`, `tags`, `aliases` commands take `--source`/`--target` as `kind:NAME`) | https://docs.lambdadb.ai/guides/data-versioning/branches-tags-aliases.md |
 | Upsert documents (`docs import --mode upsert`, MCP upsert) | https://docs.lambdadb.ai/guides/documents/upsert-data.md |

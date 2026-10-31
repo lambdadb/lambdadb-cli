@@ -3,7 +3,7 @@ import { Command, CommanderError, Option } from 'commander';
 import { readFileSync } from 'node:fs';
 import { cli } from './command.js';
 import { configPath, integer, name, resolveConfig, saveSettings, settings, type Options } from './config.js';
-import { createInput, deleteInput, listSelectors, parseRef, parseSource, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
+import { createInput, deleteInput, listSelectors, parseRef, parseSource, parseTags, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
 import { definitelyRejected, describeError, InputError, ManagementError, isInputError, parseError } from './errors.js';
 import { Output, type Envelope } from './output.js';
@@ -164,7 +164,8 @@ program.command('doctor')
     result(await checkConnection({ client, options }), 'Connection verified using the project collection-list API.');
   }));
 
-const collections = program.command('collections').description('List, describe, create and update collections');
+const collections = program.command('collections').description('List, describe, create, update and delete collections');
+const collectTags = (value: string, previous: string[] = []) => [...previous, value];
 collections.command('list')
   .description('Fetch one page by default, or use the SDK iterator for all pages')
   .option('--size <count>', 'Page size, 1–100', '20')
@@ -194,12 +195,20 @@ collections.command('describe')
   }));
 
 collections.command('create')
-  .description('Create a collection from a JSON field-to-index map')
+  .description('Create a collection from a JSON field-to-index map, with optional description, metadata tags, partitioning and retention')
   .requiredOption('--collection <name>', 'New collection name')
   .requiredOption('--index-config <path>', 'JSON field-to-index map; native embedding (sourceField or ordered sources) or legacy managedEmbedding:true supported')
-  .addHelpText('after', '\nExamples:\n  lambdadb collections create --collection demo-docs --index-config examples/index-config.json\n  lambdadb collections create --collection native-docs --index-config examples/index-config-native.json')
+  .option('--description <text>', 'Description, at most 255 characters')
+  .option('--tag <key=value>', 'Metadata tag; repeat for up to five (not a data-versioning tag)', collectTags)
+  .option('--partition-config <path>', 'JSON object with fieldName, dataType "keyword" and numPartitions; cannot be changed later')
+  .option('--snapshot-retention-days <days>', 'Snapshot retention, 1–31 (server default 30)')
+  .addHelpText('after', '\nExamples:\n  lambdadb collections create --collection demo-docs --index-config examples/index-config.json\n  lambdadb collections create --collection native-docs --index-config examples/index-config-native.json\n  lambdadb collections create --collection demo-docs --index-config examples/index-config.json --description "Support articles" --tag team=search --snapshot-retention-days 7 --json')
   .action(async (opts, cmd: Command) => {
-    const input = createInput(name(opts.collection, 'Collection name'), await readJson(opts.indexConfig));
+    const input = createInput(name(opts.collection, 'Collection name'), await readJson(opts.indexConfig), {
+      description: opts.description, tags: parseTags(opts.tag),
+      partitionConfig: opts.partitionConfig ? await readJson(opts.partitionConfig) : undefined,
+      snapshotRetentionInDays: opts.snapshotRetentionDays === undefined ? undefined : integer(opts.snapshotRetentionDays, 'Snapshot retention', 1, 31),
+    });
     await connected(cmd, async ({ client, options }) => {
       scoped(cmd);
       mutationStarted = true;
@@ -209,13 +218,21 @@ collections.command('create')
   });
 
 collections.command('update')
-  .description('Update collection index configuration from a JSON field-to-index map')
+  .description('Update a collection: add index fields from a JSON map, or change description, metadata tags or retention')
   .requiredOption('--collection <name>', 'Existing collection name')
-  .requiredOption('--index-config <path>', 'JSON field-to-index map; native dimensions/similarity go inside embedding')
-  .addHelpText('after', '\nExample:\n  lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json\n\nThe server validates permitted index changes. Older servers require managedEmbedding:true.\nDescribe output includes the server-managed id keyword field; send it back unchanged or omit it.')
+  .option('--index-config <path>', 'Full JSON field-to-index map with existing fields kept and new ones added; native dimensions/similarity go inside embedding')
+  .option('--description <text>', 'New description, at most 255 characters; "" clears it')
+  .option('--tag <key=value>', 'Replace all metadata tags with the repeated values, up to five', collectTags)
+  .option('--clear-tags', 'Replace all metadata tags with an empty map')
+  .option('--snapshot-retention-days <days>', 'Snapshot retention, 1–31; lowering it can shorten available history')
+  .addHelpText('after', '\nExamples:\n  lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json\n  lambdadb collections update --collection demo-docs --description "Support articles" --tag team=search --json\n  lambdadb collections update --collection demo-docs --clear-tags --snapshot-retention-days 7 --json\n\nThe server validates permitted index changes: existing fields cannot be removed or redefined. Older servers require managedEmbedding:true.\nDescribe output includes the server-managed id keyword field; send it back unchanged or omit it. Tags replace the whole map, never merge.')
   .action(async (opts, cmd: Command) => {
     name(opts.collection, 'Collection name');
-    const input = updateInput(await readJson(opts.indexConfig));
+    if (opts.tag && opts.clearTags) throw new InputError('Use either --tag or --clear-tags, not both.');
+    const input = updateInput(opts.indexConfig ? await readJson(opts.indexConfig) : undefined, {
+      description: opts.description, tags: opts.clearTags ? {} : parseTags(opts.tag),
+      snapshotRetentionInDays: opts.snapshotRetentionDays === undefined ? undefined : integer(opts.snapshotRetentionDays, 'Snapshot retention', 1, 31),
+    });
     await connected(cmd, async ({ client, options }) => {
       const collection = scoped(cmd);
       mutationStarted = true;
@@ -223,6 +240,17 @@ collections.command('update')
       result({ ...updated, state: 'updated', searchable: 'not_verified' }, 'Collection updated; query-serving readiness has not been verified.');
     });
   });
+
+collections.command('delete')
+  .description('Permanently delete a collection with all documents, branches, tags and aliases; the name is reusable at once')
+  .requiredOption('--collection <name>', 'Existing collection name')
+  .addHelpText('after', '\nThis cannot be undone and runs without confirmation. Use docs delete to remove only some documents.')
+  .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
+    const collection = scoped(cmd);
+    mutationStarted = true;
+    const deleted = await client.collection(collection).delete({ ...options, retries: { strategy: 'none' } });
+    result({ ...deleted, state: 'deleted' }, 'Collection deleted; physical cleanup can continue after this response.');
+  }));
 
 // Branch, tag and alias commands take refs as kind:NAME like --ref, so one grammar covers reads and writes.
 const branches = program.command('branches').description('List, create and delete writable branches of a collection');

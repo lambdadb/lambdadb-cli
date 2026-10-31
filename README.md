@@ -139,7 +139,7 @@ Only `init` prompts for choices. All other commands require explicit arguments;
 | Read usage and estimates | `lambdadb usage` | [Free quotas / Pay-As-You-Go](docs/account.md#usage-and-cost-estimates) |
 | Save connection settings | `lambdadb configure` | [Configuration](docs/setup.md#settings-and-precedence) |
 | Verify project access | `lambdadb doctor` | [What doctor checks](docs/setup.md#check-the-connection-with-doctor) |
-| List, inspect or configure collections | `lambdadb collections list` / `describe` / `create` / `update` | [Collections](docs/data.md#collections) |
+| List, inspect, configure or delete collections | `lambdadb collections list` / `describe` / `create` / `update` / `delete` | [Collections](docs/data.md#collections) |
 | Manage branches, tags and aliases | `lambdadb branches` / `tags` / `aliases` | [Data versioning](docs/data.md#branches-tags-and-aliases) |
 | Import documents | `lambdadb docs import` | [JSONL imports and outcomes](docs/data.md#import-jsonl) |
 | Update or delete documents | `lambdadb docs update` / `docs delete` | [Partial updates and deletes](docs/data.md#update-and-delete-documents) |

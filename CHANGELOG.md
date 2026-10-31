@@ -13,6 +13,13 @@
   `--file` with `ids` or `filter` plus an optional `partitionFilter`, exactly one
   selector, reporting acceptance only. New `examples/list-filter.json`,
   `examples/delete-filter.json` and `examples/updates.jsonl`.
+- `collections delete` permanently removes a collection. `collections create`
+  accepts `--description`, repeated `--tag KEY=VALUE` metadata tags,
+  `--partition-config` and `--snapshot-retention-days`; `collections update`
+  takes any combination of `--index-config`, `--description` (`""` clears),
+  `--tag` or `--clear-tags` (replacing the whole tag map) and
+  `--snapshot-retention-days`, and no longer requires an index map. Settings
+  are validated against the SDK contract before any request.
 - `branches list|create|delete`, `tags list|create|delete` and
   `aliases list|create|retarget|delete` manage data versioning refs through the
   SDK. Sources and targets use the same `kind:NAME` grammar as `--ref`;
