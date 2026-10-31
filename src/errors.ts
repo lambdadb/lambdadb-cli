@@ -66,7 +66,7 @@ export function describeError(error: unknown): SafeError {
     const hint = status === 401 || status === 403
       ? 'Verify the selected API-key environment variable and its access to this project.'
       : status === 404 ? 'Verify endpoint, project, collection and ref names.'
-      : status === 409 ? 'Inspect the existing resource before choosing a different name.'
+      : status === 409 ? 'A resource with this name exists, or an alias still references this branch or tag. Inspect before retrying.'
       : status === 429 ? 'Reduce load or retry later; a consistent-read overlay may exceed its limit.'
       : status === 413 ? 'Reduce the batch size or use bulk mode where supported.'
       : status >= 500 ? 'Check service availability. Inspect writes before retrying an uncertain mutation.'

@@ -1,6 +1,6 @@
 import { open } from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
-import type { CreateCollectionInput, QueryCollectionInput, ReadRef, UpdateCollectionInput } from '@functional-systems/lambdadb';
+import type { AliasTarget, BranchSource, CreateCollectionInput, QueryCollectionInput, ReadRef, RefSource, UpdateCollectionInput } from '@functional-systems/lambdadb';
 import { createCollectionRequestToJSON, queryCollectionRequestBodyToJSON, updateCollectionRequestBodyToJSON } from '@functional-systems/lambdadb/models/operations';
 import { InputError } from './errors.js';
 import { name } from './config.js';
@@ -47,6 +47,50 @@ export function parseRef(value: string): ReadRef {
     throw new InputError('Ref must be branch:NAME, tag:NAME or alias:NAME.');
   }
   return { kind: kind as ReadRef['kind'], name: name(refName, 'Ref name') };
+}
+
+// Unix epoch milliseconds or an ISO 8601 time, forwarded as the API's millisecond cutoff.
+// Date.parse normalizes impossible calendar values (February 30 becomes March 2) and
+// accepts loose formats, so the ISO form is matched and its fields are checked instead.
+const isoTime = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-](?:0\d|1[0-4]):[0-5]\d))?$/;
+export function parseAsOf(value: string): number {
+  const invalid = new InputError('--as-of must be Unix epoch milliseconds or an ISO 8601 time.');
+  if (/^\d+$/.test(value)) {
+    const milliseconds = Number(value);
+    if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) throw invalid;
+    return milliseconds;
+  }
+  const match = isoTime.exec(value);
+  if (!match) throw invalid;
+  const [year, month, day, hour = '0', minute = '0', second = '0', fraction = '0', zone = 'Z'] = match.slice(1);
+  const fields: [number, number, number, number, number, number, number] = [Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), Number(fraction.padEnd(3, '0'))];
+  const local = new Date(Date.UTC(...fields));
+  const roundTrip = [local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), local.getUTCHours(), local.getUTCMinutes(), local.getUTCSeconds(), local.getUTCMilliseconds()];
+  if (roundTrip.some((field, index) => field !== fields[index])) throw invalid;
+  // The pattern bounds the offset to ±14:59 with two-digit minutes below 60.
+  const offsetMinutes = zone === 'Z' ? 0 : (zone.startsWith('-') ? -1 : 1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(4, 6)));
+  const milliseconds = local.getTime() - offsetMinutes * 60_000;
+  if (milliseconds <= 0) throw invalid;
+  return milliseconds;
+}
+
+// A branch creation copies another branch; a tag pins a branch or a tag. Aliases are never sources.
+export function parseSource(value: string | undefined, asOf: string | undefined, allowTag: false): BranchSource | undefined;
+export function parseSource(value: string | undefined, asOf: string | undefined, allowTag: true): RefSource | undefined;
+export function parseSource(value: string | undefined, asOf: string | undefined, allowTag: boolean): RefSource | undefined {
+  const accepted = allowTag ? 'branch:NAME or tag:NAME; aliases cannot be tag sources' : 'branch:NAME; tags and aliases cannot be branch sources';
+  const ref = value === undefined ? undefined : parseRef(value);
+  if (ref && (ref.kind === 'alias' || (ref.kind === 'tag' && !allowTag))) throw new InputError(`Source must be ${accepted}.`);
+  if (asOf === undefined) return ref as RefSource | undefined;
+  if (ref && ref.kind !== 'branch') throw new InputError('--as-of requires a branch source.');
+  // Omitted source means main, so an as-of alone pins main's history.
+  return { kind: 'branch', name: ref?.name ?? 'main', asOf: parseAsOf(asOf) } satisfies BranchSource;
+}
+
+export function parseTarget(value: string): AliasTarget {
+  const ref = parseRef(value);
+  if (ref.kind === 'alias') throw new InputError('Alias target must be branch:NAME or tag:NAME.');
+  return ref;
 }
 
 export function queryInput(body: Record<string, unknown>, ref: ReadRef): QueryCollectionInput {

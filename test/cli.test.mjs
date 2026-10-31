@@ -1006,3 +1006,121 @@ test('fetch forwards up to 1000 IDs and rejects more before HTTP', async t => {
   assert.equal(f.requests.length, 1);
   assert.match((await f.run(['docs', 'fetch', '--help'])).stdout, /up to 1000 IDs/);
 });
+
+const snapshot = { snapshotId: 'snap-1', snapshotCommittedAt: 1789689600000 };
+const branchDetails = { name: 'candidate', parentBranch: { branchId: 'b-main', name: 'main' }, headSnapshot: snapshot, parentSnapshot: snapshot, createdAt: 1789689600000 };
+const tagDetails = { ...snapshot, name: 'release-one', createdAt: 1789689600000 };
+const aliasDetails = { aliasId: 'a-1', aliasName: 'production', targetKind: 'TAG', targetName: 'release-one', targetId: 't-1', aliasRevision: 2, dangling: false, createdAt: 1789689600000 };
+
+test('branch, tag and alias commands forward kind:NAME refs, as-of cutoffs and names to the versioning API', async t => {
+  const f = await fixture(t, (r, send) => {
+    const path = r.url.pathname.replace('/projects/dev-project/collections/demo-docs', '');
+    if (r.method === 'DELETE') return send(200, { message: 'deleted' });
+    if (path === '/branches') return send(r.method === 'POST' ? 201 : 200, r.method === 'POST' ? { branch: branchDetails } : { branches: [branchDetails] });
+    if (path === '/tags') return send(r.method === 'POST' ? 201 : 200, r.method === 'POST' ? { tag: tagDetails } : { tags: [tagDetails] });
+    if (path === '/aliases') return send(r.method === 'POST' ? 201 : 200, r.method === 'POST' ? { alias: aliasDetails } : { aliases: [aliasDetails] });
+    if (path === '/aliases/production' && r.method === 'PATCH') return send(200, { alias: aliasDetails });
+    return send(404, { message: 'unexpected route' });
+  });
+  const base = ['--collection', 'demo-docs', '--json'];
+  const asOf = Date.parse('2026-10-01T00:00:00Z');
+  const cases = [
+    [['branches', 'list'], 'GET', '/branches', undefined, {}, undefined, 'branches'],
+    [['branches', 'create', '--branch', 'candidate'], 'POST', '/branches', { branchName: 'candidate' }, { branch: 'candidate' }, 'created', 'branch'],
+    [['branches', 'create', '--branch', 'candidate', '--source', 'branch:main', '--as-of', '2026-10-01T00:00:00Z'], 'POST', '/branches',
+      { branchName: 'candidate', source: { kind: 'branch', name: 'main', asOf } }, { branch: 'candidate' }, 'created', 'branch'],
+    [['branches', 'create', '--branch', 'candidate', '--as-of', String(asOf)], 'POST', '/branches',
+      { branchName: 'candidate', source: { kind: 'branch', name: 'main', asOf } }, { branch: 'candidate' }, 'created', 'branch'],
+    [['branches', 'create', '--branch', 'candidate', '--as-of', '2026-10-01'], 'POST', '/branches',
+      { branchName: 'candidate', source: { kind: 'branch', name: 'main', asOf } }, { branch: 'candidate' }, 'created', 'branch'],
+    [['branches', 'create', '--branch', 'candidate', '--as-of', '2026-10-01T09:30:15.250+09:30'], 'POST', '/branches',
+      { branchName: 'candidate', source: { kind: 'branch', name: 'main', asOf: asOf + 15_250 } }, { branch: 'candidate' }, 'created', 'branch'],
+    [['branches', 'delete', '--branch', 'candidate'], 'DELETE', '/branches/candidate', undefined, { branch: 'candidate' }, 'deleted', 'message'],
+    [['tags', 'list'], 'GET', '/tags', undefined, {}, undefined, 'tags'],
+    [['tags', 'create', '--tag', 'release-one'], 'POST', '/tags', { tagName: 'release-one' }, { tag: 'release-one' }, 'created', 'tag'],
+    [['tags', 'create', '--tag', 'release-one', '--source', 'tag:release-zero'], 'POST', '/tags',
+      { tagName: 'release-one', source: { kind: 'tag', name: 'release-zero' } }, { tag: 'release-one' }, 'created', 'tag'],
+    [['tags', 'create', '--tag', 'release-one', '--source', 'branch:candidate', '--as-of', String(asOf)], 'POST', '/tags',
+      { tagName: 'release-one', source: { kind: 'branch', name: 'candidate', asOf } }, { tag: 'release-one' }, 'created', 'tag'],
+    [['tags', 'delete', '--tag', 'release-one'], 'DELETE', '/tags/release-one', undefined, { tag: 'release-one' }, 'deleted', 'message'],
+    [['aliases', 'list'], 'GET', '/aliases', undefined, {}, undefined, 'aliases'],
+    [['aliases', 'create', '--alias', 'production', '--target', 'tag:release-one'], 'POST', '/aliases',
+      { aliasName: 'production', target: { kind: 'tag', name: 'release-one' } }, { alias: 'production' }, 'created', 'alias'],
+    [['aliases', 'retarget', '--alias', 'production', '--target', 'branch:main'], 'PATCH', '/aliases/production',
+      { target: { kind: 'branch', name: 'main' } }, { alias: 'production' }, 'retargeted', 'alias'],
+    [['aliases', 'delete', '--alias', 'production'], 'DELETE', '/aliases/production', undefined, { alias: 'production' }, 'deleted', 'message'],
+  ];
+  for (const [args, method, path, body, targetRef, state, key] of cases) {
+    const r = await f.run([...args, ...base]);
+    assert.equal(r.code, 0, `${args.join(' ')}: ${r.stdout}`);
+    const request = f.requests.at(-1);
+    assert.equal(request.method, method, args.join(' '));
+    assert.equal(request.url.pathname, `/projects/dev-project/collections/demo-docs${path}`);
+    assert.deepEqual(request.body, body);
+    assert.equal(request.headers['x-api-key'], secret);
+    assert.equal(r.json.command, `${args[0]} ${args[1]}`);
+    assert.deepEqual(r.json.target, { endpoint: f.base, project: 'dev-project', collection: 'demo-docs', ...targetRef });
+    assert.equal(r.json.data.state, state);
+    assert.ok(key in r.json.data, `${args.join(' ')} lacks ${key}`);
+    assert.equal(r.stdout.trim().split('\n').length, 1);
+  }
+  // The SDK converts creation times to Date, which the envelope prints as ISO 8601.
+  assert.deepEqual((await f.run(['aliases', 'list', ...base])).json.data.aliases[0], { ...aliasDetails, createdAt: new Date(aliasDetails.createdAt).toISOString() });
+  const human = await f.run(['branches', 'list', '--collection', 'demo-docs']);
+  assert.equal(human.code, 0); assert.match(human.stdout, /1 branch\(es\)/);
+});
+
+test('invalid ref sources, targets, names and as-of values fail before any versioning request', async t => {
+  const f = await fixture(t, (_r, send) => send(500, { message: 'must not be called' }));
+  const base = ['--collection', 'demo-docs', '--json'];
+  for (const [args, message] of [
+    [['branches', 'create', '--branch', 'candidate', '--source', 'tag:release-one'], 'Source must be branch:NAME; tags and aliases cannot be branch sources.'],
+    [['branches', 'create', '--branch', 'candidate', '--source', 'alias:production'], 'Source must be branch:NAME; tags and aliases cannot be branch sources.'],
+    [['branches', 'create', '--branch', 'candidate', '--source', 'main'], 'Ref must be branch:NAME, tag:NAME or alias:NAME.'],
+    // Impossible calendar values must not be normalized into a different snapshot cutoff.
+    ...['2026-13-01', '2026-02-30T00:00:00Z', '2026-10-01T24:00:00Z', '2026-10-01T00:60:00Z', '2026-10-01 00:00:00', '2026-10-01T00:00:00',
+      '2026-10-01T00:00:00+15:00', '2026-10-01T00:00:00+00:99', '2026-10-01T00:00:00+0900', '2026-10-01T00:00:00+9:00', '0', '-1', '1e12', 'yesterday'].map(asOf =>
+      [['branches', 'create', '--branch', 'candidate', '--as-of', asOf], '--as-of must be Unix epoch milliseconds or an ISO 8601 time.']),
+    [['branches', 'create', '--branch', 'no'], 'Branch name must contain 3–52 letters, digits, underscores or hyphens.'],
+    [['branches', 'delete', '--branch', 'bad name'], 'Branch name must contain 3–52 letters, digits, underscores or hyphens.'],
+    [['tags', 'create', '--tag', 'release-one', '--source', 'alias:production'], 'Source must be branch:NAME or tag:NAME; aliases cannot be tag sources.'],
+    [['tags', 'create', '--tag', 'release-one', '--source', 'tag:release-zero', '--as-of', '1789689600000'], '--as-of requires a branch source.'],
+    [['tags', 'delete', '--tag', 'x'], 'Tag name must contain 3–52 letters, digits, underscores or hyphens.'],
+    [['aliases', 'create', '--alias', 'production', '--target', 'alias:other'], 'Alias target must be branch:NAME or tag:NAME.'],
+    [['aliases', 'retarget', '--alias', 'production', '--target', 'release-one'], 'Ref must be branch:NAME, tag:NAME or alias:NAME.'],
+    [['aliases', 'delete', '--alias', 'a/b'], 'Alias name must contain 3–52 letters, digits, underscores or hyphens.'],
+  ]) {
+    const r = await f.run([...args, ...base]);
+    assert.equal(r.code, 2, `${args.join(' ')}: ${r.stdout}`);
+    assert.equal(r.json.error.code, 'INPUT_ERROR');
+    assert.equal(r.json.error.message, message, args.join(' '));
+  }
+  const missing = await f.run(['aliases', 'create', '--alias', 'production', ...base]);
+  assert.equal(missing.code, 2); assert.match(missing.json.error.message, /--target/);
+  assert.equal(f.requests.length, 0);
+});
+
+test('ref mutations keep definite rejections distinct from uncertain outcomes and never retry', async t => {
+  // 'ok' answers with the real success status (201 for creation) and an empty body the SDK cannot validate.
+  for (const [status, code, error] of [[400, 3, 'API_ERROR'], [404, 3, 'API_ERROR'], [409, 3, 'API_ERROR'], [401, 3, 'AUTH_ERROR'], [503, 5, 'API_ERROR'], ['ok', 5, 'INVALID_RESPONSE']]) {
+    const f = await fixture(t, (r, send) => send(status === 'ok' ? (r.method === 'POST' ? 201 : 200) : status, {}));
+    for (const args of [
+      ['branches', 'create', '--branch', 'candidate'], ['branches', 'delete', '--branch', 'main'],
+      ['tags', 'create', '--tag', 'release-one'], ['tags', 'delete', '--tag', 'release-one'],
+      ['aliases', 'create', '--alias', 'production', '--target', 'branch:main'], ['aliases', 'retarget', '--alias', 'production', '--target', 'branch:main'],
+      ['aliases', 'delete', '--alias', 'production'],
+    ]) {
+      const before = f.requests.length;
+      const r = await f.run([...args, '--collection', 'demo-docs', '--json']);
+      assert.equal(r.code, code, `${status} ${args.join(' ')}: ${r.stdout}`);
+      assert.equal(r.json.error.code, error);
+      assert.equal(r.json.data?.state, code === 5 ? 'unknown' : undefined);
+      assert.equal(f.requests.length, before + 1, 'mutations are never retried');
+      if (status === 409) assert.match(r.json.error.hint, /alias still references/);
+    }
+  }
+  const f = await fixture(t, (_r, send) => send(503, {}));
+  const read = await f.run(['tags', 'list', '--collection', 'demo-docs', '--json']);
+  assert.equal(read.code, 3); assert.equal(read.json.data, undefined);
+  assert.ok(f.requests.length > 1, 'reads keep SDK retries');
+});

@@ -140,6 +140,7 @@ Only `init` prompts for choices. All other commands require explicit arguments;
 | Save connection settings | `lambdadb configure` | [Configuration](docs/setup.md#settings-and-precedence) |
 | Verify project access | `lambdadb doctor` | [What doctor checks](docs/setup.md#check-the-connection-with-doctor) |
 | List, inspect or configure collections | `lambdadb collections list` / `describe` / `create` / `update` | [Collections](docs/data.md#collections) |
+| Manage branches, tags and aliases | `lambdadb branches` / `tags` / `aliases` | [Data versioning](docs/data.md#branches-tags-and-aliases) |
 | Import documents | `lambdadb docs import` | [JSONL imports and outcomes](docs/data.md#import-jsonl) |
 | Search or fetch documents | `lambdadb query` / `docs fetch` | [Queries and explicit refs](docs/data.md#query-and-fetch-at-explicit-refs) |
 
