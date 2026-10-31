@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-31
+
 ### Added
 
 - `docs list` pages through documents at an explicit `--ref` (`--size`,
