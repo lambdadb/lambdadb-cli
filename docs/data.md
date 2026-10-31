@@ -67,6 +67,10 @@ imports, can return `429`, and is rejected for tag/alias refs.
 lambdadb collections list --all --size 100 --json
 lambdadb collections list --page-token 'TOKEN_FROM_PREVIOUS_RESULT' --json
 lambdadb collections describe --collection cli-demo-docs --json
+lambdadb collections create --collection cli-demo-docs --index-config examples/index-config.json \
+  --description "Support articles" --tag team=search --snapshot-retention-days 7 --json
+lambdadb collections update --collection cli-demo-docs --description "" --clear-tags --json
+lambdadb collections delete --collection cli-demo-docs --json
 ```
 
 One page is the default; `nextPageToken` is an opaque continuation token.
@@ -74,9 +78,21 @@ One page is the default; `nextPageToken` is an opaque continuation token.
 budget. No partial list is printed on failure. Collection statistics describe
 the committed head of `main`, not the selected read ref or whole-index readiness.
 Both create and update take the index map itself through `--index-config`, not a
-full request body. Updates are subject to server index-change restrictions and
-return `state: "updated"`, `searchable: "not_verified"`; acceptance does not prove
-query readiness. Described `indexConfigs` include the server-managed `id` field as
+full request body. Create also accepts `--description` (at most 255 characters),
+repeated `--tag KEY=VALUE` metadata tags (up to five; these are not
+data-versioning tags), `--partition-config` (a JSON object with `fieldName`,
+`dataType` `keyword` and `numPartitions`, which cannot be changed later) and
+`--snapshot-retention-days` (1–31, server default 30). Update takes any
+combination of `--index-config`, `--description` (`""` clears it), `--tag`
+(replacing the whole tag map) or `--clear-tags`, and
+`--snapshot-retention-days`, and needs at least one; lowering retention can
+shorten the available history. Updates are subject to server index-change
+restrictions (existing fields cannot be removed or redefined) and return
+`state: "updated"`, `searchable: "not_verified"`; acceptance does not prove
+query readiness. `collections delete` permanently removes the collection with
+all documents, branches, tags and aliases, without confirmation; the server
+makes the name reusable before responding and physical cleanup can continue
+afterwards. Use `docs delete` to remove only some documents. Described `indexConfigs` include the server-managed `id` field as
 `{"type":"keyword"}`. An index map may send it back unchanged or omit it; the
 server rejects any other `id` configuration.
 

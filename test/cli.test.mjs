@@ -1259,9 +1259,79 @@ test('docs delete requires exactly one selector, forwards ids or filter with the
   for (const [status, code, error] of [[400, 3, 'API_ERROR'], [404, 3, 'API_ERROR'], [503, 5, 'API_ERROR'], [202, 5, 'INVALID_RESPONSE']]) {
     const g = await fixture(t, (_r, send) => send(status, {}));
     r = await g.run(['docs', 'delete', '--ids', 'doc-1', ...base]);
+test('collection create and update forward description, metadata tags, partitioning and retention; update needs one change', async t => {
+  const f = await fixture(t, (req, send) => send(req.method === 'POST' ? 201 : 200, { collection: req.method === 'POST' ? created : metadata }));
+  const index = await f.file('index.json', indexConfigs);
+  const partition = await f.file('partition.json', { fieldName: 'tenant', dataType: 'keyword', numPartitions: 4 });
+  let r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', index, '--description', 'Support articles',
+    '--tag', 'team=search', '--tag', 'env=dev', '--partition-config', partition, '--snapshot-retention-days', '7', '--json']);
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(f.requests.at(-1).body, { collectionName: 'demo-docs', indexConfigs, description: 'Support articles', tags: { team: 'search', env: 'dev' },
+    partitionConfig: { fieldName: 'tenant', dataType: 'keyword', numPartitions: 4 }, snapshotRetentionInDays: 7 });
+  r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', index, '--json']);
+  assert.equal(r.code, 0); assert.deepEqual(f.requests.at(-1).body, { collectionName: 'demo-docs', indexConfigs });
+
+  for (const [args, body] of [
+    [['--description', 'Support articles'], { description: 'Support articles' }],
+    [['--description', ''], { description: '' }],
+    [['--tag', 'team=search', '--tag', 'owner=a=b'], { tags: { team: 'search', owner: 'a=b' } }],
+    // Keys that exist on Object.prototype are ordinary tag keys.
+    [['--tag', 'constructor=search', '--tag', 'toString=x', '--tag', '__proto__=y'], { tags: JSON.parse('{"constructor":"search","toString":"x","__proto__":"y"}') }],
+    [['--clear-tags'], { tags: {} }],
+    [['--snapshot-retention-days', '31'], { snapshotRetentionInDays: 31 }],
+    [['--index-config', index, '--description', 'x', '--clear-tags', '--snapshot-retention-days', '1'], { indexConfigs, description: 'x', tags: {}, snapshotRetentionInDays: 1 }],
+  ]) {
+    r = await f.run(['collections', 'update', '--collection', 'demo-docs', ...args, '--json']);
+    assert.equal(r.code, 0, `${args.join(' ')}: ${r.stdout}`);
+    assert.equal(f.requests.at(-1).method, 'PATCH');
+    assert.deepEqual(f.requests.at(-1).body, body, args.join(' '));
+    assert.deepEqual([r.json.data.state, r.json.data.searchable], ['updated', 'not_verified']);
+  }
+
+  const before = f.requests.length;
+  const metadataMessage = /Invalid collection settings/;
+  for (const [args, message] of [
+    [['collections', 'update', '--collection', 'demo-docs'], /Update needs at least one change/],
+    [['collections', 'update', '--collection', 'demo-docs', '--tag', 'a=b', '--clear-tags'], /either --tag or --clear-tags/],
+    [['collections', 'update', '--collection', 'demo-docs', '--tag', 'novalue'], /Each --tag must be KEY=VALUE/],
+    [['collections', 'update', '--collection', 'demo-docs', '--tag', '=value'], /Each --tag must be KEY=VALUE/],
+    [['collections', 'update', '--collection', 'demo-docs', '--tag', 'a=1', '--tag', 'a=2'], /Tag key "a" is repeated/],
+    [['collections', 'update', '--collection', 'demo-docs', '--snapshot-retention-days', '0'], /Snapshot retention must be an integer from 1 to 31/],
+    [['collections', 'create', '--collection', 'demo-docs', '--index-config', index, '--snapshot-retention-days', '32'], /Snapshot retention must be an integer from 1 to 31/],
+    [['collections', 'create', '--collection', 'demo-docs', '--index-config', index, '--description', 'x'.repeat(256)], metadataMessage],
+    [['collections', 'update', '--collection', 'demo-docs', '--description', 'x'.repeat(256)], metadataMessage],
+    [['collections', 'create', '--collection', 'demo-docs', '--index-config', index, '--tag', 'bad key=value'], metadataMessage],
+    [['collections', 'update', '--collection', 'demo-docs', '--tag', 'key=a:b'], metadataMessage],
+    [['collections', 'update', '--collection', 'demo-docs', ...Array.from({ length: 6 }, (_, i) => ['--tag', `k${i}=v`]).flat()], metadataMessage],
+    [['collections', 'create', '--collection', 'demo-docs', '--index-config', index, '--partition-config', await f.file('bad-partition.json', { fieldName: 'tenant', dataType: 'text', numPartitions: 4 })], metadataMessage],
+    [['collections', 'create', '--collection', 'demo-docs', '--index-config', await f.file('empty.json', {}), '--description', 'x'], /Invalid index configuration/],
+    [['collections', 'update', '--collection', 'demo-docs', '--index-config', await f.file('empty.json', {}), '--description', 'x'], /Invalid index configuration/],
+  ]) {
+    r = await f.run([...args, '--json']);
+    assert.equal(r.code, 2, `${args.join(' ')}: ${r.stdout}`);
+    assert.equal(r.json.error.code, 'INPUT_ERROR');
+    assert.match(r.json.error.message, message, args.join(' '));
+  }
+  assert.equal(f.requests.length, before);
+});
+
+test('collections delete sends one DELETE and keeps definite rejections distinct from uncertain outcomes', async t => {
+  const f = await fixture(t, (_r, send) => send(200, { message: 'Collection deleted' }));
+  let r = await f.run(['collections', 'delete', '--collection', 'demo-docs', '--json']);
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].method, 'DELETE');
+  assert.equal(f.requests[0].url.pathname, '/projects/dev-project/collections/demo-docs');
+  assert.deepEqual(r.json.target, { endpoint: f.base, project: 'dev-project', collection: 'demo-docs' });
+  assert.deepEqual(r.json.data, { message: 'Collection deleted', state: 'deleted' });
+  assert.equal((await f.run(['collections', 'delete', '--collection', 'x', '--json'])).code, 2);
+  for (const [status, code, error] of [[404, 3, 'API_ERROR'], [401, 3, 'AUTH_ERROR'], [503, 5, 'API_ERROR'], [200, 5, 'INVALID_RESPONSE']]) {
+    const g = await fixture(t, (_r, send) => send(status, {}));
+    r = await g.run(['collections', 'delete', '--collection', 'demo-docs', '--json']);
     assert.equal(r.code, code, `${status}: ${r.stdout}`);
     assert.equal(r.json.error.code, error);
     assert.equal(r.json.data?.state, code === 5 ? 'unknown' : undefined);
     assert.equal(g.requests.length, 1, 'deletes are never retried');
   }
+  assert.match((await f.run(['collections', 'delete', '--help'])).stdout, /cannot be undone/);
 });
