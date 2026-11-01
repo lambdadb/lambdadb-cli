@@ -100,7 +100,14 @@ string, boolean, vector, sparse vector, hybrid, reranking, facets, limits) and
 each collection, document and branch/tag/alias task to the matching
 docs.lambdadb.ai page instead of restating the query DSL. It names the CLI
 commands for those tasks and performs writes only when the user asks. CLI defaults
-can differ from an existing MCP entry; check the target before switching. A recent
+can differ from an existing MCP entry; check the target before switching. When a
+CLI command fails with `CREDENTIAL_STORE_ERROR`, the OS credential store could not
+be read before any server request, as happens in sandboxed agent shells while the
+MCP server, launched by the agent outside the sandbox, still reads it; the envelope
+keeps `target`, so the skill continues through an MCP entry whose `--endpoint` and
+`--project` match and otherwise asks. Server authentication failures (`AUTH_ERROR`)
+are never bypassed through another transport, and the skill does not rerun `init`
+for an unreadable store. A recent
 empty read is not by itself an error: eligible ordinary writes can be read with
 `consistentRead:true` on a direct branch, separately from committed index checks.
 

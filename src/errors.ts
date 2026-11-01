@@ -6,6 +6,8 @@ export class InputError extends Error {
   // An empty hint means the message already states the next step.
   constructor(message: string, public hint = 'Check --help and the input file or configuration.') { super(message); }
 }
+// The local OS credential store could not be read, so no server request was made.
+export class CredentialStoreError extends InputError {}
 export class ManagementError extends Error {
   constructor(
     public code: string,
@@ -51,6 +53,9 @@ export function describeError(error: unknown): SafeError {
       details: error.details,
       hint,
     };
+  }
+  if (error instanceof CredentialStoreError) {
+    return { code: 'CREDENTIAL_STORE_ERROR', message: error.message, hint: error.hint };
   }
   if (error instanceof InputError) {
     return { code: 'INPUT_ERROR', message: error.message, hint: error.hint };

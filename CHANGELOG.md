@@ -2,7 +2,28 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Data commands that cannot read the saved OS credential now fail with
+  `CREDENTIAL_STORE_ERROR` instead of `INPUT_ERROR`, keep exit code 2 and still
+  report `target`, because no server request was made. The message names the
+  locked-store, other-session and sandboxed-process causes and says the server
+  key is unchanged; the hint leads with retrying from an interactive terminal or
+  an MCP server configured for the same endpoint and project, and mentions
+  `init` only for a credential that is gone.
+- The bundled skill continues through the agent's MCP server only when a CLI
+  `CREDENTIAL_STORE_ERROR` envelope's `target` matches the MCP entry's
+  `--endpoint` and `--project`, asks when they differ, never switches transports
+  on a server `AUTH_ERROR`, and no longer reruns `init` for an unreadable store.
+  `init` upgrades unmodified 0.1.8 skill copies and preserves edited ones.
+
 ### Maintenance
+
+- `test/fixtures/skill-0.1.8` records the 0.1.8 skill bytes so the upgrade from
+  that release is covered by the init contract tests.
+- The account CLI test fixture runs guided `init` with a temporary home directory;
+  it previously installed user-scope Codex settings into the developer's real
+  `~/.codex/config.toml`.
 
 - Update the Homebrew formula to verified stable 0.1.8 and its release-commit
   lockfile.

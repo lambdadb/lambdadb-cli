@@ -94,7 +94,10 @@ export async function settings(options: Options, creating = false): Promise<Sele
 }
 
 export async function resolveConfig(options: Options, creating = false): Promise<Config> {
-  const selected = await settings(options, creating);
+  return resolveCredential(await settings(options, creating), options);
+}
+
+export async function resolveCredential(selected: SelectedSettings, options: Options): Promise<Config> {
   const apiKey = selected.credentialStore && selected.credentialId
     ? await new CredentialVault().read({ ...selected, ...credentialReference(selected.credentialStore, selected.credentialId) })
     : process.env[selected.apiKeyEnv];
