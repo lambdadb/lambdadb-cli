@@ -210,6 +210,26 @@ test('init upgrades an unmodified 0.1.7 skill, removes its merged reference and 
   assert.ok(!result.data.data.files.some(file => file.path === reference));
 });
 
+test('init upgrades an unmodified 0.1.8 skill and preserves an edited one', async t => {
+  const f = await fixture(t);
+  const skill = join(await realpath(f.cwd), '.agents/skills/lambdadb/SKILL.md');
+  const previous = await readFile(new URL('./fixtures/skill-0.1.8/SKILL.md', import.meta.url), 'utf8');
+  const bundled = await readFile(new URL('../skills/lambdadb/SKILL.md', import.meta.url), 'utf8');
+  assert.notEqual(previous, bundled);
+  await f.file(skill, previous);
+  let result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.data.data.files.find(file => file.path === skill).action, 'update');
+  assert.equal(await readFile(skill, 'utf8'), bundled);
+  await f.file(skill, previous + '\nTeam note\n');
+  result = await f.run(f.init('codex'));
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readFile(skill, 'utf8'), previous + '\nTeam note\n');
+  const entry = result.data.data.files.find(file => file.path === skill);
+  assert.equal(entry.action, 'unchanged');
+  assert.match(entry.kind, /existing skill preserved/);
+});
+
 test('additional agents preserve configuration, credentials and reruns in their supported scopes', async t => {
   for (const scope of ['project', 'user']) {
     for (const agent of ['vscode', 'gemini', 'opencode', 'copilot', 'kiro', ...(scope === 'user' ? ['cline'] : [])]) {

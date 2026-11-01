@@ -184,7 +184,9 @@ Init can configure MCP and install a LambdaDB usage skill for:
 | Cline VS Code extension | `cline` | User only |
 
 Detection is a hint; select any subset or `none`. The skill prefers an available,
-authenticated CLI, with MCP when terminal execution is unavailable or requested.
+authenticated CLI, with MCP when terminal execution is unavailable or requested,
+or when a sandboxed agent shell cannot read the CLI's OS credential store
+(`CREDENTIAL_STORE_ERROR`) and the MCP entry targets the same endpoint and project.
 Guided init enables MCP write tools and user scope by default; `--non-interactive`
 runs enable write tools only with `--write-tools`. Existing unrelated agent configuration
 and edited skills are preserved; an unmodified bundled skill follows CLI upgrades on

@@ -294,7 +294,12 @@ lambdadb doctor --json
 `doctor` validates configuration and uses `listCollections({size: 1})` to check
 authentication and project collection-list access. Success does not prove write
 permissions, collection readiness, or search visibility. Failure provides a safe
-error category and a recovery hint. SDK debug logging is disabled even when
+error category and a recovery hint. `CREDENTIAL_STORE_ERROR` (exit 2) means the
+saved OS credential could not be read before any request was sent, for example
+from a locked store, another OS user session or a sandboxed process; the envelope
+still carries `target`, so the same connection can be verified from an interactive
+terminal or served by an MCP entry with the same endpoint and project. No key is
+issued or revoked. SDK debug logging is disabled even when
 `LAMBDADB_DEBUG` is set. Error bodies, raw SDK errors and presigned response URLs
 are not printed. The active key is redacted if echoed inside returned data.
 Other document data remains visible; redirect results to appropriate storage.

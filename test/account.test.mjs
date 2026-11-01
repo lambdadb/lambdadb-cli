@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile, readFile, rm, symlink, lstat } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, rm, symlink, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -387,13 +387,19 @@ async function cliFixture(t, handler, saveAllowed = false) {
     if (process.env.LAMBDADB_TEST_INTERACTIVE) { process.stdin.isTTY = true; process.stdin.setRawMode = () => process.stdin; process.stderr.isTTY = true; process.stderr.columns = Number(process.env.LAMBDADB_TEST_COLUMNS || 100); }
     if (global.gc) setInterval(() => global.gc(), 20).unref();
   `);
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')));
+  // Guided init installs user-scope agent files, so the home directory must be the fixture's,
+  // never the developer's real one.
+  const home = join(dir, 'home');
+  await mkdir(home);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LAMBDADB_')
+    && !['XDG_CONFIG_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'GEMINI_CLI_HOME', 'VSCODE_PORTABLE', 'VSCODE_APPDATA', 'COPILOT_HOME', 'APPDATA', 'HOME', 'USERPROFILE'].includes(key)));
   return {
     ...fixture, config,
     async run(args, extra = {}, answers, nodeArgs = [], onSpawn = () => {}) {
       const child = spawn(process.execPath, [...nodeArgs, '--import', preload, bin, ...args, '--config', config, ...(answers ? [] : ['--json'])], {
         cwd: dir,
-        env: { ...env, ...extra, ...(answers ? { LAMBDADB_TEST_INTERACTIVE: 'true', TERM: 'xterm-256color' } : {}) }, stdio: [answers ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+        env: { ...env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), APPDATA: join(home, 'AppData', 'Roaming'),
+          ...extra, ...(answers ? { LAMBDADB_TEST_INTERACTIVE: 'true', TERM: 'xterm-256color' } : {}) }, stdio: [answers ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       });
       onSpawn(child);
       let stdout = '', stderr = '';

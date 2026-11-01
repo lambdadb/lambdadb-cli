@@ -4,7 +4,8 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const cli = process.env.LAMBDADB_TEST_CLI ?? resolve('dist/cli.js');
 const packageVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -53,6 +54,45 @@ async function fixture(t, handler) {
   }
   return { run, file, requests, base, temp };
 }
+
+test('an unreadable OS credential store fails before any request with its target and MCP guidance; server auth errors keep theirs', async t => {
+  const f = await fixture(t, (_r, send) => send(401, { message: 'unauthorized' }));
+  // Keep the real read path and make only the OS store entry fail, as a sandboxed shell does.
+  const preload = await f.file('locked-store.mjs', `import { CredentialVault } from ${JSON.stringify(pathToFileURL(join(dirname(cli), 'credentials.js')).href)};
+    const read = CredentialVault.prototype.read;
+    const locked = new CredentialVault(async () => ({ async getSecret() { throw new Error('locked'); } }));
+    CredentialVault.prototype.read = function (target) { return read.call(locked, target); };
+  `);
+  const store = process.platform === 'darwin' ? 'keychain' : process.platform === 'win32' ? 'windows' : 'secret-service';
+  const config = await f.file('config.json', { endpoint: f.base, project: 'dev-project', apiKeyEnv: 'LAMBDADB_API_KEY', credentialStore: store, credentialId: '12345678-1234-4123-8123-123456789abc' });
+  const env = { NODE_OPTIONS: `--import=${preload}`, LAMBDADB_ENDPOINT: undefined, LAMBDADB_PROJECT: undefined, LAMBDADB_API_KEY: undefined };
+  const r = await f.run(['doctor', '--config', config, '--json'], env);
+  assert.equal(r.code, 2, r.stderr);
+  assert.equal(r.json.ok, false);
+  assert.equal(r.json.error.code, 'CREDENTIAL_STORE_ERROR');
+  assert.deepEqual(r.json.target, { endpoint: f.base, project: 'dev-project' });
+  assert.match(r.json.error.message, new RegExp(`Cannot read the saved ${store} credential, so no server request was made`));
+  assert.match(r.json.error.message, /sandboxed process/);
+  assert.match(r.json.error.message, /server key is unchanged/);
+  assert.match(r.json.error.hint, /^Retry from an interactive terminal of the same OS user/);
+  assert.match(r.json.error.hint, /MCP server configured for this same endpoint and project \(see target\)/);
+  assert.ok(r.json.error.hint.indexOf('interactive terminal') < r.json.error.hint.indexOf('init'), 'init is not the first suggestion');
+  assert.equal(f.requests.length, 0, 'no server request was made');
+  // The MCP bridge reports the same failure on stderr without the MCP suggestion, which it cannot follow.
+  const bridge = await f.run(['mcp', '--config', config], env);
+  assert.equal(bridge.code, 2);
+  assert.equal(bridge.stdout, '');
+  assert.match(bridge.stderr, /Cannot read the saved .* credential, so no server request was made/);
+  assert.ok(!bridge.stderr.includes('MCP server configured'), bridge.stderr);
+  assert.equal(f.requests.length, 0);
+  // A server rejection of the key is classified as before, without any transport suggestion.
+  const rejected = await f.run(['doctor', '--json']);
+  assert.equal(rejected.code, 3);
+  assert.equal(rejected.json.error.code, 'AUTH_ERROR');
+  assert.equal(rejected.json.error.httpStatus, 401);
+  assert.ok(!/MCP/.test(rejected.json.error.hint), rejected.json.error.hint);
+  assert.equal(f.requests.length, 1);
+});
 
 test('SIGINT and SIGTERM preserve accepted batches and classify an active write as unknown', async t => {
   for (const signal of ['SIGINT', 'SIGTERM']) {

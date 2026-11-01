@@ -13,9 +13,17 @@ and read `lambdadb COMMAND --help` for unfamiliar commands. If `lambdadb` is not
 on PATH (for example, setup ran through npx), run the same commands with
 `npx -y @functional-systems/lambdadb-cli@latest` in place of `lambdadb`; do not
 install packages globally. Use the configured LambdaDB MCP server when the CLI
-cannot be used in the environment or the user requests MCP. Do not switch
-transports to bypass authentication or permission errors, and do not invent
-shell or network workarounds when CLI reads are unavailable.
+cannot be used in the environment or the user requests MCP. A CLI failure with
+`error.code` `CREDENTIAL_STORE_ERROR` means the CLI could not read its OS
+credential store before any server request; sandboxed agent shells cause this
+while the MCP server, which the agent launches outside the sandbox, still reads
+the same store. Compare the `target` endpoint and project in that envelope with
+the `--endpoint` and `--project` arguments of the agent's `lambdadb` MCP server
+entry, and continue through MCP when they match; when they differ or the MCP
+target is unknown, ask instead of switching. Do not rerun `init` for this error.
+Do not switch transports to bypass a server `AUTH_ERROR` (HTTP 401/403) or any
+other server response, and do not invent shell or network workarounds when CLI
+reads are unavailable.
 
 Reuse the existing connection. `lambdadb doctor --json` verifies the selected
 connection and shows its non-secret `target`; it checks authentication and
@@ -168,7 +176,8 @@ the write commits.
 | --- | --- |
 | Empty successful query | Check target/ref, field/analyzer, filters and expected IDs. Investigate recent-write visibility only when a recent write is known. |
 | Input/schema error (HTTP 400) | Correct the request from the actual index and the page for that task; do not repeat it unchanged. |
-| HTTP 401/403 | Check the selected credential and permissions. Stop for explicit login/key repair if needed; do not switch identities or create a replacement project. |
+| `CREDENTIAL_STORE_ERROR` (CLI exit 2, no server request) | The CLI could not read its local OS credential store. Continue through the MCP server whose endpoint and project match the envelope's `target`, or retry from an interactive terminal of the same OS user. Do not run `init`, issue a key or switch to a differently targeted MCP server. |
+| HTTP 401/403 | Check the selected credential and permissions. Stop for explicit login/key repair if needed; do not switch identities or transports, and do not create a replacement project. |
 | HTTP 404 | Verify the resource and ref still exist. A deleted resource cannot be repaired by replacing its key. |
 | HTTP 429 | Reduce load and use a bounded read backoff, respecting retry guidance when provided. A consistent-read overlay may have reached its limit. |
 | Timeout, transport error or HTTP 5xx on a read | Retry only within the task's read budget; preserve the original target and report persistent failures. |
@@ -190,7 +199,9 @@ them in files, arguments, generated examples or chat. If MCP cannot start, check
 whether its configured OS store is unlocked and accessible to the same user, or
 whether the selected environment variable is available. Do not silently
 reconnect or issue a new key. Kernel keyutils credentials can disappear after
-reboot or expiry without revoking the server key. The user can explicitly run
+reboot or expiry without revoking the server key. A CLI
+`CREDENTIAL_STORE_ERROR` while MCP works is a sandbox or session boundary, not a
+lost credential. Only for a credential that is gone can the user explicitly run
 `lambdadb init` and choose account-based project setup to reconnect through
 terminal project selection; a valid account login is reused, otherwise browser
 signup/login and CLI approval are required.

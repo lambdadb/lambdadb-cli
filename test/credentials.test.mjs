@@ -48,7 +48,7 @@ test('credential slots bind the key to a project, preserve existing keys, and ne
   assert.equal(await vault.read(selected), 'synthetic-secret');
   await assert.rejects(vault.read({ ...selected, project: 'another-project' }), /No new key was issued/);
   memory.entries.clear();
-  await assert.rejects(vault.read(selected), /Kernel keys can expire/);
+  await assert.rejects(vault.read(selected), /kernel keys can expire or disappear after reboot/);
   assert.ok(memory.calls.every((store) => store === 'secret-service'));
 });
 

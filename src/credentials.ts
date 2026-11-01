@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { InputError } from './errors.js';
+import { CredentialStoreError, InputError } from './errors.js';
 
 export const credentialStores = ['keychain', 'windows', 'secret-service', 'keyutils'] as const;
 export type CredentialStore = (typeof credentialStores)[number];
@@ -70,8 +70,9 @@ export class CredentialVault {
       if (!secret.trim() || /[\r\n]/.test(secret)) throw new Error();
       return secret;
     } catch {
-      throw new InputError(
-        `Cannot read the saved ${target.credentialStore} credential. Unlock the store or restore the same OS user session. Kernel keys can expire or disappear after reboot. No new key was issued. Reconnect explicitly with init and select another project, or use --api-key-env NAME. Review existing CLI keys in Console before reconnecting.`,
+      throw new CredentialStoreError(
+        `Cannot read the saved ${target.credentialStore} credential, so no server request was made. The store may be locked, belong to another OS user session or be unreachable from a sandboxed process; kernel keys can expire or disappear after reboot. No new key was issued and the server key is unchanged.`,
+        'Retry from an interactive terminal of the same OS user with the store unlocked. Only if the credential is gone, reconnect explicitly with init or use --api-key-env NAME, and review existing CLI keys in Console first.',
       );
     }
   }

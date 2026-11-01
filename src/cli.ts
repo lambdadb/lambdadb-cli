@@ -2,10 +2,10 @@
 import { Command, CommanderError, Option } from 'commander';
 import { readFileSync } from 'node:fs';
 import { cli } from './command.js';
-import { configPath, integer, name, resolveConfig, saveSettings, settings, type Options } from './config.js';
+import { configPath, integer, name, resolveConfig, resolveCredential, saveSettings, settings, type Config, type Options } from './config.js';
 import { createInput, deleteInput, listSelectors, parseRef, parseSource, parseTags, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
-import { definitelyRejected, describeError, InputError, ManagementError, isInputError, parseError } from './errors.js';
+import { CredentialStoreError, definitelyRejected, describeError, InputError, ManagementError, isInputError, parseError } from './errors.js';
 import { Output, type Envelope } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
 import { CredentialVault, credentialReference } from './credentials.js';
@@ -50,9 +50,18 @@ function result(data: unknown, summary: string, exitCode = 0) {
 
 type Context = ReturnType<typeof runtime>;
 async function connected(command: Command, action: (ctx: Context) => Promise<void>) {
-  const config = await resolveConfig(command.optsWithGlobals());
+  const options = command.optsWithGlobals();
+  const selected = await settings(options);
+  // Name the target before the credential is read, so an agent whose sandboxed shell cannot
+  // reach the OS store can still compare it with an MCP server's endpoint and project.
+  target = { endpoint: selected.endpoint, project: selected.project };
+  let config: Config;
+  try { config = await resolveCredential(selected, options); }
+  catch (error) {
+    if (!(error instanceof CredentialStoreError)) throw error;
+    throw new CredentialStoreError(error.message, `${error.hint} A LambdaDB MCP server configured for this same endpoint and project (see target) can serve this task instead.`);
+  }
   output.protect(config.apiKey);
-  target = { endpoint: config.endpoint, project: config.project };
   const ctx = runtime(config);
   try { await action(ctx); } finally { ctx.close(); }
 }
