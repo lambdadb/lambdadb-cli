@@ -62,5 +62,8 @@
   "license": "Apache-2.0",
   "optionalDependencies": {
     "@napi-rs/keyring": "2.1.2"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
   }
 }
