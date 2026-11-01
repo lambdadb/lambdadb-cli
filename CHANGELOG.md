@@ -6,6 +6,11 @@
 
 - Update the Homebrew formula to verified stable 0.1.9 and its release-commit
   lockfile.
+- Resolve the lint toolchain's transitive `minimatch` to 11.x through an npm
+  `overrides` entry, closing Dependabot alert GHSA-g3hv-75wg-m249 while
+  `eslint`, `@eslint/config-array` and `@typescript-eslint/typescript-estree`
+  still declare `^10`. The override only affects development dependencies and
+  should be removed once those packages accept minimatch 11.
 
 ## [0.1.9] - 2026-11-01
 
