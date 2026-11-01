@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-01
+
 ### Changed
 
 - Data commands that cannot read the saved OS credential now fail with
@@ -24,7 +26,6 @@
 - The account CLI test fixture runs guided `init` with a temporary home directory;
   it previously installed user-scope Codex settings into the developer's real
   `~/.codex/config.toml`.
-
 - Update the Homebrew formula to verified stable 0.1.8 and its release-commit
   lockfile.
 - The Homebrew harness supplies the `test/fixtures` skill copies that the 0.1.8
