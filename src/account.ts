@@ -342,22 +342,24 @@ async function renew(options: AccountOptions, output: Output, vault: CredentialV
       return { account: latest, token: session.access_token, expiresAt: session.access_expires_at };
     const provider = await providerMetadata(latest.issuer, options.signal, timeoutMs(options));
     let rotated: Tokens;
+    let next: Account;
     try {
       rotated = await refresh(provider, session.refresh_token, options.signal, timeoutMs(options));
+      output.protect(rotated.accessToken);
+      output.protect(rotated.refreshToken);
+      next = { ...latest, credentialId: randomUUID(), expiresAt: new Date(Date.now() + REFRESH_LIFETIME_MS).toISOString() };
+      await vault.save(accountTarget(next), encodeSession(rotated));
+      try {
+        await writeMetadata(path, next, before);
+      } catch (error) {
+        await vault.remove(accountTarget(next)).catch(() => {});
+        throw error;
+      }
     } catch (error) {
-      // A rejected or unanswered rotation may have spent the refresh token. End
-      // the saved login so later commands ask for login instead of replaying it.
+      // A rejected, unanswered or unsaved rotation may have spent the refresh
+      // token. End the saved login so later commands ask for login instead of
+      // replaying it.
       await writeMetadata(path, { ...latest, expiresAt: new Date(0).toISOString() }, before).catch(() => {});
-      throw error;
-    }
-    output.protect(rotated.accessToken);
-    output.protect(rotated.refreshToken);
-    const next: Account = { ...latest, credentialId: randomUUID(), expiresAt: new Date(Date.now() + REFRESH_LIFETIME_MS).toISOString() };
-    await vault.save(accountTarget(next), encodeSession(rotated));
-    try {
-      await writeMetadata(path, next, before);
-    } catch (error) {
-      await vault.remove(accountTarget(next)).catch(() => {});
       throw error;
     }
     await vault.remove(accountTarget(latest)).catch(() => {});

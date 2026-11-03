@@ -273,6 +273,21 @@ test('an unanswered refresh ends the saved login instead of replaying the refres
   assert.equal(fixture.calls.filter((c) => c.path === '/oauth2/token').length, 1);
 });
 
+test('a rotated session that cannot be saved ends the saved login', async (t) => {
+  const fixture = await oauthServer(t, domain((call, res) => res.end(JSON.stringify({ organizations: [] }))));
+  const refreshToken = 'refresh-known-2222222222';
+  fixture.state.refresh.set(refreshToken, 'account:manage offline_access');
+  const { config, account: before } = await signedIn(t, fixture, session({ refresh_token: refreshToken, access_expires_at: Date.now() - 1 }));
+  const save = CredentialVault.prototype.save;
+  CredentialVault.prototype.save = async () => { throw new Error('store locked'); };
+  t.after(() => { CredentialVault.prototype.save = save; });
+  await assert.rejects(organizations({ config }, quiet), /store locked/);
+  const after = JSON.parse(await readFile(await accountPath({ config }), 'utf8'));
+  assert.equal(after.credentialId, before.credentialId);
+  await assert.rejects(organizations({ config }, quiet), /CLI login expired/);
+  assert.equal(fixture.calls.filter((c) => c.path === '/oauth2/token').length, 1);
+});
+
 test('account credentials cannot be read through a project or MCP credential namespace', async () => {
   const values = new Map();
   const factory = async (service, id) => ({
