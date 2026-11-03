@@ -217,8 +217,16 @@ async function codeFlow(
     output.diagnostic(`Opening your browser. If it does not open, visit this link on this computer:\n${url.href}\nOnly approve a request you started. Over SSH or without a local browser, press Ctrl-C and rerun with --no-browser.`);
     open(url.href, output);
     result = await new Promise((resolve, reject) => {
-      const expire = setTimeout(() => reject(new InputError('Authorization expired. Run the command again explicitly. Nothing was saved.', '')), ATTEMPT_MS);
-      const abort = () => reject(new InputError('Authorization canceled. Nothing was saved.', ''));
+      // Every outcome clears both the deadline and the abort listener, so a
+      // canceled attempt does not keep the process alive until the deadline.
+      const settle = (finish: () => void) => {
+        clearTimeout(expire);
+        signal.removeEventListener('abort', abort);
+        finish();
+      };
+      const expire = setTimeout(() => settle(() => reject(new InputError('Authorization expired. Run the command again explicitly. Nothing was saved.', ''))), ATTEMPT_MS);
+      const abort = () => settle(() => reject(new InputError('Authorization canceled. Nothing was saved.', '')));
+      if (signal.aborted) return abort();
       signal.addEventListener('abort', abort, { once: true });
       server.on('request', (req, res) => {
         const u = new URL(req.url ?? '/', redirectUri);
@@ -230,9 +238,7 @@ async function codeFlow(
         res
           .writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
           .end(page(error ? 'Authorization was not completed. Return to your terminal.' : 'LambdaDB CLI is authorized. You can close this window and return to your terminal.'));
-        clearTimeout(expire);
-        signal.removeEventListener('abort', abort);
-        resolve(error ? { error: errorCode(error) } : { code: u.searchParams.get('code') ?? '' });
+        settle(() => resolve(error ? { error: errorCode(error) } : { code: u.searchParams.get('code') ?? '' }));
       });
     });
     if (result.error || !result.code) throw denied(result.error ?? 'invalid_request');

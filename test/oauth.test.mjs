@@ -110,6 +110,29 @@ test('a callback with another state is ignored, and a denial ends the attempt', 
   assert.equal(fixture.calls.filter((c) => c.path === '/oauth2/token').length, 0);
 });
 
+test('canceling the browser flow ends the process promptly instead of waiting for the attempt deadline', async (t) => {
+  const fixture = await oauthServer(t);
+  const script = `
+    const { discover, authorize, ACCOUNT_SCOPE } = await import(${JSON.stringify(moduleURL('oauth.js'))});
+    const provider = await discover(${JSON.stringify(fixture.url)}, undefined, 5000);
+    const controller = new AbortController();
+    const quiet = { diagnostic() {}, protect() {} };
+    await authorize(provider, { scope: ACCOUNT_SCOPE, refresh: true, browser: true }, quiet, controller.signal, 5000, () => controller.abort())
+      .catch((error) => console.log(error.message));
+  `;
+  const started = Date.now();
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (c) => (out += c));
+  child.stderr.resume();
+  const timer = setTimeout(() => child.kill('SIGKILL'), 10_000);
+  const code = await new Promise((resolve) => child.on('close', resolve));
+  clearTimeout(timer);
+  assert.equal(code, 0);
+  assert.match(out, /Authorization canceled/);
+  assert.ok(Date.now() - started < 5000, 'a canceled attempt must not wait for its 15-minute deadline');
+});
+
 test('refresh rotation rejects a reused token, and revocation reports confirmation', async (t) => {
   const fixture = await oauthServer(t);
   const provider = await discover(fixture.url, undefined, 5000);
