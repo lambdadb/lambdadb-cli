@@ -278,10 +278,14 @@ test('a rotated session that cannot be saved ends the saved login', async (t) =>
   const refreshToken = 'refresh-known-2222222222';
   fixture.state.refresh.set(refreshToken, 'account:manage offline_access');
   const { config, account: before } = await signedIn(t, fixture, session({ refresh_token: refreshToken, access_expires_at: Date.now() - 1 }));
+  // Restore before signedIn's own cleanup so the patch never leaks into later tests.
   const save = CredentialVault.prototype.save;
   CredentialVault.prototype.save = async () => { throw new Error('store locked'); };
-  t.after(() => { CredentialVault.prototype.save = save; });
-  await assert.rejects(organizations({ config }, quiet), /store locked/);
+  try {
+    await assert.rejects(organizations({ config }, quiet), /store locked/);
+  } finally {
+    CredentialVault.prototype.save = save;
+  }
   const after = JSON.parse(await readFile(await accountPath({ config }), 'utf8'));
   assert.equal(after.credentialId, before.credentialId);
   await assert.rejects(organizations({ config }, quiet), /CLI login expired/);
