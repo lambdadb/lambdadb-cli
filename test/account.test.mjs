@@ -446,6 +446,7 @@ test('key issuance creates a project connection, approves it separately and disc
   assert.equal(start.scope, 'connection:read connection:issue');
   assert.equal(start.connection_id, connection);
   const key = fixture.calls.find((c) => c.path.endsWith('/key'));
+  assert.equal(key.body, undefined, 'the issuance claim must have an empty body');
   assert.match(key.auth, /^Bearer access-/);
   assert.equal(fixture.state.revoked.at(-1).token, key.auth.slice(7));
   assert.equal(fixture.state.revoked.at(-1).token_type_hint, 'access_token');

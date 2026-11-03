@@ -422,7 +422,8 @@ export async function management(options: AccountOptions, output: Output, vault 
         try {
           if (!setup.scope.includes('connection:issue'))
             throw new InputError('Key issuance was not approved for this project. No key was created.', '');
-          return await accountRequest(account, setup.accessToken, `project-connections/${connectionId}/key`, 'POST', {}, undefined, options.signal, requestTimeoutMs);
+          // The issuance claim takes an empty body; the server rejects any request fields.
+          return await accountRequest(account, setup.accessToken, `project-connections/${connectionId}/key`, 'POST', undefined, undefined, options.signal, requestTimeoutMs);
         } finally {
           // The setup token has no further use; the project key is independent of it.
           await revoke(provider, setup.accessToken, 'access_token', undefined, requestTimeoutMs);
