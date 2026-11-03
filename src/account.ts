@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, rm, open, stat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, rm, open, stat, utimes } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { configPath, endpoint, fileIdentity, timeoutMs, type Options } from './config.js';
@@ -74,30 +74,49 @@ export async function withManagementLock<T>(options: Options, action: () => Prom
 
 /**
  * Serializes refresh-token rotation across concurrent CLI processes. Unlike the
- * management lock it waits, because parallel read commands are normal; a lock
- * older than any refresh can take is left by a killed process.
+ * management lock it waits, because parallel read commands are normal. The
+ * holder refreshes the lock's time while it works, however long its requests
+ * may take, so only a lock without that heartbeat (a killed process) is stale.
+ * Each holder removes only the lock that still carries its own token.
  */
+const LOCK_HEARTBEAT_MS = 5_000;
+const LOCK_STALE_MS = 30_000;
 async function withRefreshLock<T>(options: AccountOptions, action: () => Promise<T>): Promise<T> {
   const path = `${await fileIdentity(configPath(options))}.account.lock`;
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const token = `${process.pid}:${randomUUID()}`;
   const deadline = Date.now() + 40_000;
   for (;;) {
+    let handle;
     try {
-      const handle = await open(path, 'wx', 0o600);
-      try {
-        await handle.writeFile(String(process.pid));
-        return await action();
-      } finally {
-        await handle.close();
-        await rm(path, { force: true });
-      }
+      handle = await open(path, 'wx', 0o600);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const owner = await readFile(path, 'utf8').catch(() => undefined);
       const age = await stat(path).then((s) => Date.now() - s.mtimeMs, () => 0);
-      if (age > 120_000) await rm(path, { force: true });
-      else if (Date.now() > deadline)
+      if (owner !== undefined && age > LOCK_STALE_MS) {
+        // Remove only the stale lock observed, never one another waiter just created.
+        if ((await readFile(path, 'utf8').catch(() => undefined)) === owner) await rm(path, { force: true });
+      } else if (Date.now() > deadline) {
         throw new InputError(`Another CLI command is renewing account access. Retry; if this persists, remove ${path}.`);
-      else await delay(200, undefined, { signal: options.signal });
+      } else {
+        await delay(200, undefined, { signal: options.signal });
+      }
+      continue;
+    }
+    const heartbeat = setInterval(() => {
+      const now = new Date();
+      void utimes(path, now, now).catch(() => {});
+    }, LOCK_HEARTBEAT_MS);
+    heartbeat.unref();
+    try {
+      await handle.writeFile(token);
+      await handle.close();
+      return await action();
+    } finally {
+      clearInterval(heartbeat);
+      await handle.close().catch(() => {});
+      if ((await readFile(path, 'utf8').catch(() => undefined)) === token) await rm(path, { force: true });
     }
   }
 }

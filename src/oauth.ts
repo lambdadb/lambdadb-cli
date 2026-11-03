@@ -39,15 +39,22 @@ async function call(
   const chunks: Uint8Array[] = [];
   let size = 0;
   if (reader) {
+    // Explicitly cancel the body: Node 22 fetch can lose abort propagation after
+    // headers when garbage collection runs, even while our signal stays alive.
+    const abortBody = () => { void reader.cancel().catch(() => {}); };
+    requestSignal.addEventListener('abort', abortBody, { once: true });
     try {
+      requestSignal.throwIfAborted();
       for (;;) {
         const { done, value } = await reader.read();
+        requestSignal.throwIfAborted();
         if (done) break;
         size += value.length;
         if (size > 65_536) throw new Error('response too large');
         chunks.push(value);
       }
     } finally {
+      requestSignal.removeEventListener('abort', abortBody);
       await reader.cancel().catch(() => {});
     }
   }

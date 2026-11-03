@@ -133,6 +133,30 @@ test('canceling the browser flow ends the process promptly instead of waiting fo
   assert.ok(Date.now() - started < 5000, 'a canceled attempt must not wait for its 15-minute deadline');
 });
 
+test('a stalled OAuth response body honors the timeout under garbage collection', async (t) => {
+  const fixture = await oauthServer(t, (call, res) => {
+    if (call.path !== '/.well-known/oauth-protected-resource') return false;
+    res.write('{'); // Leave the body open until the client's timeout cancels it.
+    return true;
+  });
+  const script = `
+    setInterval(() => globalThis.gc(), 20).unref();
+    const { discover } = await import(${JSON.stringify(moduleURL('oauth.js'))});
+    await discover(${JSON.stringify(fixture.url)}, undefined, 500).catch((error) => console.log(error.message));
+  `;
+  const started = Date.now();
+  const child = spawn(process.execPath, ['--expose-gc', '--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (c) => (out += c));
+  child.stderr.resume();
+  const timer = setTimeout(() => child.kill('SIGKILL'), 10_000);
+  const code = await new Promise((resolve) => child.on('close', resolve));
+  clearTimeout(timer);
+  assert.equal(code, 0);
+  assert.match(out, /Cannot reach/);
+  assert.ok(Date.now() - started < 4000, 'the request timeout must cancel a stalled body');
+});
+
 test('refresh rotation rejects a reused token, and revocation reports confirmation', async (t) => {
   const fixture = await oauthServer(t);
   const provider = await discover(fixture.url, undefined, 5000);

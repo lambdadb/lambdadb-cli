@@ -3,7 +3,7 @@ import { oauthServer, session, consoleUrl } from './helpers/oauth-server.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile, readFile, rm, symlink, lstat } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, rm, symlink, lstat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -201,6 +201,45 @@ test('a command that read the login just before another command rotated it uses 
   assert.ok(raced);
   assert.equal(fixture.calls.find((c) => c.path === '/organizations').auth, 'Bearer access-rotated-elsewhere-000');
   assert.equal(fixture.calls.filter((c) => c.path === '/oauth2/token').length, 0);
+});
+
+test('renewal waits for a live refresh lock, clears only a lock without heartbeat, and never removes another owner\'s lock', async (t) => {
+  let replaceLockDuringRefresh = false;
+  let lock;
+  const fixture = await oauthServer(t, async (call, res) => {
+    if (call.path === '/oauth2/token' && replaceLockDuringRefresh) await writeFile(lock, 'other-owner');
+    return domain((c, r) => r.end(JSON.stringify({ organizations: [] })))(call, res);
+  });
+  const known = ['refresh-a-0000000000000', 'refresh-b-0000000000000', 'refresh-c-0000000000000'];
+  for (const token of known) fixture.state.refresh.set(token, 'account:manage offline_access');
+  const expired = (refresh_token) => session({ refresh_token, access_expires_at: Date.now() - 1 });
+  const { config, store } = await signedIn(t, fixture, expired(known[0]));
+  lock = `${await accountPath({ config })}`.replace(/\.account\.json$/, '.account.lock');
+
+  // A live holder delays renewal until it releases the lock.
+  await writeFile(lock, 'live-owner');
+  setTimeout(() => rm(lock, { force: true }), 600);
+  const started = Date.now();
+  await organizations({ config }, quiet);
+  assert.ok(Date.now() - started >= 500, 'renewal must wait for a live lock');
+
+  // A lock whose heartbeat stopped (a killed process) is cleared.
+  const stale = (await import('node:fs/promises')).stat;
+  const saved = JSON.parse(await readFile(await accountPath({ config }), 'utf8'));
+  store.set(saved.credentialId, expired(known[1]));
+  await writeFile(lock, 'killed-owner');
+  const past = new Date(Date.now() - 60_000);
+  await utimes(lock, past, past);
+  await organizations({ config }, quiet);
+  await assert.rejects(stale(lock), { code: 'ENOENT' });
+
+  // A lock replaced by another owner while renewing is left in place.
+  const latest = JSON.parse(await readFile(await accountPath({ config }), 'utf8'));
+  store.set(latest.credentialId, expired(known[2]));
+  replaceLockDuringRefresh = true;
+  await organizations({ config }, quiet);
+  assert.equal(await readFile(lock, 'utf8'), 'other-owner');
+  assert.equal(fixture.calls.filter((c) => c.path === '/oauth2/token').length, 3);
 });
 
 test('a rejected access token is renewed and the request retried once; a revoked login requires login again', async (t) => {
