@@ -369,7 +369,7 @@ export async function refresh(p: Pick<Provider, 'tokenEndpoint'>, refreshToken: 
   try {
     reply = await call(p.tokenEndpoint, form({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: CLI_CLIENT_ID }), signal, timeoutMs);
   } catch {
-    throw new InputError('Account access could not be renewed: the sign-in service did not answer. Retry; if it keeps failing, run login again.', '');
+    throw new InputError('Account access could not be renewed: the sign-in service did not answer, so the login may have changed. Run login again; project connections are preserved.', '');
   }
   if (!reply.ok)
     throw new RefreshRejected('CLI login expired or was revoked. Run login again; project connections are preserved.', '');

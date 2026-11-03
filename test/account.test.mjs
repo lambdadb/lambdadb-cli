@@ -261,6 +261,18 @@ test('a rejected access token is renewed and the request retried once; a revoked
   await assert.rejects(organizations({ config }, quiet), /login expired or was revoked/);
 });
 
+test('an unanswered refresh ends the saved login instead of replaying the refresh token', async (t) => {
+  const fixture = await oauthServer(t, (call, res) => {
+    if (call.path !== '/oauth2/token') return false;
+    res.socket.destroy(); // The provider may have rotated the token, but the answer is lost.
+    return true;
+  });
+  const { config } = await signedIn(t, fixture, session({ access_expires_at: Date.now() - 1 }));
+  await assert.rejects(organizations({ config }, quiet), /may have changed\. Run login again/);
+  await assert.rejects(organizations({ config }, quiet), /CLI login expired/);
+  assert.equal(fixture.calls.filter((c) => c.path === '/oauth2/token').length, 1);
+});
+
 test('account credentials cannot be read through a project or MCP credential namespace', async () => {
   const values = new Map();
   const factory = async (service, id) => ({
@@ -716,6 +728,23 @@ for (const scenario of [
     assert.equal(revoke.calls.filter((c) => c.path === '/oauth2/revoke').length, 1);
   });
 }
+
+test('actual CLI: termination during the key claim interrupts it and keeps the issuance uncertain', async (t) => {
+  let child;
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path === '/projects') return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+    if (call.path === '/organizations') return res.end(JSON.stringify({ organizations: [team()] }));
+    assert.equal(call.path, `/project-connections/${connection}/key`);
+    res.write('{'); // The claim is in flight when the user presses Ctrl-C.
+    child.kill('SIGINT');
+  });
+  const started = Date.now();
+  const result = await fixture.run(['projects', 'use', '--org-id', org, '--project-id', first, '--issue-key', '--no-browser'], { LAMBDADB_TIMEOUT_MS: '60000' }, undefined, [], (spawned) => { child = spawned; });
+  assert.equal(result.code, 5, result.stderr);
+  assert.equal(result.value.data.state, 'unknown');
+  assert.ok(Date.now() - started < 7000, 'termination must not wait for the request timeout');
+  assert.equal(JSON.parse(await readFile(`${fixture.config}.connections.json`, 'utf8'))[0].pendingKeyName, `lambdadb-connection-${connection}`);
+});
 
 test('actual CLI: a bodyless key-issuance conflict retains uncertain issuance', async (t) => {
   const fixture = await cliFixture(t, (call, res) => {

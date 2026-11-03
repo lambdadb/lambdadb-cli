@@ -341,7 +341,15 @@ async function renew(options: AccountOptions, output: Output, vault: CredentialV
     if (session.access_token !== rejected && session.access_expires_at - EXPIRY_MARGIN_MS > Date.now())
       return { account: latest, token: session.access_token, expiresAt: session.access_expires_at };
     const provider = await providerMetadata(latest.issuer, options.signal, timeoutMs(options));
-    const rotated = await refresh(provider, session.refresh_token, options.signal, timeoutMs(options));
+    let rotated: Tokens;
+    try {
+      rotated = await refresh(provider, session.refresh_token, options.signal, timeoutMs(options));
+    } catch (error) {
+      // A rejected or unanswered rotation may have spent the refresh token. End
+      // the saved login so later commands ask for login instead of replaying it.
+      await writeMetadata(path, { ...latest, expiresAt: new Date(0).toISOString() }, before).catch(() => {});
+      throw error;
+    }
     output.protect(rotated.accessToken);
     output.protect(rotated.refreshToken);
     const next: Account = { ...latest, credentialId: randomUUID(), expiresAt: new Date(Date.now() + REFRESH_LIFETIME_MS).toISOString() };
@@ -429,12 +437,14 @@ export async function management(options: AccountOptions, output: Output, vault 
       const cancel = () => cancellation.abort();
       process.once('SIGINT', cancel);
       process.once('SIGTERM', cancel);
+      // Termination also interrupts the key claim; an interrupted claim stays uncertain.
+      const signal = options.signal ? AbortSignal.any([options.signal, cancellation.signal]) : cancellation.signal;
       try {
         const setup = await authorize(
           provider,
           { scope: CONNECTION_SCOPE, connectionId, refresh: false, browser: options.browser !== false },
           output,
-          options.signal ? AbortSignal.any([options.signal, cancellation.signal]) : cancellation.signal,
+          signal,
           requestTimeoutMs,
         );
         output.protect(setup.accessToken);
@@ -442,7 +452,7 @@ export async function management(options: AccountOptions, output: Output, vault 
           if (!setup.scope.includes('connection:issue'))
             throw new InputError('Key issuance was not approved for this project. No key was created.', '');
           // The issuance claim takes an empty body; the server rejects any request fields.
-          return await accountRequest(account, setup.accessToken, `project-connections/${connectionId}/key`, 'POST', undefined, undefined, options.signal, requestTimeoutMs);
+          return await accountRequest(account, setup.accessToken, `project-connections/${connectionId}/key`, 'POST', undefined, undefined, signal, requestTimeoutMs);
         } finally {
           // The setup token has no further use; the project key is independent of it.
           await revoke(provider, setup.accessToken, 'access_token', undefined, requestTimeoutMs);
