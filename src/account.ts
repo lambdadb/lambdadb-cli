@@ -337,6 +337,9 @@ async function renew(options: AccountOptions, output: Output, vault: CredentialV
     const latest = parseAccount(before);
     if (latest.memberId !== account.memberId || latest.apiUrl !== account.apiUrl)
       throw new InputError('The saved login changed during this command. Rerun it.', '');
+    // Another command may have ended this login after a failed renewal.
+    if (Date.parse(latest.expiresAt) <= Date.now())
+      throw new InputError(`CLI login expired. Run ${cli} login again; existing project connections are preserved.`, '');
     const session = await readSession(vault, latest, output);
     if (session.access_token !== rejected && session.access_expires_at - EXPIRY_MARGIN_MS > Date.now())
       return { account: latest, token: session.access_token, expiresAt: session.access_expires_at };

@@ -273,6 +273,19 @@ test('an unanswered refresh ends the saved login instead of replaying the refres
   assert.equal(fixture.calls.filter((c) => c.path === '/oauth2/token').length, 1);
 });
 
+test('a command loaded before another command\'s failed renewal does not replay the refresh token', async (t) => {
+  const fixture = await oauthServer(t, (call, res) => {
+    if (call.path !== '/oauth2/token') return false;
+    res.socket.destroy();
+    return true;
+  });
+  const { config } = await signedIn(t, fixture, session({ access_expires_at: Date.now() - 1 }));
+  const [firstCommand, secondCommand] = [await management({ config }, quiet), await management({ config }, quiet)];
+  await assert.rejects(firstCommand.request('organizations'), /may have changed/);
+  await assert.rejects(secondCommand.request('organizations'), /CLI login expired/);
+  assert.equal(fixture.calls.filter((c) => c.path === '/oauth2/token').length, 1);
+});
+
 test('a rotated session that cannot be saved ends the saved login', async (t) => {
   const fixture = await oauthServer(t, domain((call, res) => res.end(JSON.stringify({ organizations: [] }))));
   const refreshToken = 'refresh-known-2222222222';
