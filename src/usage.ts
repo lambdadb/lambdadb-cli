@@ -1,5 +1,5 @@
 import { loadAccount, management, parseOrganization, type AccountOptions, type Organization } from './account.js';
-import { connectedProject, uuid } from './projects.js';
+import { connectedProject, listOrganizations, uuid } from './projects.js';
 import { InputError, ManagementError } from './errors.js';
 import type { Output } from './output.js';
 
@@ -41,11 +41,8 @@ export async function usage(options: UsageOptions, output: Output): Promise<Usag
   const account = await loadAccount(options);
   const selected = options.orgId ? { org: options.orgId, projectId: options.projectId } : await connectedProject(options, account);
   const api = await management(options, output);
-  const params = new URLSearchParams();
-  if (selected.projectId) params.set('project_id', selected.projectId);
-  if (options.month) params.set('month', options.month);
   let response: Record<string, unknown>;
-  try { response = await api.request(`usage${params.size ? `?${params}` : ''}`, 'GET', undefined, selected.org); }
+  try { response = await usageView(api, selected.org, selected.projectId, options.month); }
   catch (error) {
     if (error instanceof ManagementError) throw new ManagementError('usage_request_failed', error.status, error.details);
     throw error;
@@ -76,6 +73,79 @@ export async function usage(options: UsageOptions, output: Output): Promise<Usag
   if (!from || !to || from >= to) invalid();
   const cost: Cost = { from, to, timezone: 'UTC', is_estimate: true, unpriced_metrics: c.unpriced_metrics, read_bytes: decimal(c.read_bytes, false), write_bytes: decimal(c.write_bytes, false), storage_byte_hours: decimal(c.storage_byte_hours, false), inference_liu: decimal(c.inference_liu, true), read_usd: decimal(c.read_usd, true), write_usd: decimal(c.write_usd, true), storage_usd: decimal(c.storage_usd, true), inference_usd: decimal(c.inference_usd, true), total_usd: decimal(c.total_usd, false) };
   return { organization, projects, project_id: selected.projectId, retrieved_at: retrieved, cost };
+}
+
+type Management = Awaited<ReturnType<typeof management>>;
+const month = (date: Date) => date.toISOString().slice(0, 7);
+const day = (date: Date) => date.toISOString().slice(0, 10);
+
+/** Sums non-negative decimal strings exactly. */
+export function sumDecimals(values: string[]): string {
+  const scale = Math.max(0, ...values.map((v) => v.split('.')[1]?.length ?? 0));
+  const total = values.reduce((sum, v) => {
+    const [whole, fraction = ''] = v.split('.');
+    return sum + BigInt(whole + fraction.padEnd(scale, '0'));
+  }, 0n);
+  const digits = total.toString().padStart(scale + 1, '0');
+  const whole = digits.slice(0, digits.length - scale), fraction = digits.slice(digits.length - scale).replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole;
+}
+
+/**
+ * Composes the usage view from the Organization, project and usage-cost APIs:
+ * Free shows the current quota window; Pay-As-You-Go sums daily buckets of the
+ * UTC month, keeping any missing priced metric unpriced rather than zero.
+ */
+async function usageView(api: Management, org: string, projectId: string | undefined, requested: string | undefined) {
+  const now = new Date();
+  const current = month(now), selected = requested ?? current;
+  if (selected > current) throw new InputError('Use --month for the current or a past UTC month.');
+  const organization = (await listOrganizations(api)).find((o) => o.id === org);
+  if (!organization) throw new ManagementError('access_denied', 403, { request: 'GET organizations' });
+  const view: Record<string, unknown> = { organization, projects: [], project_id: projectId, retrieved_at: now.toISOString() };
+  if (organization.plan === 'Free') {
+    if (selected !== current) throw new InputError('Free exposes only the current quota window; omit --month.');
+    const listed = await api.request('projects', 'GET', undefined, org);
+    if (!Array.isArray(listed.projects)) invalid();
+    const projects = (listed.projects as { id?: unknown }[]).filter((p) => !projectId || p?.id === projectId);
+    if (projectId && !projects.length) throw new ManagementError('access_denied', 403, { request: 'GET projects' });
+    view.projects = projects;
+    return view;
+  }
+  if (organization.role !== 'owner' && organization.role !== 'admin')
+    throw new ManagementError('access_denied', 403, { request: 'GET usage-cost' });
+  if (!organization.plan.startsWith('Pay-As-You-Go (')) throw new ManagementError('management_unavailable', 503, { request: 'GET subscriptions' });
+  const from = new Date(`${selected}-01T00:00:00Z`);
+  const to = selected === current
+    ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1))
+    : new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
+  const params = new URLSearchParams({ from: day(from), to: day(to), granularity: 'daily', timezone: 'UTC' });
+  if (projectId) params.set('projectId', projectId);
+  const r = await api.request(`organizations/${org}/metrics/usage-cost?${params}`);
+  if (!Array.isArray(r.data) || typeof r.from !== 'string' || typeof r.to !== 'string' || typeof r.timezone !== 'string' || typeof r.is_estimate !== 'boolean') invalid();
+  const buckets = r.data as Record<string, unknown>[];
+  const unpriced = new Set<string>();
+  const sum = (key: string, nullable: boolean) => {
+    // Integer counters arrive as JSON numbers; reject any that lost precision.
+    const values = buckets.map((b) => {
+      const v = b[key];
+      if (typeof v === 'number') return Number.isSafeInteger(v) && v >= 0 ? String(v) : invalid();
+      return decimal(v, nullable);
+    });
+    return values.includes(null) ? null : sumDecimals(values as string[]);
+  };
+  for (const b of buckets) {
+    if (!Array.isArray(b.unpriced_metrics) || b.unpriced_metrics.some((m) => typeof m !== 'string')) invalid();
+    for (const m of b.unpriced_metrics as string[]) unpriced.add(m);
+  }
+  view.cost = {
+    from: r.from, to: r.to, timezone: r.timezone, is_estimate: r.is_estimate,
+    read_bytes: sum('read_bytes', false), write_bytes: sum('write_bytes', false), storage_byte_hours: sum('storage_byte_hours', false),
+    inference_liu: sum('inference_liu', true), read_usd: sum('read_usd', true), write_usd: sum('write_usd', true),
+    storage_usd: sum('storage_usd', true), inference_usd: sum('inference_usd', true), total_usd: sum('total_usd', false),
+    unpriced_metrics: [...unpriced].sort(),
+  };
+  return view;
 }
 
 export function formatUsage(data: Usage): string {

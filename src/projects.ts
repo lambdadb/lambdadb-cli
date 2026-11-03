@@ -16,7 +16,7 @@ import {
 import { cli } from './command.js';
 import { configPath, endpoint, fileIdentity, saveSettings, settings, type SelectedSettings } from './config.js';
 import { CredentialVault, credentialReference } from './credentials.js';
-import { openBrowser, projectAuthorization } from './device-auth.js';
+import { openBrowser } from './oauth.js';
 import { InputError, ManagementError } from './errors.js';
 import type { Output } from './output.js';
 import type { SetupPrompts } from './init-ui.js';
@@ -33,17 +33,54 @@ export function uuid(value: string | undefined, label: string): string {
     throw new InputError(`${label} must be an explicit UUID. Run orgs list or projects list to find it.`);
   return value;
 }
+type Management = Awaited<ReturnType<typeof management>>;
 export async function organizations(options: AccountOptions, output: Output): Promise<Organization[]> {
-  const api = await management(options, output),
-    response = await api.request('organizations');
+  return listOrganizations(await management(options, output));
+}
+/** Active Organizations with their plan, composed from the Organization and subscription APIs. */
+export async function listOrganizations(api: Management): Promise<Organization[]> {
+  const response = await api.request('organizations');
   if (!Array.isArray(response.organizations)) throw new InputError('Invalid Organization list response.');
-  return response.organizations.map((v) => parseOrganization(v, api.account));
+  const result: Organization[] = [];
+  for (const value of response.organizations as Record<string, unknown>[]) {
+    if (value?.status !== 'active') continue;
+    const id = uuid(value.id as string, 'Organization');
+    result.push(parseOrganization({ ...value, plan: await plan(api, id) }, api.account));
+  }
+  return result;
+}
+async function plan(api: Management, org: string): Promise<string> {
+  try {
+    const subscription = await api.request(`subscriptions/${org}`);
+    return typeof subscription.status === 'string' && /^[a-z_]{1,32}$/.test(subscription.status)
+      ? `Pay-As-You-Go (${subscription.status})`
+      : 'Unknown (billing lookup unavailable)';
+  } catch (error) {
+    if (error instanceof ManagementError && error.status === 404) return 'Free';
+    throw error;
+  }
+}
+/** Regions in the order the server lists them. */
+export async function regions(api: Management) {
+  const response = await api.request('projects/regions');
+  const clouds = response.clouds as Record<string, { region?: unknown; region_name?: unknown; is_open?: unknown }[]> | undefined;
+  if (!clouds || typeof clouds !== 'object' || Array.isArray(clouds)) throw new InputError('Invalid region list.');
+  const items: { cloud_provider: string; region: string; name: string; is_open: boolean }[] = [];
+  for (const [cloud, list] of Object.entries(clouds)) {
+    if (!Array.isArray(list)) throw new InputError('Invalid region list.');
+    for (const r of list) {
+      if (typeof r?.region !== 'string' || typeof r.region_name !== 'string' || typeof r.is_open !== 'boolean')
+        throw new InputError('Invalid region list.');
+      items.push({ cloud_provider: cloud, region: r.region, name: r.region_name, is_open: r.is_open });
+    }
+  }
+  return { regions: items };
 }
 export async function projects(options: AccountOptions, org: string, output: Output): Promise<Project[]> {
   uuid(org, 'Organization');
   return listProjects(await management(options, output), org);
 }
-async function listProjects(api: Awaited<ReturnType<typeof management>>, org: string): Promise<Project[]> {
+async function listProjects(api: Management, org: string): Promise<Project[]> {
   const response = await api.request('projects', 'GET', undefined, org);
   if (!Array.isArray(response.projects)) throw new InputError('Invalid project list response.');
   return response.projects.map((value) => {
@@ -78,17 +115,26 @@ export async function createProject(
       'Project name must contain 3–45 letters, digits, underscores or hyphens; --region is required.',
     );
   const api = await management(options, output);
-  const result = await api.request(
-    'projects',
-    'POST',
-    {
-      name: input.name,
-      cloud_provider: 'aws',
-      region: input.region,
-      default_organization: !!input.defaultOrg,
-    },
-    input.orgId,
-  );
+  let org = input.orgId;
+  if (input.defaultOrg) {
+    const prepared = await api.request('organizations/default', 'POST', {});
+    org = uuid(prepared.id as string, 'Default Organization');
+  }
+  let result: Record<string, unknown>;
+  try {
+    result = await api.request('projects', 'POST', { name: input.name, cloud_provider: 'aws', region: input.region }, org);
+  } catch (error) {
+    // The project API rejects a full Organization with 403; report its limit and billing link.
+    if (error instanceof ManagementError && error.status === 403) {
+      const organization = (await listOrganizations(api)).find((o) => o.id === org);
+      if (organization && organization.projects_count >= organization.max_projects)
+        throw new ManagementError('project_limit_reached', 409, { request: 'POST projects', organization });
+    } else if (error instanceof ManagementError && error.code === 'management_request_failed' && error.status !== undefined && error.status < 500) {
+      throw new ManagementError('project_request_rejected', error.status, error.details);
+    }
+    throw error;
+  }
+  result = { ...result, organization_id: org };
   try {
     uuid(result.id as string, 'Created project');
     uuid(result.organization_id as string, 'Organization');
@@ -109,6 +155,7 @@ type SavedConnection = {
   projectId: string;
   settings?: SelectedSettings;
   pendingKeyName?: string;
+  pendingConnectionId?: string;
 };
 const connectionsPath = async (options: AccountOptions) =>
   `${await fileIdentity(configPath(options))}.connections.json`;
@@ -123,7 +170,7 @@ async function connections(options: AccountOptions) {
       for (const item of items) {
         if (
           Object.keys(item).some(
-            (k) => !['account', 'org', 'projectId', 'settings', 'pendingKeyName'].includes(k),
+            (k) => !['account', 'org', 'projectId', 'settings', 'pendingKeyName', 'pendingConnectionId'].includes(k),
           ) ||
           typeof item.account !== 'string'
         )
@@ -133,9 +180,10 @@ async function connections(options: AccountOptions) {
         if (
           item.pendingKeyName !== undefined &&
           (typeof item.pendingKeyName !== 'string' ||
-            !/^lambdadb-cli-[0-9a-f-]{36}$/.test(item.pendingKeyName))
+            !/^lambdadb-(cli|connection)-[0-9a-f-]{36}$/.test(item.pendingKeyName))
         )
           throw new Error();
+        if (item.pendingConnectionId !== undefined) uuid(item.pendingConnectionId, 'Connection');
         if (item.settings) {
           const s = item.settings;
           credentialReference(s.credentialStore, s.credentialId);
@@ -191,11 +239,7 @@ export async function useProject(
   return withManagementLock(options, async () => {
     const api = client ?? (await management(options, output));
     const project = (await listProjects(api, org)).find((p) => p.id === projectId);
-    const orgResponse = await api.request('organizations');
-    const orgs = Array.isArray(orgResponse.organizations)
-      ? orgResponse.organizations.map((v) => parseOrganization(v, api.account))
-      : [];
-    const organization = orgs.find((o) => o.id === org);
+    const organization = (await listOrganizations(api)).find((o) => o.id === org);
     if (!organization) throw new InputError('The Organization is not available to this account.');
     if (!project) throw new InputError('The project is not available in this Organization.');
     if (project.status !== 'ACTIVE')
@@ -231,29 +275,46 @@ export async function useProject(
         output.diagnostic(
           'Kernel credentials can expire or disappear after reboot. Metadata is retained; replacement requires explicit key issuance.',
         );
-      const requestId = randomUUID(),
-        keyName = `lambdadb-cli-${requestId}`;
-      output.diagnostic(
-        options.guided ? `Creating project key in ${store}.\nRecovery name: ${keyName}` : `Issuing ${keyName}. If delivery fails, inspect it in Console; no request will be retried automatically.`,
-      );
-      if (!item) {
-        item = { account, org, projectId };
-        cache.items.push(item);
-      }
-      item.pendingKeyName = keyName;
-      await writeMetadata(cache.path, cache.items, cache.before);
-      const pending = await readOptional(cache.path);
-      const response = await api.request('connect', 'POST', {
-        organization_id: org,
-        project_id: projectId,
-        request_id: requestId,
+      let keyName = '';
+      const issued = await api.issueKey({
+        projectId,
+        recoveryId: item?.pendingConnectionId,
+        // Record the recovery identity before any approval or key exists.
+        onConnection: async (connectionId: string) => {
+          keyName = `lambdadb-connection-${connectionId}`;
+          output.diagnostic(
+            options.guided ? `Approve the project key in your browser.\nRecovery name: ${keyName}` : `Approve issuing ${keyName} in the browser. If delivery fails, inspect it in Console; no request will be retried automatically.`,
+          );
+          if (!item) {
+            item = { account, org, projectId };
+            cache.items.push(item);
+          }
+          item.pendingKeyName = keyName;
+          item.pendingConnectionId = connectionId;
+          await writeMetadata(cache.path, cache.items, cache.before);
+        },
       });
-      let granted: ReturnType<typeof projectAuthorization>;
+      if (typeof issued.api_key === 'string') output.protect(issued.api_key);
+      // onConnection always records the item before a key can be issued.
+      if (!item) throw new ManagementError('issuance_unconfirmed', undefined, { request: 'POST project-connections/{id}/key', pendingKeyName: keyName });
+      const pending = await readOptional(cache.path);
+      let granted: { endpoint: string; project: string; apiKey: string; credentialKeyId: string };
       try {
-        granted = projectAuthorization(response, output, keyName);
-        if (granted.project !== project.name) throw new Error();
+        if (
+          issued.connection_id !== item.pendingConnectionId ||
+          issued.project_id !== projectId ||
+          issued.project_name !== project.name ||
+          typeof issued.endpoint !== 'string' ||
+          typeof issued.key_id !== 'string' ||
+          !/^[a-zA-Z0-9_-]{1,128}$/.test(issued.key_id) ||
+          typeof issued.api_key !== 'string' ||
+          !issued.api_key.trim() ||
+          /[\r\n]/.test(issued.api_key)
+        )
+          throw new Error();
+        granted = { endpoint: endpoint(issued.endpoint), project: project.name, apiKey: issued.api_key, credentialKeyId: issued.key_id };
       } catch {
-        throw new ManagementError('issuance_unconfirmed', undefined, { request: 'POST connect', response: 'invalid', pendingKeyName: keyName });
+        throw new ManagementError('issuance_unconfirmed', undefined, { request: 'POST project-connections/{id}/key', response: 'invalid', pendingKeyName: keyName });
       }
       selected = {
         endpoint: granted.endpoint,
@@ -269,6 +330,7 @@ export async function useProject(
       try {
         item.settings = selected;
         delete item.pendingKeyName;
+        delete item.pendingConnectionId;
         await writeMetadata(cache.path, cache.items, pending);
       } catch (error) {
         await vault.remove(target).catch(() => {});
@@ -370,18 +432,10 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
       throw new InputError(
         'An owner or admin must connect the new project. Choose an existing saved connection or ask your admin for a project key.',
       );
-    const api = await management(options, output),
-      response = await api.request('regions');
-    const regions = response.regions as {
-      region: string;
-      name: string;
-      is_open: boolean;
-      cloud_provider: string;
-    }[];
-    if (!Array.isArray(regions)) throw new InputError('Invalid region list.');
+    const listed = (await regions(await management(options, output))).regions;
     // Match Console: regions that deploy right away first, then regions that still need
     // provisioning, each group in the server's order.
-    const aws = regions.filter((r) => r.cloud_provider === 'aws');
+    const aws = listed.filter((r) => r.cloud_provider === 'aws');
     const region = await choose(
       [...aws.filter((r) => r.is_open), ...aws.filter((r) => !r.is_open)],
       (r) => `${r.name} (${r.region})`,

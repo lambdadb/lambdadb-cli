@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Account login uses LambdaDB OAuth. `login` opens a browser on this computer
+  and completes on a loopback address with S256 PKCE; `--no-browser` uses the
+  device flow with a link and code for any device. The CLI discovers the sign-in
+  service and Console URL from the API origin's OAuth metadata, so `--api-url`
+  still selects the environment. Logins saved by earlier versions must sign in
+  again; `logout` removes them locally. This requires a server with OAuth
+  enabled.
+- The login is an account-management grant only. It renews while in use, with
+  refresh rotation serialized across concurrent commands, and ends after seven
+  idle days or on revocation. A failed or uncertain renewal asks for `login`
+  instead of retrying.
+- `projects use --issue-key` approves a separate project connection for that
+  exact project in the browser, or at the printed link with the new
+  `--no-browser` option, and discards the setup token after issuance. Issued
+  keys are named `lambdadb-connection-<connection-id>`, and an uncertain earlier
+  issuance is offered to Console for recovery instead of being replaced silently.
+- Organization, project, region and usage commands call the existing Backend
+  APIs; their JSON output is unchanged. `logout` now always removes the local
+  login and reports `remoteRevoked`.
+
 ### Maintenance
 
 - Update the Homebrew formula to verified stable 0.1.9 and its release-commit

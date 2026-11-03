@@ -217,16 +217,17 @@ export LAMBDADB_API_KEY
 
 For development deployments, select the account API origin with
 `--api-url https://api-dev.lambdadb.ai`. Later login renewal reuses that saved
-origin unless explicitly overridden; the server supplies its configured Console
-URL. HTTPS is required except for loopback tests.
+origin unless explicitly overridden. The CLI discovers that environment's sign-in
+service and Console URL from the API's OAuth metadata. HTTPS is required except
+for loopback tests.
 
 ### OS credential storage
 
 Account login and project credentials use separate OS credential-store namespaces.
-The opaque account session expires after seven days and is valid only for CLI
-management routes. It is never sent to MCP or agents, and is not a Console JWT or
-refresh token. Run `login` again to renew it; `logout` revokes it immediately and
-preserves project keys. Project settings and agent files contain only references.
+The account login is a LambdaDB OAuth grant for account management only; it
+renews while in use, ends after seven idle days, and cannot issue project keys.
+It is never sent to MCP or agents. `logout` revokes it and preserves project
+keys. Project settings and agent files contain only references.
 Use `--credential-store auto` (default),
 `keychain`, `windows`, `secret-service`, or `keyutils` to select an available OS
 backend. Linux auto selection tries Secret Service, then kernel keyutils for a
@@ -239,7 +240,7 @@ It leaves metadata and agent references intact and does **not** revoke the serve
 key. Revoke unused keys in Console under Project API Keys, using the saved key
 name/ID. Explicit reconnection creates a fresh credential slot; it does not revoke
 or delete older slots that other agents might still use. If key delivery or local
-storage fails after approval, inspect the named `lambdadb-cli-...` key in Console
+storage fails after approval, inspect the named `lambdadb-connection-...` key in Console
 and revoke it if unused before reconnecting. Requests are never blindly retried
 across an uncertain key-issuance response.
 

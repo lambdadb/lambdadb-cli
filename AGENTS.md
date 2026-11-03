@@ -13,7 +13,7 @@ rules that are easy to break, and the bundled skill's design. For depth, read
   adapter registry (detection, MCP and skill paths, restart text per agent);
   `src/agent-config.ts` edits JSONC/TOML while preserving unrelated settings;
   `src/skill-history.ts` lists every bundled skill hash.
-- `src/config.ts`, `src/credentials.ts`, `src/device-auth.ts`, `src/account.ts`,
+- `src/config.ts`, `src/credentials.ts`, `src/oauth.ts`, `src/account.ts`,
   `src/projects.ts` cover settings, OS credential stores and account login.
 - `src/import-workflow.ts`, `src/runtime.ts`, `src/usage.ts` cover document
   import, data API calls and usage reporting.
