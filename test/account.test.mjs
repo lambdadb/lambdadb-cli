@@ -178,6 +178,31 @@ test('an expired access token is renewed once, rotated into a fresh OS-store slo
   assert.deepEqual(used, [`Bearer ${rotated.access_token}`, `Bearer ${rotated.access_token}`]);
 });
 
+test('a command that read the login just before another command rotated it uses the replacement session', async (t) => {
+  const fixture = await oauthServer(t, domain((call, res) => {
+    res.end(JSON.stringify({ organizations: [] }));
+  }));
+  const { config, account: before, store } = await signedIn(t, fixture);
+  const replacement = { ...before, credentialId: randomUUID() };
+  const rotated = session({ access_token: 'access-rotated-elsewhere-000' });
+  const read = CredentialVault.prototype.read;
+  let raced = false;
+  // The other command finishes its rotation between this command's metadata and slot reads.
+  CredentialVault.prototype.read = async function (ref) {
+    if (!raced && ref.credentialId === before.credentialId) {
+      raced = true;
+      store.set(replacement.credentialId, rotated);
+      await writeFile(await accountPath({ config }), JSON.stringify(replacement));
+      store.delete(before.credentialId);
+    }
+    return read.call(this, ref);
+  };
+  assert.deepEqual(await organizations({ config }, quiet), []);
+  assert.ok(raced);
+  assert.equal(fixture.calls.find((c) => c.path === '/organizations').auth, 'Bearer access-rotated-elsewhere-000');
+  assert.equal(fixture.calls.filter((c) => c.path === '/oauth2/token').length, 0);
+});
+
 test('a rejected access token is renewed and the request retried once; a revoked login requires login again', async (t) => {
   let rejections = 1;
   const fixture = await oauthServer(t, domain((call, res) => {

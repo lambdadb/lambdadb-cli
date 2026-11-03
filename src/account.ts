@@ -338,10 +338,28 @@ async function renew(options: AccountOptions, output: Output, vault: CredentialV
   });
 }
 
+/**
+ * Reads the saved login and its session. A concurrent renewal can replace the
+ * OS-store slot between reading the metadata and the slot, so a failed read is
+ * retried while the metadata keeps pointing to a newer slot.
+ */
+async function loadSession(options: AccountOptions, vault: CredentialVault, output: Output) {
+  for (let attempt = 1; ; attempt++) {
+    const account = await loadAccount(options);
+    try {
+      return { account, session: await readSession(vault, account, output) };
+    } catch (error) {
+      const latest = await readOptional(await accountPath(options));
+      if (attempt >= 3 || !latest || parseAccount(latest).credentialId === account.credentialId) throw error;
+    }
+  }
+}
+
 export async function management(options: AccountOptions, output: Output, vault = accountVault()) {
   const requestTimeoutMs = timeoutMs(options);
-  let account = await loadAccount(options);
-  const saved = await readSession(vault, account, output);
+  const loaded = await loadSession(options, vault, output);
+  let account = loaded.account;
+  const saved = loaded.session;
   let token = saved.access_token;
   let expiresAt = saved.access_expires_at;
   // An expired token counts as rejected, so a newer one saved by another process is reused.
