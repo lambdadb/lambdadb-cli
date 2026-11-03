@@ -118,7 +118,7 @@ test(
     let calls = 0;
     const server = createServer((req, res) => {
       assert.equal(req.headers.authorization, `Bearer ${secret}`);
-      assert.equal(req.url, '/auth/cli/organizations');
+      assert.equal(req.url, '/organizations');
       calls++;
       res.setHeader('Content-Type', 'application/json');
       res.end('{"organizations":[]}');
@@ -143,6 +143,7 @@ test(
         credentialId: target.credentialId,
         apiUrl,
         consoleUrl: 'https://console.example.com',
+        issuer: `${apiUrl}/`,
         memberId: randomUUID(),
         email: 'synthetic@example.com',
         expiresAt: new Date(Date.now() + 60000).toISOString(),
@@ -150,7 +151,8 @@ test(
       { mode: 0o600 },
     );
     try {
-      await vault.save(target, secret);
+      // The account slot holds the OAuth session; its access token authorizes management.
+      await vault.save(target, JSON.stringify({ refresh_token: `refresh-${secret}`, access_token: secret, access_expires_at: Date.now() + 600000 }));
       await assert.rejects(new CredentialVault().read(target), /Cannot read/);
       const child = spawn(process.execPath, [cli, 'orgs', 'list', '--config', config, '--json'], {
         env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('LAMBDADB_'))),

@@ -15,7 +15,7 @@ import { serveMcp } from './mcp.js';
 import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
 import { usage, formatUsage } from './usage.js';
-import { organizations, projects, createProject, useProject } from './projects.js';
+import { organizations, projects, createProject, regions, useProject } from './projects.js';
 
 const output = new Output();
 output.protect(process.env.LAMBDADB_API_KEY);
@@ -114,14 +114,20 @@ program.command('login').description('Authorize account management in a browser 
     result(account, 'Account login saved. Project connections and agent settings are unchanged.');
   });
 program.command('logout').description('Revoke the saved account session and remove it locally; keep project connections')
-  .action(async (_opts, cmd: Command) => { await logout(cmd.optsWithGlobals(), output); result({ loggedOut: true, projectKeysRevoked: false }, 'Account logged out. Project keys and agent connections are unchanged.'); });
+  .action(async (_opts, cmd: Command) => {
+    const outcome = await logout(cmd.optsWithGlobals(), output);
+    const remoteRevoked = outcome?.remoteRevoked ?? false;
+    result({ loggedOut: true, remoteRevoked, projectKeysRevoked: false }, outcome && !remoteRevoked
+      ? 'Account logged out locally, but remote revocation could not be confirmed; the login ends after seven idle days. Project keys and agent connections are unchanged.'
+      : 'Account logged out. Project keys and agent connections are unchanged.');
+  });
 program.command('orgs').description('Manage account Organizations').command('list')
   .action(async (_opts, cmd: Command) => result({ organizations: await organizations(cmd.optsWithGlobals(), output) }, 'Accessible Organizations.'));
 const projectCommands = program.command('projects').description('List, create and select projects using the saved account session');
 projectCommands.command('list').requiredOption('--org-id <uuid>', 'Organization ID')
   .action(async (opts, cmd: Command) => result({ projects: await projects(cmd.optsWithGlobals(), opts.orgId, output) }, 'Projects in the selected Organization.'));
 projectCommands.command('regions').description('List available regions before project creation')
-  .action(async (_opts, cmd: Command) => { const api = await management(cmd.optsWithGlobals(), output); result(await api.request('regions'), 'Project regions.'); });
+  .action(async (_opts, cmd: Command) => result(await regions(await management(cmd.optsWithGlobals(), output)), 'Project regions.'));
 projectCommands.command('create').option('--org-id <uuid>', 'Existing Organization ID').option('--default-org', 'Explicitly prepare the default Organization on submission')
   .requiredOption('--name <name>', 'Project name').requiredOption('--region <region>', 'Region from projects regions')
   .action(async (opts, cmd: Command) => {
@@ -129,7 +135,8 @@ projectCommands.command('create').option('--org-id <uuid>', 'Existing Organizati
     result(created, 'Project requested. Check projects list for ACTIVE status; creation does not establish search readiness.');
   });
 projectCommands.command('use').requiredOption('--org-id <uuid>', 'Organization ID').requiredOption('--project-id <uuid>', 'Project ID')
-  .option('--issue-key', 'Explicitly issue a new project key, including replacement of a saved connection')
+  .option('--issue-key', 'Explicitly issue a new project key after approval in a browser, including replacement of a saved connection')
+  .option('--no-browser', 'Approve key issuance at the printed URL on this or another device instead of a browser on this computer')
   .action(async (opts, cmd: Command) => result(await useProject(cmd.optsWithGlobals(), opts.orgId, opts.projectId, !!opts.issueKey, output), 'CLI project selected. Agent configurations are unchanged.'));
 
 program.command('usage')

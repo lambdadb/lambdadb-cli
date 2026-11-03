@@ -3,10 +3,12 @@
 [CLI overview](../README.md) · [Setup](setup.md) · [Agents](agents.md) · [Account and usage](account.md) · [Data commands](data.md)
 
 These commands use a saved account login, independently of project API-key
-configuration. They never prompt for missing arguments. `login` deliberately
-waits for browser approval and prints a URL usable on another device; it does not
-prompt on stdin. It only signs in: project listing, creation and selection require
-explicit commands afterwards. Run `lambdadb init` instead for guided project and
+configuration. They never prompt for missing arguments. `login` signs in through
+LambdaDB OAuth: by default it opens a browser on this computer and receives the
+approval on a local loopback address; with `--no-browser` (SSH or headless) it
+prints a link and code to approve on any device. It does not prompt on stdin. It
+only signs in: project listing, creation and selection require explicit commands
+afterwards. Run `lambdadb init` instead for guided project and
 agent setup; it reuses a valid login. Use the same `--config` path throughout if
 overriding it.
 
@@ -32,8 +34,10 @@ project-name selector for data API commands.
 `create` requires exactly one of `--org-id UUID` or `--default-org`, plus `--name`
 and `--region`. Creation does not select the CLI default or install agents.
 `use` requires both IDs; first connection or deliberate key replacement requires
-`--issue-key` and owner/admin key-management permission. Saved project keys are
-reused without that flag. `projects use` changes only the CLI default: existing
+`--issue-key` and owner/admin key-management permission. Issuing a key is a
+separate approval for that exact project in the browser (or at the printed link
+with `--no-browser`); the account login itself cannot mint keys. Saved project
+keys are reused without that flag. `projects use` changes only the CLI default: existing
 agent entries stay pinned until you rerun `init` and approve their file plan.
 Expired, missing or unreadable account credentials fail with login/unlock guidance;
 ordinary management commands never start browser login automatically.
@@ -108,9 +112,14 @@ Account metadata and the per-project connection cache live beside the resolved
 CLI config file as `.account.json` and `.connections.json` suffixes. They contain
 no secrets. The `.management.lock` suffix serializes local login/selection work;
 if a process was killed, confirm it is no longer running before removing its
-stale lock. `logout` needs the saved OS entry and server connectivity to confirm
-revocation; otherwise it retains metadata and fails with an actionable error.
-Undelivered/unavailable account sessions expire within seven days. Project keys
-have their existing lifetime; logout does not revoke them. Explicit replacement
+stale lock. The `.account.lock` suffix serializes access renewal between
+concurrent commands and is removed automatically when stale.
+The login renews itself while in use and ends after seven idle days or when it is
+revoked; a failed or uncertain renewal asks for `login` again rather than
+retrying. `logout` always removes the local login and reports `remoteRevoked`;
+when the sign-in service cannot confirm revocation, the login still ends after
+seven idle days. Logins saved by CLI versions before OAuth must sign in again;
+`logout` removes them locally. Project keys have their existing lifetime; logout
+does not revoke them. Explicit replacement
 retains older project entries for agents still pinned to them; revoke unused keys
 in Console and remove their local reference deliberately.

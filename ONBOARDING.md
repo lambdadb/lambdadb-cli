@@ -11,6 +11,12 @@ agent adapters, skill, and stdio MCP integration remain the foundation.
 
 ## Terminal project management
 
+Update 2026-11-03: account login now uses LambdaDB OAuth (Hydra) with the
+provisioned `lambdadb-cli` native client. Management calls the existing Backend
+APIs with an `account:manage` token, and `projects use --issue-key` approves a
+separate project connection. The opaque session and `/auth/cli` routes described
+below are superseded and retire after the cutover.
+
 Browser authorization grants a separate CLI account session. Browser signup/login and deliberate CLI
 approval return an account session; Org/project selection and creation happen in
 the terminal. `login`, `logout`, `orgs list`, `projects list`, `projects create`,

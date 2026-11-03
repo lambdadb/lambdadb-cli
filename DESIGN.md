@@ -180,10 +180,12 @@ CLI arguments/configuration → input validation → SDK facade → LambdaDB API
 - `config.ts`: deterministic user-local configuration, OS/environment credential resolution and
   atomic non-secret settings writes.
 - `credentials.ts`: explicit native OS store selection and verified credential writes.
-- `device-auth.ts`: bounded control-plane device authorization; never retries uncertain issuance.
+- `oauth.ts`: LambdaDB OAuth discovery from the API origin, loopback PKCE and device grants, refresh and
+  revocation for the provisioned native client; never retries an uncertain grant or issuance.
 - `usage.ts`: read-only account-authenticated quota/cost reporting; preserve exact
   Backend decimal strings, missing values and per-request timeout semantics.
-- `account.ts`: isolated OS account sessions, bounded management requests and local metadata locking.
+- `account.ts`: isolated OS account logins with serialized refresh rotation, bounded management requests
+  over existing Backend APIs, project-connection key issuance and local metadata locking.
 - `projects.ts`: terminal Org/project setup, current-limit guidance and cached project selection.
 - `input.ts`: bounded file snapshots, strict request preflight, SDK serializer
   reuse and the small null-size compatibility adjustment.
