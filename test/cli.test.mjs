@@ -15,6 +15,25 @@ const indexConfigs = { text: { type: 'text', analyzers: ['english'] } };
 const created = { collectionName: 'demo-docs', description: '', tags: {}, defaultBranchName: 'main', snapshotRetentionInDays: 30, createdAt: 1789689600000 };
 const metadata = { ...created, projectName: 'dev-project', indexConfigs, numPartitions: 1, numDocs: 3, updatedAt: created.createdAt };
 
+// Reads the human query/fetch layout back into data: numbered document headers with their
+// JSON fields, the indented document JSON, then named response fields (inline or as blocks).
+function humanResult(stdout) {
+  const lines = stdout.split('\n'), docs = [], rest = {};
+  const block = (from, indent) => { const out = []; let j = from; while (j < lines.length && lines[j].startsWith(indent)) out.push(lines[j++]); return [JSON.parse(out.join('\n')), j - 1]; };
+  for (let i = 0; i < lines.length; i++) {
+    const header = lines[i].match(/^\d+\. (.+?)((?: {2}\S+ \S+)*)$/);
+    if (header) {
+      const fields = Object.fromEntries([...header[2].matchAll(/ {2}(\S+) (\S+)/g)].map(([, key, value]) => [key, JSON.parse(value)]));
+      const [doc, end] = block(i + 1, '   ');
+      docs.push({ ...fields, doc }); i = end; continue;
+    }
+    const named = lines[i].match(/^([a-z]\w*):(?: (.*))?$/);
+    if (named && named[2] !== undefined) rest[named[1]] = JSON.parse(named[2]);
+    else if (named) { const [value, end] = block(i + 1, '  '); rest[named[1]] = value; i = end; }
+  }
+  return { ...rest, docs };
+}
+
 async function fixture(t, handler) {
   const temp = await mkdtemp(join(tmpdir(), 'lambdadb-cli-test-'));
   const requests = [];
@@ -309,11 +328,51 @@ test('create failure after dispatch is unknown; API rejection is definite', asyn
   }
 });
 
+test('human data output: tables, next page commands, collection details and grouped help', async t => {
+  const page = { collections: [metadata, { ...metadata, collectionName: 'faq', numDocs: 1234567, indexConfigs: { embedding: { type: 'vector', dimensions: 1024, similarity: 'cosine' } } }], nextPageToken: "a/+'b" };
+  const f = await fixture(t, (r, send) => {
+    if (r.url.pathname.endsWith('/collections')) return send(200, page);
+    if (/\/docs(\/list)?$/.test(r.url.pathname)) return send(200, { total: 1, isDocsInline: true, docs: [{ collection: 'demo-docs', doc: { id: 'doc-1' } }], nextPageToken: 'next' });
+    return send(200, { collection: { ...metadata, tags: { team: 'search' } } });
+  });
+  const listed = await f.run(['collections', 'list', '--size', '2']);
+  assert.equal(listed.code, 0, listed.stderr);
+  assert.equal(listed.stdout, [
+    `dev-project  (${new URL(f.base).host})`,
+    'Collections (2)', '',
+    '  NAME       DOCS       INDEXES                  UPDATED',
+    '  demo-docs  3          text (text)              2026-09-18T00:00:00Z',
+    '  faq        1,234,567  embedding (vector 1024)  2026-09-18T00:00:00Z', '',
+    // The opaque token is quoted for the shell, including an embedded single quote.
+    "Next: lambdadb collections list --size 2 --page-token 'a/+'\\''b'", '',
+  ].join('\n'));
+  const filter = await f.file('list filter.json', { fields: { include: ['id'] } });
+  const docs = await f.run(['docs', 'list', '--collection', 'demo-docs', '--ref', 'tag:release-one', '--file', filter]);
+  assert.equal(docs.code, 0, docs.stderr);
+  assert.match(docs.stdout, /^dev-project \/ demo-docs {2}tag:release-one {2}\(.+\)\n1 document\(s\); more pages available\.\n\n1\. doc-1\n/);
+  assert.ok(docs.stdout.endsWith(`\nNext page: lambdadb docs list --collection demo-docs --ref tag:release-one --file '${filter}' --page-token next\n`), docs.stdout);
+  // Explicit connection options carry over, so the continuation reaches the same project.
+  const pinned = await f.run(['collections', 'list', '--size', '2', '--endpoint', f.base, '--project', 'dev-project', '--api-key-env', 'LAMBDADB_API_KEY']);
+  assert.ok(pinned.stdout.endsWith(`\nNext: lambdadb collections list --size 2 --endpoint ${f.base} --project dev-project --api-key-env LAMBDADB_API_KEY --page-token 'a/+'\\''b'\n`), pinned.stdout);
+  const described = await f.run(['collections', 'describe', '--collection', 'demo-docs']);
+  assert.match(described.stdout, /\n {2}Documents {3}3 on the committed main branch\n {2}Tags {8}team=search\n/);
+  assert.match(described.stdout, /\n {2}FIELD {2}INDEX {2}SETTINGS\n {2}text {3}text {3}analyzers: \["english"\]\n/);
+  const doctor = await f.run(['doctor']);
+  assert.match(doctor.stdout, /\n✓ Configuration\n✓ Authentication and collection access\n\nConnected\. Writes and search readiness were not checked\.\nNext: lambdadb collections list\n$/);
+  const config = join(f.temp, 'saved.json');
+  const configured = await f.run(['configure', '--config', config]);
+  assert.match(configured.stdout, new RegExp(`^Configuration saved\\.\\n\\n {2}Endpoint {2}${f.base.replaceAll('.', '\\.')}\\n {2}Project {3}dev-project\\n {2}Key {7}\\$LAMBDADB_API_KEY\\n {2}File {6}`));
+  const help = (await f.run(['--help'])).stdout;
+  const groups = [...help.matchAll(/^([A-Z][A-Za-z ]+):$/gm)].map(m => m[1]);
+  assert.deepEqual(groups.filter(g => g !== 'Options' && g !== 'Advanced connection options' && g !== 'Examples'), ['Get started', 'Account and projects', 'Agents and credentials', 'Data']);
+  assert.match(help, /Get started:\n {2}init \[options\][^\n]*\n(?:.*\n)*? {2}help \[command\] +Show help for a command\n/);
+});
+
 test('read retries use SDK and normal output is readable', async t => {
   let count = 0;
   const f = await fixture(t, (_r, send) => ++count === 1 ? send(503, { message: 'temporary' }) : send(200, { collections: [] }));
   const r = await f.run(['doctor']);
-  assert.equal(r.code, 0); assert.equal(count, 2); assert.match(r.stdout, /Connection verified/);
+  assert.equal(r.code, 0); assert.equal(count, 2); assert.match(r.stdout, /✓ Authentication and collection access\n/);
   assert.equal((await f.run(['--help'])).code, 0);
   assert.equal((await f.run(['--version'])).stdout.trim(), packageVersion);
 });
@@ -385,8 +444,8 @@ test('credentials matching protocol tokens preserve output schema while redactin
   }
   r = await f.run(args, env);
   assert.equal(r.code, 0);
-  assert.match(r.stdout, /"accepted": 3/);
-  assert.match(r.stdout, /"state": "accepted"/);
+  // The human summary is built from the sanitized counts; its fixed wording is not credential data.
+  assert.match(r.stdout, /\n3\/3 document\(s\) accepted; search visibility not verified\.\n$/);
   r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', 'doc-1', '--json'], env);
   assert.equal(r.json.target.ref.kind, 'branch');
   assert.deepEqual(r.json.data.docs[0].doc, {
@@ -589,7 +648,8 @@ test('placeholder keys shorter than eight characters are not redacted, so ordina
     assert.ok(!r.stdout.includes('[REDACTED]'));
   }
   const human = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-facets-only.json')], { LAMBDADB_API_KEY: 'count' });
-  assert.match(human.stdout, /^0 match\(es\)\.\n/);
+  assert.equal(human.stdout.split('\n')[1], '0 match(es) in 1 ms.');
+  assert.deepEqual(humanResult(human.stdout).facets, facets);
   assert.ok(!human.stdout.includes('[REDACTED]'));
 });
 
@@ -794,7 +854,7 @@ test('colliding credentials preserve fixed rerank tokens while redacting arbitra
     for (const json of [true, false]) {
       const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-rerank.json'), ...(json ? ['--json'] : [])], { LAMBDADB_API_KEY: key });
       assert.equal(r.code, 0);
-      const data = json ? r.json.data : JSON.parse(r.stdout.split('\n').slice(2).join('\n'));
+      const data = json ? r.json.data : humanResult(r.stdout);
       // Shorter placeholders are not credentials and stay readable.
       const redacted = key.length >= 8 ? '[REDACTED]' : key;
       assert.deepEqual(data.rerank, { ...rerank, resolvedModel: `server-${redacted}` });
@@ -1010,9 +1070,11 @@ test('Bayesian rerank retains complete documents and metadata in inline/download
     for (const json of [false, true]) {
       const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', resolve('examples/query-bayesian-rerank.json'), ...(json ? ['--json'] : [])]);
       assert.equal(r.code, 0);
-      const data = json ? r.json.data : JSON.parse(r.stdout.split('\n').slice(2).join('\n'));
-      assert.deepEqual(data.docs, docs);
+      const data = json ? r.json.data : humanResult(r.stdout);
+      // Human output names the collection once in its target line instead of per document.
+      assert.deepEqual(data.docs, json ? docs : docs.map(({ collection: _, ...item }) => item));
       assert.deepEqual(data.rerank, rerank);
+      if (!json) assert.equal(data.maxScore, 0.9);
       assert.equal(data.docsUrl, undefined);
       assert.ok(!r.stdout.includes('signature=private'));
     }
@@ -1127,7 +1189,7 @@ test('branch, tag and alias commands forward kind:NAME refs, as-of cutoffs and n
   // The SDK converts creation times to Date, which the envelope prints as ISO 8601.
   assert.deepEqual((await f.run(['aliases', 'list', ...base])).json.data.aliases[0], { ...aliasDetails, createdAt: new Date(aliasDetails.createdAt).toISOString() });
   const human = await f.run(['branches', 'list', '--collection', 'demo-docs']);
-  assert.equal(human.code, 0); assert.match(human.stdout, /1 branch\(es\)/);
+  assert.equal(human.code, 0); assert.match(human.stdout, /\nBranches \(1\)\n\n {2}NAME {7}PARENT {2}CREATED\n {2}candidate {2}main {4}2026-09-18T00:00:00Z\n$/);
 });
 
 test('invalid ref sources, targets, names and as-of values fail before any versioning request', async t => {
