@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-04
+
 ### Changed
 
 - Account login uses LambdaDB OAuth. `login` opens a browser on this computer
