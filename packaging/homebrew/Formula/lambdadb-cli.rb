@@ -1,16 +1,16 @@
 class LambdadbCli < Formula
   desc "Project-scoped LambdaDB command-line tools"
   homepage "https://github.com/lambdadb/lambdadb-cli"
-  url "https://registry.npmjs.org/@functional-systems/lambdadb-cli/-/lambdadb-cli-0.2.0.tgz"
-  sha256 "69cfee751ce11268fa428fb859179df2e2a7d32d4979b352660317d7e455e420"
+  url "https://registry.npmjs.org/@functional-systems/lambdadb-cli/-/lambdadb-cli-0.2.1.tgz"
+  sha256 "07ba142d20985b5e95dea9880bcf8f5eb272a9dc4ecab3b6f44f3d48a350f5ac"
   license "Apache-2.0"
 
   # Match the LTS major exercised by CLI CI without changing the user's Node installation.
   depends_on "node@24"
 
   resource "package-lock" do
-    url "https://raw.githubusercontent.com/lambdadb/lambdadb-cli/aa8801186bfd363149790f6c158ead672a2ba0a5/package-lock.json"
-    sha256 "86107841edcdbb5bf2523b3da2c637b433f73c07fc2eaf6a06fed506898d00f7"
+    url "https://raw.githubusercontent.com/lambdadb/lambdadb-cli/ae20dbccc401ce998530a467e0c3ff59fbf118e2/package-lock.json"
+    sha256 "21c89aa0da46a35179586dadd6d2e49530e02f7c52e2040365ad53d0c44a3865"
   end
 
   def install
