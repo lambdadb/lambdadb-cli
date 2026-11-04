@@ -5,6 +5,13 @@ import { wrapAnsi } from 'fast-wrap-ansi';
 import type { InputError } from './errors.js';
 import type { Output } from './output.js';
 
+/** Wraps a framed message to the terminal width, keeping URL lines intact for copying. */
+export function wrapInfo(message: string) {
+  const width = Math.max(20, (process.stderr.columns || 80) - 3);
+  // The terminal can soft-wrap long links.
+  return message.split('\n').map(line => /https?:\/\/\S+/.test(line) ? line : wrapAnsi(line, width, { hard: true })).join('\n');
+}
+
 export type Choice = { value: string; label: string; hint?: string };
 export type SetupPrompts = Pick<InitUI, 'select' | 'confirm' | 'text'>;
 
@@ -41,13 +48,7 @@ export class InitUI {
     log.message('Connect a project. Set up your coding agents.', this.options);
   }
 
-  info(message: string) {
-    const width = Math.max(20, (process.stderr.columns || 80) - 3);
-    // Preserve URL tokens for copying; the terminal can soft-wrap long links.
-    const lines = this.safe(message).split('\n').map(line => /https?:\/\/\S+/.test(line)
-      ? line : wrapAnsi(line, width, { hard: true }));
-    log.info(lines.join('\n'), this.options);
-  }
+  info(message: string) { log.info(wrapInfo(this.safe(message)), this.options); }
   note(message: string, title: string) { note(this.safe(message), title, this.options); }
 
   async select(message: string, choices: Choice[], initialValue?: string): Promise<string> {

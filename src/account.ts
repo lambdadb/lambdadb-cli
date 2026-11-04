@@ -490,18 +490,11 @@ export async function login(options: AccountOptions, output: Output, vault = acc
     // A saved origin is reused silently otherwise, which can target another
     // environment (for example a development server from an older login).
     output.diagnostic(
-      options.apiUrl
-        ? `API origin: ${apiUrl} (--api-url).`
-        : !previousOrigin
-          ? `API origin: ${apiUrl} (default).`
-          : apiUrl === DEFAULT_API_URL
-            ? `API origin: ${apiUrl}, reused from the saved login.`
-            : `API origin: ${apiUrl}, reused from the saved login. To use production, rerun ${cli} login --api-url ${DEFAULT_API_URL}, or run ${cli} logout first.`,
+      previousOrigin && !options.apiUrl && apiUrl !== DEFAULT_API_URL
+        ? `Signing in to ${apiUrl}, saved by your last login.\nFor production, run ${cli} logout first or pass --api-url ${DEFAULT_API_URL}.`
+        : `Signing in to ${apiUrl}`,
     );
     const store = await vault.select(options.credentialStore ?? 'auto');
-    output.diagnostic(
-      options.guided ? `Account login: ${store}, renewed while in use.` : `Account session: ${store}; non-secret metadata: ${path}. Login renews while in use and ends after seven idle days. Project credentials are separate.`,
-    );
     if (store === 'keyutils')
       output.diagnostic(
         'Kernel credentials can expire or disappear after reboot. Run login again explicitly if unavailable.',
@@ -574,7 +567,7 @@ async function retire(before: string, vault: CredentialVault, output: Output, re
 }
 
 /** Revokes this login's grant and removes it locally; reports whether revocation was confirmed. */
-export async function logout(options: AccountOptions, output: Output, vault = accountVault()): Promise<{ remoteRevoked: boolean } | undefined> {
+export async function logout(options: AccountOptions, output: Output, vault = accountVault()): Promise<{ remoteRevoked: boolean; email?: string; apiUrl: string } | undefined> {
   const requestTimeoutMs = timeoutMs(options);
   return withManagementLock(options, async () => {
     const path = await accountPath(options),
@@ -598,11 +591,11 @@ export async function logout(options: AccountOptions, output: Output, vault = ac
       if ((await readOptional(path)) !== before)
         throw new InputError('Account metadata changed. Review it before removing it.');
       await rm(await fileIdentity(path));
-      return { remoteRevoked: revoked };
+      return { remoteRevoked: revoked, email: account.email, apiUrl: account.apiUrl };
     }
     if ((await readOptional(path)) !== before)
       throw new InputError('Account metadata changed. Review it before removing it.');
     await rm(await fileIdentity(path));
-    return { remoteRevoked: false };
+    return { remoteRevoked: false, apiUrl: old.apiUrl };
   });
 }

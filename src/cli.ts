@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { Command, CommanderError, Option } from 'commander';
 import { readFileSync } from 'node:fs';
-import { cli } from './command.js';
 import { configPath, integer, name, resolveConfig, resolveCredential, saveSettings, settings, type Config, type Options } from './config.js';
 import { createInput, deleteInput, listSelectors, parseRef, parseSource, parseTags, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
@@ -14,6 +13,7 @@ import { formatInit } from './init-output.js';
 import { serveMcp } from './mcp.js';
 import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
+import { formatLogin, formatLogout, framed, interactiveAccount, reported } from './account-ui.js';
 import { usage, formatUsage } from './usage.js';
 import { organizations, projects, createProject, regions, useProject } from './projects.js';
 
@@ -109,17 +109,18 @@ program.command('init')
 program.command('login').description('Authorize account management in a browser and save a separate OS session')
   .option('--no-browser', 'Skip automatic browser opening; sign in and approve at the printed URL on this or another device')
   .action(async (_opts, cmd: Command) => {
-    const account = await login(cmd.optsWithGlobals(), output);
-    output.diagnostic(`Next: run ${cli} init for guided project and agent setup, or ${cli} orgs list to manage projects with explicit commands. Keep the same --config path if you supplied one.`);
-    result(account, 'Account login saved. Project connections and agent settings are unchanged.');
+    const options = cmd.optsWithGlobals();
+    const interactive = interactiveAccount(output);
+    const account = interactive
+      ? await framed(output, scoped => login(options, scoped), signedIn => `Signed in as ${signedIn.email}`)
+      : await login(options, output);
+    output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data: account }, formatLogin(account, configPath(options), interactive), false);
   });
 program.command('logout').description('Revoke the saved account session and remove it locally; keep project connections')
   .action(async (_opts, cmd: Command) => {
     const outcome = await logout(cmd.optsWithGlobals(), output);
     const remoteRevoked = outcome?.remoteRevoked ?? false;
-    result({ loggedOut: true, remoteRevoked, projectKeysRevoked: false }, outcome && !remoteRevoked
-      ? 'Account logged out locally, but remote revocation could not be confirmed; the login ends after seven idle days. Project keys and agent connections are unchanged.'
-      : 'Account logged out. Project keys and agent connections are unchanged.');
+    output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data: { loggedOut: true, remoteRevoked, projectKeysRevoked: false } }, formatLogout(outcome), false);
   });
 program.command('orgs').description('Manage account Organizations').command('list')
   .action(async (_opts, cmd: Command) => result({ organizations: await organizations(cmd.optsWithGlobals(), output) }, 'Accessible Organizations.'));
@@ -587,7 +588,9 @@ try {
     const failure = error instanceof CommanderError ? parseError(error, commandName) : error;
     const unknownWrite = (mutationStarted && !definitelyRejected(failure)) || (failure instanceof ManagementError && ['write_outcome_unknown', 'issuance_unconfirmed'].includes(failure.code));
     const exitCode = isInputError(failure) ? 2 : unknownWrite ? 5 : 3;
-    if (commandName === 'mcp') {
+    if (!output.json && failure && typeof failure === 'object' && reported.has(failure)) {
+      // The interactive frame already showed this failure.
+    } else if (commandName === 'mcp') {
       const safe = describeError(failure);
       output.diagnostic([safe.message, safe.hint].filter(Boolean).join(' '));
     } else output.emit({
