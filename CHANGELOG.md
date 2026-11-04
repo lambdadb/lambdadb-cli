@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-05
+
 ### Changed
 
 - `login` and `logout` are easier to read. In a terminal, `login` uses the same
