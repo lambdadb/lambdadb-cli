@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-04
+
 ### Changed
 
 - `login` names the API origin before opening a browser or printing a device
