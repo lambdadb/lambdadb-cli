@@ -158,7 +158,9 @@ Account access, data access and agent file locations are separate choices:
 | Project connection | Data commands use the selected endpoint, project name and project API key. Browser setup stores keys in the OS credential store; manual/CI setup reads a named environment variable. |
 | `init --scope project` / `--scope user` | Installs agent settings in the current repository or the agent's user configuration. It does not select a LambdaDB project or change the CLI configuration path. |
 
-`--org-id` and `--project-id` accept UUIDs for management/usage commands.
+`--org-id` and `--project-id` accept UUIDs for management/usage commands;
+`projects list` and `projects use` may omit `--org-id` when the account has one
+Organization.
 `--project` accepts a **name** for data commands. CLI configuration is user-local
 by default; use `--config` to select a different file. No secret values are stored
 in CLI or agent configuration, and `.env` files are never loaded automatically.

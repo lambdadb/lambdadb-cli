@@ -13,6 +13,21 @@
   of adding `Command failed.`; the exit code is unchanged. `logout` names the
   account it signed out of and says when no login was saved. Redirected output
   prints the same summary as plain lines; `--json` output is unchanged.
+- `orgs list`, `projects list` and `projects regions` print aligned tables with
+  the next command instead of raw JSON, and `projects create` and `projects use`
+  print short summaries. In a terminal, `projects use` shows its approval steps
+  in the `init` frame, and its notes no longer list file paths. `--json` output
+  is unchanged.
+- `projects list` and `projects use` accept a missing `--org-id` when the account
+  has exactly one active Organization, naming it on stderr. With several, they
+  stop and list each name and UUID. An explicit `--org-id` behaves as before.
+- In a terminal, a failure shows `✖` with its cause, then the next step on its
+  own line, instead of `Command failed.` followed by one long line. Redirected
+  output and `--json` keep their previous form.
+- A missing project now points to `lambdadb init` (or `--endpoint` and
+  `--project`), and an unreadable `--config` file names its path.
+- Browser and device approval messages are neutral ("Opening your browser.",
+  "Open this link on any device:") because project-key approval uses them too.
 
 ### Maintenance
 

@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from 'node:util';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer } from 'node:http';
@@ -92,6 +93,25 @@ test('an unreadable OS credential store fails before any request with its target
   assert.equal(rejected.json.error.httpStatus, 401);
   assert.ok(!/MCP/.test(rejected.json.error.hint), rejected.json.error.hint);
   assert.equal(f.requests.length, 1);
+});
+
+test('a terminal credential-store failure still names the target its MCP recovery hint refers to', async t => {
+  const f = await fixture(t, () => assert.fail('no request is expected'));
+  const preload = await f.file('locked-store-tty.mjs', `import { CredentialVault } from ${JSON.stringify(pathToFileURL(join(dirname(cli), 'credentials.js')).href)};
+    const read = CredentialVault.prototype.read;
+    const locked = new CredentialVault(async () => ({ async getSecret() { throw new Error('locked'); } }));
+    CredentialVault.prototype.read = function (target) { return read.call(locked, target); };
+    process.stderr.isTTY = true;
+  `);
+  const store = process.platform === 'darwin' ? 'keychain' : process.platform === 'win32' ? 'windows' : 'secret-service';
+  const config = await f.file('config.json', { endpoint: f.base, project: 'dev-project', apiKeyEnv: 'LAMBDADB_API_KEY', credentialStore: store, credentialId: '12345678-1234-4123-8123-123456789abc' });
+  const r = await f.run(['doctor', '--config', config], { NODE_OPTIONS: `--import=${preload}`, LAMBDADB_ENDPOINT: undefined, LAMBDADB_PROJECT: undefined, LAMBDADB_API_KEY: undefined });
+  assert.equal(r.code, 2, r.stderr);
+  const stderr = stripVTControlCharacters(r.stderr);
+  assert.match(stderr, /^✖ Cannot read the saved \S+ credential/);
+  assert.match(stderr, /MCP server configured for this same endpoint and project \(see target\)/);
+  assert.match(stderr, new RegExp(`\n {2}Target: endpoint ${f.base.replaceAll('.', '\\.')}, project dev-project\n$`));
+  assert.equal(r.stdout, 'Command failed.\n');
 });
 
 test('SIGINT and SIGTERM preserve accepted batches and classify an active write as unknown', async t => {

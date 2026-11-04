@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from 'node:util';
 import { terminalInput, keys, enter, down, up, left, cancel } from './terminal-input.mjs';
 import { oauthServer, session, consoleUrl } from './helpers/oauth-server.mjs';
 import assert from 'node:assert/strict';
@@ -16,7 +17,7 @@ const { login, logout, loadAccount, accountRequest, parseOrganization, accountPa
 const { useProject, organizations, createProject } = await import(moduleURL('projects.js'));
 const { CredentialVault } = await import(moduleURL('credentials.js'));
 const { ManagementError, describeError } = await import(moduleURL('errors.js'));
-const { formatLogin, formatLogout } = await import(moduleURL('account-ui.js'));
+const { formatLogin, formatLogout, formatOrganizations, formatProjects, formatRegions, formatCreated, formatUse } = await import(moduleURL('account-ui.js'));
 const { defaultConfigPath } = await import(moduleURL('config.js'));
 const quiet = { diagnostic() {}, protect() {} };
 const org = '11111111-1111-4111-8111-111111111111';
@@ -141,7 +142,7 @@ test('login names the API origin before authorization, and how to leave a reused
     output.messages[0],
     new RegExp(`^Signing in to ${fixture.url.replaceAll('.', '\\.')}, saved by your last login\\.\\nFor production, run \\S+ logout first or pass --api-url https://api\\.lambdadb\\.ai\\.$`),
   );
-  const link = output.messages.findIndex((m) => m.startsWith(`Sign in on any device with this link:\n${fixture.issuer.replace(/\/$/, '')}/`));
+  const link = output.messages.findIndex((m) => m.startsWith(`Open this link on any device:\n${fixture.issuer.replace(/\/$/, '')}/`));
   assert.ok(link > 0, output.messages.join('\n'));
 
   // The default and a saved production origin are named without a change hint.
@@ -908,7 +909,9 @@ test('actual CLI: canceling an interactive browser login closes the frame withou
   });
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, /└ {2}Authorization canceled\. Nothing was saved\.\n/);
-  assert.equal(result.stdout, '');
+  // stdout is redirected here, so it keeps the one-line summary; the cause is not repeated.
+  assert.equal(result.stdout, 'Command failed.\n');
+  assert.equal(result.stderr.match(/Authorization canceled/g).length, 1);
   await assert.rejects(readFile(`${fixture.config}.account.json`), { code: 'ENOENT' });
 });
 
@@ -929,6 +932,77 @@ test('actual CLI: Org UUID selectors use --org-id for project listing and creati
     ['projects', 'create', '--org-id', org, '--default-org', '--name', 'demo', '--region', 'ap-northeast-2'],
   ]) assert.equal((await fixture.run(flags)).code, 2);
   assert.equal(fixture.domainCalls().length, 2);
+});
+
+test('organization, project and region summaries are aligned tables with a next step', () => {
+  const orgs = [{ id: org, name: '팀\u001b[31m', role: 'owner', plan: 'Free', max_projects: 3, projects_count: 1 }];
+  assert.equal(formatOrganizations(orgs), [
+    'Organizations (1)', '',
+    '  NAME     ROLE   PLAN  PROJECTS  ID',
+    `  팀 [31m  owner  Free  1 / 3     ${org}`, '',
+    'Next: lambdadb projects list',
+  ].join('\n'));
+  assert.match(formatOrganizations([...orgs, { ...orgs[0], id: second }]), /\nNext: lambdadb projects list --org-id <ID>$/);
+  assert.equal(formatOrganizations([]), 'No active Organizations.');
+  assert.match(formatProjects([{ id: first, name: 'demo', status: 'ACTIVE', organization_id: org }], org), new RegExp(`^Projects \\(1\\)\\n\\n {2}NAME {2}STATUS {2}ID\\n {2}demo {2}ACTIVE {2}${first}\\n\\nNext: lambdadb projects use --org-id ${org} --project-id <ID> --issue-key$`));
+  assert.equal(formatProjects([], undefined), 'No projects yet.\n\nNext: lambdadb projects regions, then lambdadb projects create');
+  assert.match(formatRegions([{ cloud_provider: 'aws', region: 'ap-northeast-2', name: 'Seoul', is_open: false }]), /\n {2}ap-northeast-2 {2}Seoul {2}aws {4}no\n/);
+  assert.match(formatCreated({ id: first, organization_id: org, name: 'demo', status: 'CREATING' }), /^Project demo requested \(CREATING\)\./);
+  const selected = { endpoint: 'https://api.example.com', project: 'demo', apiKeyEnv: 'LAMBDADB_API_KEY', credentialStore: 'keychain', credentialId: randomUUID(), credentialKeyName: `lambdadb-connection-${connection}` };
+  assert.equal(formatUse(selected, false), [
+    'Using project demo (https://api.example.com).',
+    `Key: lambdadb-connection-${connection} in macOS Keychain.`,
+    'Agents set up earlier keep their previous project; run lambdadb init to switch them.',
+    'Next: lambdadb doctor to check the connection.',
+  ].join('\n'));
+});
+
+test('actual CLI: project commands use the only Organization when --org-id is omitted and list choices otherwise', async t => {
+  let orgs = [team({ name: 'Team' })];
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path === '/organizations') return res.end(JSON.stringify({ organizations: orgs }));
+    assert.equal(call.path, '/projects');
+    assert.equal(call.orgId, org);
+    res.end(JSON.stringify({ projects: [{ id: first, organization_id: org, name: 'demo', status: 'ACTIVE' }] }));
+  });
+  const listed = await fixture.run(['projects', 'list']);
+  assert.equal(listed.code, 0, listed.stderr);
+  assert.deepEqual(listed.value.data.projects.map(p => p.id), [first]);
+  assert.match(listed.stderr, /^Organization: Team$/m);
+  assert.deepEqual(fixture.domainCalls().map(c => c.path), ['/organizations', '/projects']);
+
+  orgs = [team({ name: 'Team' }), team({ id: second, name: 'Other' })];
+  fixture.calls.length = 0;
+  for (const args of [['projects', 'list'], ['projects', 'use', '--project-id', first]]) {
+    const ambiguous = await fixture.run(args);
+    assert.equal(ambiguous.code, 2, ambiguous.stderr);
+    assert.equal(ambiguous.value.error.message, `This account has 2 Organizations; choose one with --org-id:\nTeam  ${org}\nOther  ${second}`);
+  }
+  assert.ok(fixture.domainCalls().every(c => c.path === '/organizations'), JSON.stringify(fixture.domainCalls()));
+});
+
+test('actual CLI: a terminal shows a failure as its cause and next step; redirected stdout keeps its summary', async t => {
+  const fixture = await cliFixture(t, () => assert.fail('no domain call is expected'));
+  await rm(`${fixture.config}.account.json`);
+  const failed = await fixture.run(['projects', 'list', '--org-id', 'not-a-uuid'], {}, []);
+  assert.equal(failed.code, 2);
+  assert.equal(stripVTControlCharacters(failed.stderr), '✖ Organization must be an explicit UUID. Run orgs list or projects list to find it.\n  Check --help and the input file or configuration.\n');
+  // stdout is redirected here, so it keeps the one-line summary for scripts.
+  assert.equal(failed.stdout, 'Command failed.\n');
+});
+
+test('actual CLI: a framed projects use with an uncertain key keeps the unknown-outcome headline and redirected summary', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path === '/projects') return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+    if (call.path === '/organizations') return res.end(JSON.stringify({ organizations: [team()] }));
+    assert.equal(call.path, `/project-connections/${connection}/key`);
+    res.statusCode = 409;
+    res.end(JSON.stringify({ error: 'issuance_unconfirmed' }));
+  });
+  const result = await fixture.run(['projects', 'use', '--org-id', org, '--project-id', first, '--issue-key', '--no-browser'], {}, []);
+  assert.equal(result.code, 5, result.stderr);
+  assert.match(result.stderr, /└ {2}Write outcome unknown\. Inspect the target before retrying\.\n│? ?\s*Account management request failed: issuance_unconfirmed/);
+  assert.equal(result.stdout, 'Write outcome unknown. Inspect the target before retrying.\n');
 });
 
 test('guided init selects an existing project at its limit without a billing detour or duplicate questions', async t => {
@@ -1129,7 +1203,7 @@ test('guided cancellation during key delivery keeps unknown issuance and never r
     ['Connection', enter], ['Project', enter], ['Create a key for first with write access?', keys(left, '\r')],
   ], [], spawned => { child = spawned; });
   assert.equal(result.code, 5, result.stderr);
-  assert.match(result.stdout, /"state": "unknown"/);
+  assert.match(result.stderr, /✖\S* Write outcome unknown\. Inspect the target before retrying\./);
   assert.equal(JSON.parse(await readFile(`${fixture.config}.connections.json`, 'utf8'))[0].pendingKeyName, `lambdadb-connection-${connection}`);
   assert.equal(fixture.calls.filter(call => call.path.endsWith('/key')).length, 1);
   await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });

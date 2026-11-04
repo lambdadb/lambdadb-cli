@@ -221,7 +221,7 @@ async function codeFlow(
       ...(connectionId ? { connection_id: connectionId } : {}),
     }))
       url.searchParams.set(k, v);
-    output.diagnostic(`Opening your browser to sign in. If it does not open, visit this link on this computer:\n${url.href}\nApprove only a request you started. Over SSH or without a browser, press Ctrl-C and rerun with --no-browser.\nWaiting for approval...`);
+    output.diagnostic(`Opening your browser. If it does not open, visit this link on this computer:\n${url.href}\nApprove only a request you started. Over SSH or without a browser, press Ctrl-C and rerun with --no-browser.\nWaiting for approval...`);
     open(url.href, output);
     result = await new Promise((resolve, reject) => {
       // Every outcome clears both the deadline and the abort listener, so a
@@ -310,7 +310,7 @@ async function deviceFlow(
     throw new InputError('Invalid device authorization response. Check client/server versions.');
   }
   output.protect(s.device_code);
-  output.diagnostic(`Sign in on any device with this link:\n${link}\nCode: ${s.user_code}\nApprove only a request you started.\nWaiting for approval... (Ctrl-C to cancel)`);
+  output.diagnostic(`Open this link on any device:\n${link}\nCode: ${s.user_code}\nApprove only a request you started.\nWaiting for approval... (Ctrl-C to cancel)`);
   const deadline = Date.now() + Number(s.expires_in) * 1000;
   let interval = Number(s.interval ?? 5) * 1000;
   while (Date.now() < deadline) {

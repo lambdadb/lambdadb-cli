@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { CredentialVault, credentialReference, type CredentialReference } from './credentials.js';
+import { cli } from './command.js';
 import { InputError } from './errors.js';
 
 export type Settings = { endpoint?: string; project?: string; apiKeyEnv?: string; credentialKeyId?: string; credentialKeyName?: string } & Partial<CredentialReference>;
@@ -57,7 +58,7 @@ export async function loadSettings(path: string, explicitlySelected = false): Pr
   try { text = await readFile(path, 'utf8'); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT' && !explicitlySelected) return {};
-    throw new InputError('Cannot read the selected configuration file.');
+    throw new InputError(`Cannot read the configuration file ${path}.`, `Check --config or LAMBDADB_CONFIG, or run ${cli} init to create one.`);
   }
   try {
     const value = JSON.parse(text);
@@ -76,7 +77,7 @@ export async function settings(options: Options, creating = false): Promise<Sele
   const saved = await loadSettings(configPath(options), !creating && !!(options.config ?? process.env.LAMBDADB_CONFIG));
   const selectedEndpoint = options.endpoint ?? process.env.LAMBDADB_ENDPOINT ?? saved.endpoint;
   const project = options.project ?? process.env.LAMBDADB_PROJECT ?? saved.project;
-  if (!selectedEndpoint || !project) throw new InputError('Endpoint and project are required. Run configure or set LAMBDADB_ENDPOINT and LAMBDADB_PROJECT.');
+  if (!selectedEndpoint || !project) throw new InputError(`No project is selected. Run ${cli} init to connect one, or pass --endpoint and --project (or set LAMBDADB_ENDPOINT and LAMBDADB_PROJECT).`, '');
   // Project names are encoded as a single SDK URL segment, with no implicit playground fallback.
   if (!/^[a-zA-Z0-9_-]+$/.test(project)) throw new InputError('Project must contain only letters, digits, underscores or hyphens.');
   const stored = options.credentialStore || options.credentialId ? credentialReference(options.credentialStore, options.credentialId) :
