@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `login` and `logout` are easier to read. In a terminal, `login` uses the same
+  frame as guided `init`: the API origin, the approval link and code, a waiting
+  line, then `Signed in as <email>` with the credential store and next commands.
+  Account metadata JSON is no longer printed in human output, and the metadata
+  path and Console host lines are gone; the approval link already shows the
+  sign-in host. Canceling with Ctrl-C closes the frame with one message instead
+  of adding `Command failed.`; the exit code is unchanged. `logout` names the
+  account it signed out of and says when no login was saved. Redirected output
+  prints the same summary as plain lines; `--json` output is unchanged.
+
 ### Maintenance
 
 - Update the Homebrew formula to verified stable 0.2.1 and its release-commit

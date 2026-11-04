@@ -16,6 +16,8 @@ const { login, logout, loadAccount, accountRequest, parseOrganization, accountPa
 const { useProject, organizations, createProject } = await import(moduleURL('projects.js'));
 const { CredentialVault } = await import(moduleURL('credentials.js'));
 const { ManagementError, describeError } = await import(moduleURL('errors.js'));
+const { formatLogin, formatLogout } = await import(moduleURL('account-ui.js'));
+const { defaultConfigPath } = await import(moduleURL('config.js'));
 const quiet = { diagnostic() {}, protect() {} };
 const org = '11111111-1111-4111-8111-111111111111';
 const first = '22222222-2222-4222-8222-222222222222';
@@ -127,7 +129,7 @@ test('login names the API origin before authorization, and how to leave a reused
     vault = memory();
   let output = recorder();
   await login({ config, apiUrl: fixture.url, browser: false }, output, vault);
-  assert.equal(output.messages[0], `API origin: ${fixture.url} (--api-url).`);
+  assert.equal(output.messages[0], `Signing in to ${fixture.url}`);
   // The reported upgrade: an old-format login pointing at another environment.
   const { issuer: _, ...legacy } = { ...account(), apiUrl: fixture.url };
   vault.saved.set(legacy.credentialId, 'b'.repeat(64));
@@ -137,10 +139,10 @@ test('login names the API origin before authorization, and how to leave a reused
   assert.equal(reused.apiUrl, fixture.url);
   assert.match(
     output.messages[0],
-    new RegExp(`^API origin: ${fixture.url.replaceAll('.', '\\.')}, reused from the saved login\\. To use production, rerun \\S+ login --api-url https://api\\.lambdadb\\.ai, or run \\S+ logout first\\.$`),
+    new RegExp(`^Signing in to ${fixture.url.replaceAll('.', '\\.')}, saved by your last login\\.\\nFor production, run \\S+ logout first or pass --api-url https://api\\.lambdadb\\.ai\\.$`),
   );
-  const environment = output.messages.findIndex((m) => m.startsWith(`Sign-in service: ${new URL(fixture.issuer).host}; Console: ${new URL(consoleUrl).host}.\nOpen this link`));
-  assert.ok(environment > 0, output.messages.join('\n'));
+  const link = output.messages.findIndex((m) => m.startsWith(`Sign in on any device with this link:\n${fixture.issuer.replace(/\/$/, '')}/`));
+  assert.ok(link > 0, output.messages.join('\n'));
 
   // The default and a saved production origin are named without a change hint.
   // An aborted signal stops discovery before any request leaves this process.
@@ -149,7 +151,7 @@ test('login names the API origin before authorization, and how to leave a reused
     if (saved) await writeFile(await accountPath({ config: fresh }), JSON.stringify({ ...legacy, apiUrl: saved }));
     output = recorder();
     await assert.rejects(login({ config: fresh, browser: false, signal: AbortSignal.abort() }, output, memory()), /Cannot reach https:\/\/api\.lambdadb\.ai/);
-    assert.equal(output.messages[0], saved ? 'API origin: https://api.lambdadb.ai, reused from the saved login.' : 'API origin: https://api.lambdadb.ai (default).');
+    assert.equal(output.messages[0], 'Signing in to https://api.lambdadb.ai');
   }
 });
 
@@ -189,7 +191,7 @@ test('logout removes an old-format login locally without contacting the server',
   const { issuer: _, ...legacy } = account();
   vault.saved.set(legacy.credentialId, 'b'.repeat(64));
   await writeFile(await accountPath({ config }), JSON.stringify(legacy));
-  assert.deepEqual(await logout({ config }, quiet, vault), { remoteRevoked: false });
+  assert.deepEqual(await logout({ config }, quiet, vault), { remoteRevoked: false, apiUrl: legacy.apiUrl });
   assert.equal(vault.saved.size, 0);
   await assert.rejects(readFile(await accountPath({ config })), { code: 'ENOENT' });
 });
@@ -851,19 +853,63 @@ test('actual CLI: login only saves account access and guides explicit next comma
   await rm(`${fixture.config}.account.json`);
   const result = await fixture.run(['login', '--no-browser', '--api-url', fixture.url]);
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stderr, /lambdadb init for guided project and agent setup/);
-  assert.match(result.stderr, /lambdadb orgs list/);
-  assert.match(result.stderr, /oauth2\/device\/verify\?user_code=AbCd1234\nConfirm code AbCd1234/);
+  assert.match(result.stderr, /oauth2\/device\/verify\?user_code=AbCd1234\nCode: AbCd1234/);
   // The environment is named before the approval link.
-  assert.ok(result.stderr.indexOf(`API origin: ${fixture.url} (--api-url).`) >= 0, result.stderr);
-  assert.ok(result.stderr.indexOf(`API origin: ${fixture.url}`) < result.stderr.indexOf('Sign-in service: 127.0.0.1:'), result.stderr);
-  assert.ok(result.stderr.indexOf('Sign-in service: 127.0.0.1:') < result.stderr.indexOf('oauth2/device/verify'), result.stderr);
+  assert.ok(result.stderr.startsWith(`Signing in to ${fixture.url}\n`), result.stderr);
+  assert.equal(result.value.data.email, fixture.state.email);
   assert.deepEqual(fixture.domainCalls().map((c) => c.path), ['/members/me']);
   const saved = JSON.parse(await readFile(`${fixture.config}.account.json`, 'utf8'));
   assert.equal(saved.memberId, fixture.state.memberId);
   assert.equal(saved.issuer, fixture.issuer);
   assert.ok(!/access-|refresh-/.test(result.stderr + JSON.stringify(saved)));
   await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
+});
+
+test('login and logout summaries name the account, session and next step without raw metadata', () => {
+  const signedIn = { ...account(), apiUrl: 'https://api.lambdadb.ai', email: 'a\u001b[31m@example.com' };
+  assert.equal(formatLogin(signedIn, defaultConfigPath(), false), [
+    'Signed in as a [31m@example.com (https://api.lambdadb.ai).',
+    'Session saved in macOS Keychain; it ends after seven idle days.',
+    'Next: lambdadb init to connect a project and set up coding agents, or lambdadb orgs list to manage projects.',
+  ].join('\n'));
+  assert.match(formatLogin(signedIn, '/tmp/custom.json', false), /\nConfig: \/tmp\/custom\.json \(pass --config to later commands\)\.\n/);
+  assert.ok(!/memberId|credentialId/.test(formatLogin(signedIn, defaultConfigPath(), true)));
+  const unchanged = 'Project keys and agent connections are unchanged.';
+  assert.equal(formatLogout(undefined), `Not signed in. ${unchanged}`);
+  assert.equal(formatLogout({ remoteRevoked: true, email: 'test@example.com', apiUrl: 'https://api.lambdadb.ai' }), `Signed out of test@example.com (https://api.lambdadb.ai).\n${unchanged}`);
+  assert.match(formatLogout({ remoteRevoked: false, apiUrl: 'https://api.lambdadb.ai' }), /^Signed out of https:\/\/api\.lambdadb\.ai on this computer\. The server did not confirm revocation/);
+});
+
+test('actual CLI: an interactive login and logout use the init frame and print no JSON', async t => {
+  const fixture = await cliFixture(t, () => assert.fail('login must not call domain routes'), true);
+  await rm(`${fixture.config}.account.json`);
+  const signedIn = await fixture.run(['login', '--no-browser', '--api-url', fixture.url], {}, []);
+  assert.equal(signedIn.code, 0, signedIn.stderr);
+  assert.match(signedIn.stderr, /┌ {2}.*LambdaDB/);
+  assert.match(signedIn.stderr, new RegExp(`● {2}Signing in to ${fixture.url}\n`));
+  assert.match(signedIn.stderr, /│ {2}Code: AbCd1234\n/);
+  assert.match(signedIn.stderr, /└ {2}Signed in as test@example\.com/);
+  assert.match(signedIn.stdout, /Session.* macOS Keychain, ends after 7 idle days/);
+  assert.match(signedIn.stdout, /lambdadb init .*Connect a project/);
+  assert.ok(!/[{}]|memberId|credentialId/.test(signedIn.stdout), signedIn.stdout);
+  const signedOut = await fixture.run(['logout'], {}, []);
+  assert.equal(signedOut.code, 0, signedOut.stderr);
+  assert.equal(signedOut.stdout, `Signed out of test@example.com (${fixture.url}).\nProject keys and agent connections are unchanged.\n`);
+  const again = await fixture.run(['logout'], {}, []);
+  assert.equal(again.stdout, 'Not signed in. Project keys and agent connections are unchanged.\n');
+});
+
+test('actual CLI: canceling an interactive browser login closes the frame without a second failure report', { skip: process.platform === 'win32' }, async t => {
+  const fixture = await cliFixture(t, () => assert.fail('login must not call domain routes'));
+  await rm(`${fixture.config}.account.json`);
+  // No browser opener on PATH: the CLI waits for a callback that never comes.
+  const result = await fixture.run(['login', '--api-url', fixture.url], { PATH: '/nonexistent' }, [], [], child => {
+    child.stderr.on('data', chunk => { if (String(chunk).includes('Waiting for approval')) child.kill('SIGINT'); });
+  });
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /└ {2}Authorization canceled\. Nothing was saved\.\n/);
+  assert.equal(result.stdout, '');
+  await assert.rejects(readFile(`${fixture.config}.account.json`), { code: 'ENOENT' });
 });
 
 test('actual CLI: Org UUID selectors use --org-id for project listing and creation', async t => {

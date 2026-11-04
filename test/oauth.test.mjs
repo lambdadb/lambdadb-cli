@@ -52,8 +52,7 @@ test('device authorization shows the issuer link and code, protects the device c
   const granted = await authorize(provider, { scope: ACCOUNT_SCOPE, refresh: true, browser: false }, output, AbortSignal.timeout(5000), 5000);
   assert.ok(granted.refreshToken);
   assert.deepEqual(granted.scope, ACCOUNT_SCOPE);
-  assert.match(output.messages.join('\n'), new RegExp(`Sign-in service: ${new URL(fixture.issuer).host}; Console: console\\.example\\.com\\.\\nOpen this link on any device:\\n`));
-  assert.match(output.messages.join('\n'), new RegExp(`any device:\\n${fixture.url}/oauth2/device/verify\\?user_code=AbCd1234\\nConfirm code AbCd1234`));
+  assert.match(output.messages.join('\n'), new RegExp(`^Sign in on any device with this link:\\n${fixture.url}/oauth2/device/verify\\?user_code=AbCd1234\\nCode: AbCd1234\\nApprove only a request you started\\.\\nWaiting for approval`));
   const start = fixture.calls.find((c) => c.path === '/oauth2/device/auth');
   assert.deepEqual(start.body, { client_id: 'lambdadb-cli', scope: 'account:manage offline_access', audience: fixture.url });
   const poll = fixture.calls.find((c) => c.path === '/oauth2/token');
@@ -82,7 +81,8 @@ test('the loopback browser flow uses S256 PKCE, the exact state and a connection
   const connection = '44444444-4444-4444-8444-444444444444';
   const output = recorder();
   const granted = await authorize(provider, { scope: CONNECTION_SCOPE, connectionId: connection, refresh: false, browser: true }, output, AbortSignal.timeout(5000), 5000, open);
-  assert.ok(output.messages[0].startsWith(`Sign-in service: ${new URL(fixture.issuer).host}; Console: ${new URL(consoleUrl).host}.\nOpening your browser.`), output.messages[0]);
+  assert.ok(output.messages[0].startsWith(`Opening your browser to sign in. If it does not open, visit this link on this computer:\n${fixture.issuer.replace(/\/$/, '')}/oauth2/auth?`), output.messages[0]);
+  assert.match(output.messages[0], /\nApprove only a request you started\. .*--no-browser\.\nWaiting for approval\.\.\.$/);
   assert.equal(granted.refreshToken, undefined);
   assert.equal(opened.searchParams.get('code_challenge_method'), 'S256');
   assert.equal(opened.searchParams.get('connection_id'), connection);
