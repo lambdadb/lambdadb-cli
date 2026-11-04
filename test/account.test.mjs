@@ -909,7 +909,9 @@ test('actual CLI: canceling an interactive browser login closes the frame withou
   });
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, /└ {2}Authorization canceled\. Nothing was saved\.\n/);
-  assert.equal(result.stdout, '');
+  // stdout is redirected here, so it keeps the one-line summary; the cause is not repeated.
+  assert.equal(result.stdout, 'Command failed.\n');
+  assert.equal(result.stderr.match(/Authorization canceled/g).length, 1);
   await assert.rejects(readFile(`${fixture.config}.account.json`), { code: 'ENOENT' });
 });
 
@@ -987,6 +989,20 @@ test('actual CLI: a terminal shows a failure as its cause and next step; redirec
   assert.equal(stripVTControlCharacters(failed.stderr), '✖ Organization must be an explicit UUID. Run orgs list or projects list to find it.\n  Check --help and the input file or configuration.\n');
   // stdout is redirected here, so it keeps the one-line summary for scripts.
   assert.equal(failed.stdout, 'Command failed.\n');
+});
+
+test('actual CLI: a framed projects use with an uncertain key keeps the unknown-outcome headline and redirected summary', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path === '/projects') return res.end(JSON.stringify({ projects: [{ id: first, name: 'first', status: 'ACTIVE', organization_id: org }] }));
+    if (call.path === '/organizations') return res.end(JSON.stringify({ organizations: [team()] }));
+    assert.equal(call.path, `/project-connections/${connection}/key`);
+    res.statusCode = 409;
+    res.end(JSON.stringify({ error: 'issuance_unconfirmed' }));
+  });
+  const result = await fixture.run(['projects', 'use', '--org-id', org, '--project-id', first, '--issue-key', '--no-browser'], {}, []);
+  assert.equal(result.code, 5, result.stderr);
+  assert.match(result.stderr, /└ {2}Write outcome unknown\. Inspect the target before retrying\.\n│? ?\s*Account management request failed: issuance_unconfirmed/);
+  assert.equal(result.stdout, 'Write outcome unknown. Inspect the target before retrying.\n');
 });
 
 test('guided init selects an existing project at its limit without a billing detour or duplicate questions', async t => {

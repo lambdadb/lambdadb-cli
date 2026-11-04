@@ -111,6 +111,11 @@ export function isInputError(error: unknown): boolean {
   return error instanceof InputError || (error instanceof SDKValidationError && !(error instanceof ResponseValidationError));
 }
 
+/** Management failures whose write may have happened; the CLI reports them as an unknown outcome. */
+export const unknownOutcome = (error: unknown) =>
+  error instanceof ManagementError && ['write_outcome_unknown', 'issuance_unconfirmed'].includes(error.code);
+export const unknownOutcomeSummary = 'Write outcome unknown. Inspect the target before retrying.';
+
 export function definitelyRejected(error: unknown): boolean {
   return isInputError(error) || (error instanceof ManagementError && error.status !== undefined && error.status >= 400 && error.status < 500 && error.status !== 408 && error.code !== 'issuance_unconfirmed') || (error instanceof LambdaDBError
     && error.statusCode >= 400 && error.statusCode < 500 && error.statusCode !== 408);

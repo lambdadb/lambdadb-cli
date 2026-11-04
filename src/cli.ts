@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { configPath, integer, name, resolveConfig, resolveCredential, saveSettings, settings, type Config, type Options } from './config.js';
 import { createInput, deleteInput, listSelectors, parseRef, parseSource, parseTags, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
-import { CredentialStoreError, definitelyRejected, describeError, InputError, ManagementError, isInputError, parseError } from './errors.js';
+import { CredentialStoreError, definitelyRejected, describeError, InputError, isInputError, parseError, unknownOutcome, unknownOutcomeSummary } from './errors.js';
 import { Output, type Envelope } from './output.js';
 import { checkConnection, runtime } from './runtime.js';
 import { CredentialVault, credentialReference } from './credentials.js';
@@ -606,11 +606,12 @@ try {
   } else {
     output.json ||= process.argv.includes('--json');
     const failure = error instanceof CommanderError ? parseError(error, commandName) : error;
-    const unknownWrite = (mutationStarted && !definitelyRejected(failure)) || (failure instanceof ManagementError && ['write_outcome_unknown', 'issuance_unconfirmed'].includes(failure.code));
+    const unknownWrite = (mutationStarted && !definitelyRejected(failure)) || unknownOutcome(failure);
     const exitCode = isInputError(failure) ? 2 : unknownWrite ? 5 : 3;
-    const summary = unknownWrite ? 'Write outcome unknown. Inspect the target before retrying.' : 'Command failed.';
+    const summary = unknownWrite ? unknownOutcomeSummary : 'Command failed.';
     if (!output.json && failure && typeof failure === 'object' && reported.has(failure)) {
-      // The interactive frame already showed this failure.
+      // The interactive frame already showed the cause; redirected stdout still gets its summary line.
+      if (!process.stdout.isTTY) process.stdout.write(`${summary}\n`);
     } else if (commandName === 'mcp') {
       const safe = describeError(failure);
       output.diagnostic([safe.message, safe.hint].filter(Boolean).join(' '));

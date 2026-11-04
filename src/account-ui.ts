@@ -3,7 +3,7 @@ import { styleText } from 'node:util';
 import type { Account, Organization } from './account.js';
 import { cli } from './command.js';
 import { defaultConfigPath, type SelectedSettings } from './config.js';
-import { describeError } from './errors.js';
+import { describeError, unknownOutcome, unknownOutcomeSummary } from './errors.js';
 import { listing, plain, storeName } from './human.js';
 import { wrapInfo } from './init-ui.js';
 import type { Output } from './output.js';
@@ -26,7 +26,8 @@ export async function framed<T>(output: Output, action: (output: Output) => Prom
     return value;
   } catch (error) {
     const safe = describeError(error);
-    cancel(output.safeDiagnostic([safe.message, safe.hint].filter(Boolean).join(' ')), options);
+    const cause = output.safeDiagnostic([safe.message, safe.hint].filter(Boolean).join(' '));
+    cancel(unknownOutcome(error) ? `${unknownOutcomeSummary}\n${cause}` : cause, options);
     if (error && typeof error === 'object') reported.add(error);
     throw error;
   }
