@@ -26,6 +26,18 @@
   output and `--json` keep their previous form.
 - A missing project now points to `lambdadb init` (or `--endpoint` and
   `--project`), and an unreadable `--config` file names its path.
+- Data commands print readable output without `--json`: a one-line target
+  instead of the target JSON, tables for `collections list`, `branches list`,
+  `tags list` and `aliases list`, a details view for `collections describe`, a
+  checklist for `doctor`, and the saved settings for `configure`. `query`,
+  `docs list` and `docs fetch` print numbered documents with their full JSON,
+  scores and other per-document fields, then response fields such as `facets`
+  and `rerank`; missing fetch IDs are listed. Lists with more pages end with the
+  next command and its quoted `--page-token`. Successful writes print their
+  summary only; partial or unknown imports and updates still print the full
+  result. `--json` output is unchanged.
+- `lambdadb --help` groups commands into Get started, Account and projects,
+  Agents and credentials, and Data, and `mcp` describes what it runs.
 - Browser and device approval messages are neutral ("Opening your browser.",
   "Open this link on any device:") because project-key approval uses them too.
 

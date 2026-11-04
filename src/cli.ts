@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command, CommanderError, Option } from 'commander';
+import { cli } from './command.js';
 import { readFileSync } from 'node:fs';
 import { configPath, integer, name, resolveConfig, resolveCredential, saveSettings, settings, type Config, type Options } from './config.js';
 import { createInput, deleteInput, listSelectors, parseRef, parseSource, parseTags, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
@@ -15,6 +16,7 @@ import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
 import { formatCreated, formatLogin, formatLogout, formatOrganizations, formatProjects, formatRegions, formatUse, framed, interactiveAccount, reported } from './account-ui.js';
 import { failure as formatFailure, targetSummary } from './human.js';
+import { formatAliases, formatBranches, formatCollection, formatCollections, formatDocuments, formatDoctor, formatQuery, formatSettings, formatTags, formatTarget, quoted } from './data-output.js';
 import { usage, formatUsage } from './usage.js';
 import { organizations, projects, createProject, regions, useProject } from './projects.js';
 
@@ -43,9 +45,15 @@ const program = new Command()
   .configureOutput({ outputError: () => {} })
   .addHelpText('after', '\nExamples:\n  lambdadb init\n  lambdadb doctor --json\n  lambdadb docs list --collection demo-docs --ref branch:main --size 5 --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query.json --json\n  lambdadb branches list --collection demo-docs --json\n\nExit codes: 0 success, 2 input/config error, 3 API/request failure, 4 partial import, 5 unknown write outcome.');
 
-function result(data: unknown, summary: string, exitCode = 0) {
+/**
+ * Emits a result. People get `body` (the summary by default) under a one-line target;
+ * `null` keeps the raw target and data, for outcomes that need inspection. JSON is unchanged.
+ */
+function result<T>(data: T, summary: string, exitCode = 0, body?: ((safe: T) => string) | null) {
   const envelope: Envelope = { schemaVersion: 1, command: commandName, ok: exitCode === 0, target, data };
-  output.emit(envelope, summary);
+  if (body === null) output.emit(envelope, summary);
+  // Formatters read the sanitized envelope, so their values carry the JSON output's redaction.
+  else output.emit(envelope, summary, safe => [formatTarget(safe.target), body ? body(safe.data as T) : output.safeDiagnostic(summary)].filter(Boolean).join('\n'));
   process.exitCode = exitCode;
 }
 
@@ -88,13 +96,6 @@ program.hook('preAction', (_parent, command) => {
   commandName = command.name();
   if (command.parent && command.parent !== program) commandName = `${command.parent.name()} ${commandName}`;
 });
-
-program.command('configure')
-  .description('Save endpoint, project and API-key environment variable name (no secret is saved)')
-  .action(async (_opts, cmd: Command) => {
-    const saved = await saveSettings(cmd.optsWithGlobals() as Options);
-    result(saved, 'Configuration saved. Supply the key in the selected environment variable, then run doctor.');
-  });
 
 program.command('init')
   .description('Connect through Console or existing credentials, then install agent MCP configuration and a usage skill')
@@ -172,7 +173,7 @@ program.command('usage')
   });
 
 program.command('mcp')
-  .description('Launch the existing stdio MCP package with runtime credential forwarding (used by init)')
+  .description('Run the LambdaDB MCP server for coding agents over stdio (init configures agents to use it)')
   .option('--write-tools', 'Explicitly enable MCP write tools (default: read-only)')
   .action(async (_opts, cmd: Command) => {
     const opts = cmd.optsWithGlobals();
@@ -195,10 +196,17 @@ program.command('credentials').description('Manage local OS credential reference
       'Local credential removed. Connection references remain. Revoke the project key in Console if you no longer need it.');
   });
 
+program.command('configure')
+  .description('Save endpoint, project and API-key environment variable name (no secret is saved)')
+  .action(async (_opts, cmd: Command) => {
+    const saved = await saveSettings(cmd.optsWithGlobals() as Options);
+    result(saved, 'Configuration saved. Supply the key in the selected environment variable, then run doctor.', 0, safe => formatSettings(safe.settings, safe.path));
+  });
+
 program.command('doctor')
   .description('Check configuration, authentication and project collection-list access')
   .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
-    result(await checkConnection({ client, options }), 'Connection verified using the project collection-list API.');
+    result(await checkConnection({ client, options }), 'Connection verified using the project collection-list API.', 0, () => formatDoctor());
   }));
 
 const collections = program.command('collections').description('List, describe, create, update and delete collections');
@@ -214,11 +222,11 @@ collections.command('list')
       const params = { size, pageToken: opts.pageToken };
       if (!opts.all) {
         const page = await client.listCollections(params, options);
-        result(page, `${page.collections.length} collection(s)${page.nextPageToken ? '; more pages available' : ''}.`);
+        result(page, `${page.collections.length} collection(s)${page.nextPageToken ? '; more pages available' : ''}.`, 0, safe => formatCollections(safe, `${cli} collections list${opts.size === '20' ? '' : ` --size ${size}`}`));
       } else {
         const items = [];
         for await (const page of client.listCollectionsPages(params, options)) items.push(...page.collections);
-        result({ collections: items }, `${items.length} collection(s).`);
+        result({ collections: items }, `${items.length} collection(s).`, 0, safe => formatCollections(safe));
       }
     });
   });
@@ -228,7 +236,8 @@ collections.command('describe')
   .requiredOption('--collection <name>', 'Collection name')
   .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
     const collection = scoped(cmd);
-    result(await client.collection(collection).get(options), 'Collection metadata (main-branch counts are not a readiness signal).');
+    const described = await client.collection(collection).get(options);
+    result(described, 'Collection metadata (main-branch counts are not a readiness signal).', 0, safe => formatCollection(safe));
   }));
 
 collections.command('create')
@@ -297,7 +306,7 @@ branches.command('list')
   .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
     const collection = scoped(cmd);
     const listed = await client.collection(collection).branches.list(options);
-    result(listed, `${listed.branches.length} branch(es).`);
+    result(listed, `${listed.branches.length} branch(es).`, 0, safe => formatBranches(safe));
   }));
 
 branches.command('create')
@@ -343,7 +352,7 @@ tags.command('list')
   .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
     const collection = scoped(cmd);
     const listed = await client.collection(collection).tags.list(options);
-    result(listed, `${listed.tags.length} tag(s).`);
+    result(listed, `${listed.tags.length} tag(s).`, 0, safe => formatTags(safe));
   }));
 
 tags.command('create')
@@ -389,7 +398,7 @@ aliases.command('list')
   .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
     const collection = scoped(cmd);
     const listed = await client.collection(collection).aliases.list(options);
-    result(listed, `${listed.aliases.length} alias(es).`);
+    result(listed, `${listed.aliases.length} alias(es).`, 0, safe => formatAliases(safe));
   }));
 
 aliases.command('create')
@@ -471,7 +480,8 @@ docs.command('import')
         output.diagnostic(`Batch ${batch.batch}: ${batch.state}, ${batch.documents} document(s), lines ${batch.firstLine}–${batch.lastLine}.`);
       });
       const exitCode = imported.state === 'accepted' ? 0 : imported.state === 'unknown' ? 5 : imported.state === 'partial' ? 4 : 3;
-      result(imported, `${imported.accepted}/${imported.total} document(s) accepted; search visibility not verified.`, exitCode);
+      result(imported, `${imported.accepted}/${imported.total} document(s) accepted; search visibility not verified.`, exitCode,
+        exitCode ? null : safe => `${safe.accepted}/${safe.total} document(s) accepted; search visibility not verified.`);
       if (exitCode) output.diagnostic('Import stopped. Inspect batch outcomes and the selected branch before retrying; automatic resume is not supported.');
     });
   });
@@ -497,11 +507,13 @@ docs.command('list')
       if (!opts.all) {
         const page = await client.collection(collection).docs.list(params, options);
         const { docsUrl: _signedUrl, ...data } = page;
-        result(data, `${page.docs.length} document(s)${page.nextPageToken ? '; more pages available' : ''}.`);
+        const summary = `${page.docs.length} document(s)${page.nextPageToken ? '; more pages available' : ''}.`;
+        const again = `${cli} docs list --collection ${collection} --ref ${opts.ref}${opts.size === '20' ? '' : ` --size ${size}`}${opts.file ? ` --file ${quoted(opts.file)}` : ''}${opts.includeVectors ? ' --include-vectors' : ''}`;
+        result(data, summary, 0, safe => formatDocuments(safe, output.safeDiagnostic(summary), output.safeDiagnostic(again)));
       } else {
         const items = [];
         for await (const page of client.collection(collection).docs.listPages(params, options)) items.push(...page.docs);
-        result({ docs: items }, `${items.length} document(s).`);
+        result({ docs: items }, `${items.length} document(s).`, 0, safe => formatDocuments(safe, output.safeDiagnostic(`${items.length} document(s).`)));
       }
     });
   });
@@ -529,7 +541,8 @@ docs.command('update')
         output.diagnostic(`Batch ${batch.batch}: ${batch.state}, ${batch.documents} document(s), lines ${batch.firstLine}–${batch.lastLine}.`);
       });
       const exitCode = updated.state === 'accepted' ? 0 : updated.state === 'unknown' ? 5 : updated.state === 'partial' ? 4 : 3;
-      result(updated, `${updated.accepted}/${updated.total} update(s) accepted; merged results are not yet verified as visible.`, exitCode);
+      result(updated, `${updated.accepted}/${updated.total} update(s) accepted; merged results are not yet verified as visible.`, exitCode,
+        exitCode ? null : safe => `${safe.accepted}/${safe.total} update(s) accepted; merged results are not yet verified as visible.`);
       if (exitCode) output.diagnostic('Update stopped. A batch with a missing id is rejected as a whole; inspect batch outcomes and the selected branch before retrying.');
     });
   });
@@ -574,7 +587,8 @@ docs.command('fetch')
       }, options);
       const found = new Set(fetched.docs.map(item => item.doc.id));
       const { docsUrl: _signedUrl, ...data } = fetched;
-      result({ ...data, missingIds: opts.ids.filter((id: string) => !found.has(id)) }, `${fetched.docs.length} document(s) fetched.`);
+      const missingIds = opts.ids.filter((id: string) => !found.has(id));
+      result({ ...data, missingIds }, `${fetched.docs.length} document(s) fetched.`, 0, safe => formatDocuments(safe, output.safeDiagnostic(`${fetched.docs.length} document(s) fetched.`)));
     });
   });
 
@@ -593,9 +607,18 @@ program.command('query')
       target = { ...target, ref };
       const queried = await client.collection(collection).query(input, options);
       const { docsUrl: _signedUrl, ...data } = queried;
-      result(data, `${queried.docs.length} match(es).`);
+      result(data, `${queried.docs.length} match(es).`, 0, safe => formatQuery(safe));
     });
   });
+
+// Group help by task; groups appear in the order their first command is defined.
+const helpGroups: Record<string, string> = {
+  init: 'Get started:', login: 'Get started:', logout: 'Get started:', configure: 'Get started:', doctor: 'Get started:',
+  orgs: 'Account and projects:', projects: 'Account and projects:', usage: 'Account and projects:',
+  mcp: 'Agents and credentials:', credentials: 'Agents and credentials:',
+};
+for (const command of program.commands) command.helpGroup(helpGroups[command.name()] ?? 'Data:');
+program.addHelpCommand(new Command('help').argument('[command]').description('Show help for a command').helpOption(false).helpGroup('Get started:'));
 
 try {
   if (process.argv.length <= 2) program.help();

@@ -28,6 +28,17 @@ searching an actual indexed field, and list refs with `branches list`,
 An empty project needs deliberately supplied data outside init. Empty results
 are not evidence of indexing failure or readiness.
 
+Without `--json`, output is written for people: a dim target line (project,
+collection, ref and endpoint host), then a table for lists, a short summary for
+writes, or numbered documents for `query`, `docs list` and `docs fetch`. Each
+document keeps its full JSON, and its header carries the ID and the item's other
+fields, such as `score` and `retrievalScore`. Response fields such as `facets`,
+`rerank` and `maxScore` follow under their names. A list with more pages ends with
+the next command, including the quoted `--page-token`. A partial or unknown
+import or update still prints the full result for inspection. Use `--json` for
+scripts and agents; its envelope is unchanged and human output is not a stable
+format.
+
 ## Command examples
 
 The JSON files below are included in the package under `examples/`. Copy the

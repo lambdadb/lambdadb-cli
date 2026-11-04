@@ -56,7 +56,11 @@ export class Output {
     else process.stderr.write(`${safe}\n`);
   }
 
-  emit(envelope: Envelope, summary: string, includeHumanDetails = true) {
+  /**
+   * Writes one result. Human output is the summary plus raw target and data, the summary alone,
+   * or a formatter applied to the sanitized envelope, so formatted values carry the same redaction.
+   */
+  emit(envelope: Envelope, summary: string, human: boolean | ((safe: Envelope) => string) = true) {
     // Preserve the protocol while redacting variable values and arbitrary map keys.
     // Normalize dates first, and redact before serialization to preserve valid JSON.
     const sanitize = (value: unknown, path = '', freeForm = false): unknown => {
@@ -91,9 +95,12 @@ export class Output {
     if (this.json) process.stdout.write(`${serialized}\n`);
     else {
       const safe = JSON.parse(serialized) as Envelope;
-      process.stdout.write(`${this.redact(summary)}\n`);
-      if (includeHumanDetails && safe.target) process.stdout.write(`${JSON.stringify(safe.target)}\n`);
-      if (includeHumanDetails && safe.data !== undefined) process.stdout.write(`${JSON.stringify(safe.data, null, 2)}\n`);
+      if (typeof human === 'function') process.stdout.write(`${human(safe)}\n`);
+      else {
+        process.stdout.write(`${this.redact(summary)}\n`);
+        if (human && safe.target) process.stdout.write(`${JSON.stringify(safe.target)}\n`);
+        if (human && safe.data !== undefined) process.stdout.write(`${JSON.stringify(safe.data, null, 2)}\n`);
+      }
     }
     if (envelope.error) this.diagnostic([envelope.error.message, envelope.error.hint].filter(Boolean).join(' '));
   }
