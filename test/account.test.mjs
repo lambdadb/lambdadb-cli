@@ -946,7 +946,7 @@ test('organization, project and region summaries are aligned tables with a next 
   assert.equal(formatOrganizations([]), 'No active Organizations.');
   assert.match(formatProjects([{ id: first, name: 'demo', status: 'ACTIVE', organization_id: org }], org), new RegExp(`^Projects \\(1\\)\\n\\n {2}NAME {2}STATUS {2}ID\\n {2}demo {2}ACTIVE {2}${first}\\n\\nNext: lambdadb projects use --org-id ${org} --project-id <ID> --issue-key$`));
   assert.equal(formatProjects([], undefined), 'No projects yet.\n\nNext: lambdadb projects regions, then lambdadb projects create');
-  assert.match(formatRegions([{ cloud_provider: 'aws', region: 'ap-northeast-2', name: 'Seoul', is_open: false }]), /\n {2}ap-northeast-2 {2}Seoul {2}aws {4}no\n/);
+  assert.match(formatRegions([{ cloud_provider: 'aws', region: 'ap-northeast-2', name: 'Seoul', is_open: false }]), /\n {2}ap-northeast-2 {2}Seoul {2}aws {4}no\n[^]*request another region in LambdaDB Console\.$/);
   assert.match(formatCreated({ id: first, organization_id: org, name: 'demo', status: 'CREATING' }), /^Project demo requested \(CREATING\)\./);
   const selected = { endpoint: 'https://api.example.com', project: 'demo', apiKeyEnv: 'LAMBDADB_API_KEY', credentialStore: 'keychain', credentialId: randomUUID(), credentialKeyName: `lambdadb-connection-${connection}` };
   assert.equal(formatUse(selected, false), [
@@ -1121,55 +1121,49 @@ test('guided Org and project menus navigate without repeating requests', async t
   assert.equal(fixture.domainCalls().filter(c => c.method !== 'GET').length, 0);
 });
 
-test('guided cold-region creation retains the selection and returns provisioning guidance without key issuance', async t => {
+test('guided setup offers only open regions and points to Console for the others', async t => {
   const fixture = await cliFixture(t, (call, res) => {
     if (call.path === '/organizations') return res.end(JSON.stringify({ organizations: [] }));
-    if (call.path === '/projects/regions') return res.end(JSON.stringify({ clouds: { aws: [
-      { region: 'ap-northeast-2', region_name: 'Seoul', is_open: true },
+    assert.equal(call.path, '/projects/regions');
+    res.end(JSON.stringify({ clouds: { aws: [
       { region: 'eu-west-1', region_name: 'Ireland', is_open: false },
+      { region: 'ap-northeast-2', region_name: 'Seoul', is_open: true },
     ] } }));
-    if (call.path === '/organizations/default') return res.end(JSON.stringify({ id: org, name: 'My Organization', created: true }));
-    assert.equal(call.path, '/projects');
-    assert.equal(call.method, 'POST');
-    assert.equal(call.orgId, org);
-    assert.equal(call.body.region, 'eu-west-1');
-    res.statusCode = 201;
-    res.end(JSON.stringify({ id: first, organization_id: org, status: 'CREATING' }));
   });
   const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Connection', enter], ['Region', keys(down, '\r')], ['Project name', 'example'], ['Create this project?', keys(left, '\r')],
+    ['Connection', enter], ['Region', enter], ['Project name', 'example'], ['Create this project?', cancel],
   ]);
   assert.equal(result.code, 2, result.stderr);
-  assert.match(result.stderr, /Additional regional setup/);
-  assert.match(result.stderr, /needs additional deployment/);
-  assert.match(result.stderr, /was created in eu-west-1 and is provisioning/);
-  assert.match(result.stderr, /select this existing project\. Do not create it again/);
-  assert.deepEqual(fixture.domainCalls().filter(c => c.method !== 'GET').map(c => c.path), ['/organizations/default', '/projects']);
-  assert.equal(fixture.calls.filter(c => c.path.endsWith('/key')).length, 0);
-  await assert.rejects(readFile(fixture.config), { code: 'ENOENT' });
+  assert.match(result.stderr, /Only open regions are listed\. Request another region in Console: https:\/\/console\.example\.com\/organization\/projects/);
+  assert.match(result.stderr, /Create example in your default Organization \(ap-northeast-2\)/);
+  assert.doesNotMatch(result.stderr, /Ireland/);
+  assert.deepEqual(fixture.domainCalls().filter(c => c.method !== 'GET'), []);
 });
 
-test('guided region menu lists ready regions before regions that need provisioning', async t => {
+test('guided setup stops before any write when no region is open', async t => {
   const fixture = await cliFixture(t, (call, res) => {
     if (call.path === '/organizations') return res.end(JSON.stringify({ organizations: [] }));
-    if (call.path === '/projects/regions') return res.end(JSON.stringify({ clouds: { aws: [
-      { region: 'af-south-1', region_name: 'Africa (Cape Town)', is_open: false },
-      { region: 'ap-northeast-1', region_name: 'Asia Pacific (Tokyo)', is_open: true },
-      { region: 'ap-northeast-2', region_name: 'Asia Pacific (Seoul)', is_open: true },
-    ] } }));
-    if (call.path === '/organizations/default') return res.end(JSON.stringify({ id: org, name: 'My Organization', created: true }));
+    assert.equal(call.path, '/projects/regions');
+    res.end(JSON.stringify({ clouds: { aws: [{ region: 'eu-west-1', region_name: 'Ireland', is_open: false }] } }));
+  });
+  const result = await fixture.run(['init', '--agents', 'none'], {}, [['Connection', enter]]);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(stripVTControlCharacters(result.stderr), /No region is open for new projects\. Request one in Console: https:\/\/console\.example\.com\/organization\/projects/);
+  assert.deepEqual(fixture.domainCalls().filter(c => c.method !== 'GET'), []);
+});
+
+test('actual CLI: creating a project in an unopened region explains the region request', async t => {
+  const fixture = await cliFixture(t, (call, res) => {
+    if (call.path === '/projects/regions') return res.end(JSON.stringify({ clouds: { aws: [{ region: 'eu-west-1', region_name: 'Ireland', is_open: false }] } }));
     assert.equal(call.path, '/projects');
     assert.equal(call.method, 'POST');
-    assert.equal(call.body.region, 'af-south-1');
-    res.statusCode = 201;
-    res.end(JSON.stringify({ id: first, organization_id: org, status: 'CREATING' }));
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: 'region eu-west-1 is not available yet. Request it in the LambdaDB Console.' }));
   });
-  const result = await fixture.run(['init', '--agents', 'none'], {}, [
-    ['Connection', enter], ['Region', keys(down, down, '\r')], ['Project name', 'example'], ['Create this project?', keys(left, '\r')],
-  ]);
+  const result = await fixture.run(['projects', 'create', '--org-id', org, '--name', 'demo', '--region', 'eu-west-1']);
   assert.equal(result.code, 2, result.stderr);
-  assert.match(result.stderr, /was created in af-south-1 and is provisioning/);
-  assert.equal(fixture.domainCalls().filter(c => c.method !== 'GET').length, 2);
+  assert.equal(result.value.error.message, 'Region eu-west-1 is not open yet. Request it in Console: https://console.example.com/organization/projects. No project was created.');
+  assert.deepEqual(fixture.domainCalls().map(c => `${c.method} ${c.path}`), ['POST /projects', 'GET /projects/regions']);
 });
 
 test('guided rerun selects a provisioning project without creating another or asking for a key', async t => {

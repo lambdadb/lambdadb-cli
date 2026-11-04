@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Projects are created only in open regions. Guided `init` lists only open
+  regions and prints where to request another one in Console; with no open region
+  it stops before any write. `projects create` in an unopened region now explains
+  the Console region request instead of reporting a generic
+  `project_request_rejected`. `projects regions` names the column `OPEN` and adds
+  the same guidance. The Backend no longer reserves projects in unopened regions,
+  so the "takes longer" region choices and their provisioning guidance are gone.
+
 ### Maintenance
 
 - Update the Homebrew formula to verified stable 0.2.2 and its release-commit

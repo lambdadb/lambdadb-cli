@@ -81,9 +81,12 @@ export function formatProjects(projects: Project[], orgId: string | undefined) {
 }
 
 export function formatRegions(regions: { cloud_provider: string; region: string; name: string; is_open: boolean }[]) {
-  return listing('Regions', ['REGION', 'NAME', 'CLOUD', 'AVAILABLE'],
+  const table = listing('Regions', ['REGION', 'NAME', 'CLOUD', 'OPEN'],
     regions.map(r => [r.region, r.name, r.cloud_provider, r.is_open ? 'yes' : 'no']),
     'No regions are available.', `${cli} projects create --org-id <ID> --name <NAME> --region <REGION>`);
+  return regions.some(r => !r.is_open)
+    ? `${table}\nProjects are created only in open regions; request another region in LambdaDB Console.`
+    : table;
 }
 
 export function formatCreated(project: { id: string; organization_id: string; name: string; status: string }) {

@@ -29,12 +29,13 @@ If there are no projects and no alternative Org to choose, init proceeds directl
 to creation inputs. Invalid project names are highlighted and can be corrected
 in place without restarting setup.
 
-Region selection always remains explicit. All public AWS regions returned by the
-server are listed; `is_open=false` means additional regional deployment is needed,
-not that the region must be hidden. These choices are labeled as taking longer.
-If the created project is still provisioning in such a region, init shows its
-name/ID and how to return later to select it, without issuing a key or creating
-another project. No fixed provisioning duration is promised.
+Region selection always remains explicit. Projects are created only in open
+regions (`is_open=true`), so init lists only those and, when the server reports
+other regions, prints where to request one in Console
+(`<Console>/organization/projects`). A region request creates nothing; LambdaDB
+emails the account address when the region opens. If no region is open, init
+stops before any write. `projects create` in an unopened region fails with the
+same guidance, and `projects regions` marks such regions `OPEN no`.
 
 Reruns show the current project and offer to continue with that connection or
 select/create another project through account login. Saved project keys are

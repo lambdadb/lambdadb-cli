@@ -61,6 +61,15 @@ async function plan(api: Management, org: string): Promise<string> {
     throw error;
   }
 }
+/** Where a member asks LambdaDB to open a region. */
+export const regionRequestUrl = (account: Pick<Account, 'consoleUrl'>) => `${account.consoleUrl}/organization/projects`;
+async function regionIsUnopened(api: Management, region: string): Promise<boolean> {
+  try {
+    return (await regions(api)).regions.some((r) => r.region === region && !r.is_open);
+  } catch {
+    return false;
+  }
+}
 /** Regions in the order the server lists them. */
 export async function regions(api: Management) {
   const response = await api.request('projects/regions');
@@ -145,6 +154,9 @@ export async function createProject(
       if (organization && organization.projects_count >= organization.max_projects)
         throw new ManagementError('project_limit_reached', 409, { request: 'POST projects', organization });
     } else if (error instanceof ManagementError && error.code === 'management_request_failed' && error.status !== undefined && error.status < 500) {
+      // An unopened region is rejected with 400; say so instead of a generic rejection.
+      if (error.status === 400 && (await regionIsUnopened(api, input.region)))
+        throw new InputError(`Region ${input.region} is not open yet. Request it in Console: ${regionRequestUrl(api.account)}. No project was created.`, '');
       throw new ManagementError('project_request_rejected', error.status, error.details);
     }
     throw error;
@@ -448,18 +460,15 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
       throw new InputError(
         'An owner or admin must connect the new project. Choose an existing saved connection or ask your admin for a project key.',
       );
-    const listed = (await regions(await management(options, output))).regions;
-    // Match Console: regions that deploy right away first, then regions that still need
-    // provisioning, each group in the server's order.
-    const aws = listed.filter((r) => r.cloud_provider === 'aws');
-    const region = await choose(
-      [...aws.filter((r) => r.is_open), ...aws.filter((r) => !r.is_open)],
-      (r) => `${r.name} (${r.region})`,
-      prompts,
-      'Region',
-      r => r.is_open ? 'Ready to deploy' : 'Additional regional setup · takes longer',
-    );
-    if (!region.is_open) output.diagnostic('This region needs additional deployment. Provisioning can take longer; you can return later to connect the created project.');
+    const api = await management(options, output);
+    // Projects are created only in open regions; the others are requested in Console.
+    const aws = (await regions(api)).regions.filter((r) => r.cloud_provider === 'aws');
+    const open = aws.filter((r) => r.is_open);
+    if (!open.length)
+      throw new InputError(`No region is open for new projects. Request one in Console: ${regionRequestUrl(api.account)}`, '');
+    if (open.length < aws.length)
+      output.diagnostic(`Only open regions are listed. Request another region in Console: ${regionRequestUrl(api.account)}`);
+    const region = await choose(open, (r) => `${r.name} (${r.region})`, prompts, 'Region');
     const name = await prompts.text('Project name', undefined, value => /^[a-zA-Z0-9_-]{3,45}$/.test(value.trim())
       ? undefined : 'Use 3–45 letters, digits, underscores or hyphens.');
     output.diagnostic(
@@ -473,9 +482,6 @@ export async function terminalSetup(options: AccountOptions, output: Output, pro
       output,
     );
     project = created;
-    if (!region.is_open && project.status !== 'ACTIVE') {
-      throw new InputError(`Project ${project.name} (${project.id}) was created in ${region.region} and is provisioning. Rerun ${cli} init later, choose account-based project setup, and select this existing project. Do not create it again.`);
-    }
     const deadline = Date.now() + 10 * 60_000;
     while (project.status !== 'ACTIVE' && Date.now() < deadline) {
       output.diagnostic(
