@@ -13,8 +13,8 @@ const time = (value: unknown) => {
 };
 const count = (value: unknown) => typeof value === 'number' ? value.toLocaleString('en-US') : '';
 const json = (value: unknown, indent = '') => JSON.stringify(value, null, 2).split('\n').map(line => indent + line).join('\n');
-// Page tokens are opaque and can contain shell metacharacters.
-export const quoted = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+/** A shell word: quoted only when it contains characters a POSIX shell would interpret. */
+export const shellArg = (value: string) => /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 
 /** The data target in one readable line instead of a JSON object. */
 export function formatTarget(target: Row | undefined): string | undefined {
@@ -30,7 +30,7 @@ const indexSummary = (configs: unknown) => Object.entries((configs ?? {}) as Rec
   .map(([field, config]) => config?.type === 'vector' && config.dimensions ? `${field} (vector ${config.dimensions})` : `${field} (${plain(config?.type ?? '?')})`)
   .join(', ');
 
-const nextPage = (command: string, token: unknown) => typeof token === 'string' && token ? `${command} --page-token ${quoted(token)}` : undefined;
+const nextPage = (command: string, token: unknown) => typeof token === 'string' && token ? `${command} --page-token ${shellArg(token)}` : undefined;
 
 export function formatDoctor(): string {
   const ok = styleText('green', '✓');

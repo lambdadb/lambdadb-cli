@@ -33,7 +33,8 @@
   `docs list` and `docs fetch` print numbered documents with their full JSON,
   scores and other per-document fields, then response fields such as `facets`
   and `rerank`; missing fetch IDs are listed. Lists with more pages end with the
-  next command and its quoted `--page-token`. Successful writes print their
+  next command, keeping explicit connection options and quoting
+  `--page-token` for the shell where needed. Successful writes print their
   summary only; partial or unknown imports and updates still print the full
   result. `--json` output is unchanged.
 - `lambdadb --help` groups commands into Get started, Account and projects,

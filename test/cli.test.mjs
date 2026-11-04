@@ -350,7 +350,10 @@ test('human data output: tables, next page commands, collection details and grou
   const docs = await f.run(['docs', 'list', '--collection', 'demo-docs', '--ref', 'tag:release-one', '--file', filter]);
   assert.equal(docs.code, 0, docs.stderr);
   assert.match(docs.stdout, /^dev-project \/ demo-docs {2}tag:release-one {2}\(.+\)\n1 document\(s\); more pages available\.\n\n1\. doc-1\n/);
-  assert.ok(docs.stdout.endsWith(`\nNext page: lambdadb docs list --collection demo-docs --ref tag:release-one --file '${filter}' --page-token 'next'\n`), docs.stdout);
+  assert.ok(docs.stdout.endsWith(`\nNext page: lambdadb docs list --collection demo-docs --ref tag:release-one --file '${filter}' --page-token next\n`), docs.stdout);
+  // Explicit connection options carry over, so the continuation reaches the same project.
+  const pinned = await f.run(['collections', 'list', '--size', '2', '--endpoint', f.base, '--project', 'dev-project', '--api-key-env', 'LAMBDADB_API_KEY']);
+  assert.ok(pinned.stdout.endsWith(`\nNext: lambdadb collections list --size 2 --endpoint ${f.base} --project dev-project --api-key-env LAMBDADB_API_KEY --page-token 'a/+'\\''b'\n`), pinned.stdout);
   const described = await f.run(['collections', 'describe', '--collection', 'demo-docs']);
   assert.match(described.stdout, /\n {2}Documents {3}3 on the committed main branch\n {2}Tags {8}team=search\n/);
   assert.match(described.stdout, /\n {2}FIELD {2}INDEX {2}SETTINGS\n {2}text {3}text {3}analyzers: \["english"\]\n/);

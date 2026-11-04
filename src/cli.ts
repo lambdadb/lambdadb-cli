@@ -16,7 +16,7 @@ import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
 import { formatCreated, formatLogin, formatLogout, formatOrganizations, formatProjects, formatRegions, formatUse, framed, interactiveAccount, reported } from './account-ui.js';
 import { failure as formatFailure, targetSummary } from './human.js';
-import { formatAliases, formatBranches, formatCollection, formatCollections, formatDocuments, formatDoctor, formatQuery, formatSettings, formatTags, formatTarget, quoted } from './data-output.js';
+import { formatAliases, formatBranches, formatCollection, formatCollections, formatDocuments, formatDoctor, formatQuery, formatSettings, formatTags, formatTarget, shellArg } from './data-output.js';
 import { usage, formatUsage } from './usage.js';
 import { organizations, projects, createProject, regions, useProject } from './projects.js';
 
@@ -60,6 +60,13 @@ function result<T>(data: T, summary: string, exitCode = 0, body?: ((safe: T) => 
 /** Emits the result with a formatted human summary instead of the raw data; JSON output is unchanged. */
 function summarized(data: unknown, summary: string) {
   output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data }, summary, false);
+}
+
+/** Connection options the user passed, so a suggested follow-up command reaches the same target. */
+function connectionFlags(command: Command): string {
+  const options = command.optsWithGlobals();
+  const flags = [['--config', 'config'], ['--endpoint', 'endpoint'], ['--project', 'project'], ['--api-key-env', 'apiKeyEnv'], ['--credential-store', 'credentialStore'], ['--credential-id', 'credentialId']];
+  return flags.filter(([, key]) => typeof options[key!] === 'string').map(([flag, key]) => ` ${flag} ${shellArg(options[key!])}`).join('');
 }
 
 type Context = ReturnType<typeof runtime>;
@@ -222,7 +229,7 @@ collections.command('list')
       const params = { size, pageToken: opts.pageToken };
       if (!opts.all) {
         const page = await client.listCollections(params, options);
-        result(page, `${page.collections.length} collection(s)${page.nextPageToken ? '; more pages available' : ''}.`, 0, safe => formatCollections(safe, `${cli} collections list${opts.size === '20' ? '' : ` --size ${size}`}`));
+        result(page, `${page.collections.length} collection(s)${page.nextPageToken ? '; more pages available' : ''}.`, 0, safe => formatCollections(safe, output.safeDiagnostic(`${cli} collections list${opts.size === '20' ? '' : ` --size ${size}`}${connectionFlags(cmd)}`)));
       } else {
         const items = [];
         for await (const page of client.listCollectionsPages(params, options)) items.push(...page.collections);
@@ -508,7 +515,7 @@ docs.command('list')
         const page = await client.collection(collection).docs.list(params, options);
         const { docsUrl: _signedUrl, ...data } = page;
         const summary = `${page.docs.length} document(s)${page.nextPageToken ? '; more pages available' : ''}.`;
-        const again = `${cli} docs list --collection ${collection} --ref ${opts.ref}${opts.size === '20' ? '' : ` --size ${size}`}${opts.file ? ` --file ${quoted(opts.file)}` : ''}${opts.includeVectors ? ' --include-vectors' : ''}`;
+        const again = `${cli} docs list --collection ${collection} --ref ${opts.ref}${opts.size === '20' ? '' : ` --size ${size}`}${opts.file ? ` --file ${shellArg(opts.file)}` : ''}${opts.includeVectors ? ' --include-vectors' : ''}${connectionFlags(cmd)}`;
         result(data, summary, 0, safe => formatDocuments(safe, output.safeDiagnostic(summary), output.safeDiagnostic(again)));
       } else {
         const items = [];

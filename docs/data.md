@@ -34,7 +34,8 @@ writes, or numbered documents for `query`, `docs list` and `docs fetch`. Each
 document keeps its full JSON, and its header carries the ID and the item's other
 fields, such as `score` and `retrievalScore`. Response fields such as `facets`,
 `rerank` and `maxScore` follow under their names. A list with more pages ends with
-the next command, including the quoted `--page-token`. A partial or unknown
+the next command, including the connection options you passed and the
+`--page-token`, quoted for the shell where needed. A partial or unknown
 import or update still prints the full result for inspection. Use `--json` for
 scripts and agents; its envelope is unchanged and human output is not a stable
 format.
