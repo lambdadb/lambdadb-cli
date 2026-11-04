@@ -117,6 +117,42 @@ test('account login saves only metadata, replaces and revokes the previous grant
   await assert.rejects(loadAccount(options), /login first/);
 });
 
+test('login names the API origin before authorization, and how to leave a reused non-default origin', async (t) => {
+  const recorder = () => {
+    const messages = [];
+    return { messages, diagnostic: (m) => messages.push(m), protect() {} };
+  };
+  const fixture = await oauthServer(t);
+  const { config } = await directory(t),
+    vault = memory();
+  let output = recorder();
+  await login({ config, apiUrl: fixture.url, browser: false }, output, vault);
+  assert.equal(output.messages[0], `API origin: ${fixture.url} (--api-url).`);
+  // The reported upgrade: an old-format login pointing at another environment.
+  const { issuer: _, ...legacy } = { ...account(), apiUrl: fixture.url };
+  vault.saved.set(legacy.credentialId, 'b'.repeat(64));
+  await writeFile(await accountPath({ config }), JSON.stringify(legacy));
+  output = recorder();
+  const reused = await login({ config, browser: false }, output, vault);
+  assert.equal(reused.apiUrl, fixture.url);
+  assert.match(
+    output.messages[0],
+    new RegExp(`^API origin: ${fixture.url.replaceAll('.', '\\.')}, reused from the saved login\\. To use production, rerun \\S+ login --api-url https://api\\.lambdadb\\.ai, or run \\S+ logout first\\.$`),
+  );
+  const environment = output.messages.findIndex((m) => m.startsWith(`Sign-in service: ${new URL(fixture.issuer).host}; Console: ${new URL(consoleUrl).host}.\nOpen this link`));
+  assert.ok(environment > 0, output.messages.join('\n'));
+
+  // The default and a saved production origin are named without a change hint.
+  // An aborted signal stops discovery before any request leaves this process.
+  for (const saved of [undefined, 'https://api.lambdadb.ai']) {
+    const { config: fresh } = await directory(t);
+    if (saved) await writeFile(await accountPath({ config: fresh }), JSON.stringify({ ...legacy, apiUrl: saved }));
+    output = recorder();
+    await assert.rejects(login({ config: fresh, browser: false, signal: AbortSignal.abort() }, output, memory()), /Cannot reach https:\/\/api\.lambdadb\.ai/);
+    assert.equal(output.messages[0], saved ? 'API origin: https://api.lambdadb.ai, reused from the saved login.' : 'API origin: https://api.lambdadb.ai (default).');
+  }
+});
+
 test('a login that cannot identify its member saves nothing and revokes the new grant', async (t) => {
   const { config } = await directory(t),
     vault = memory();
@@ -818,6 +854,10 @@ test('actual CLI: login only saves account access and guides explicit next comma
   assert.match(result.stderr, /lambdadb init for guided project and agent setup/);
   assert.match(result.stderr, /lambdadb orgs list/);
   assert.match(result.stderr, /oauth2\/device\/verify\?user_code=AbCd1234\nConfirm code AbCd1234/);
+  // The environment is named before the approval link.
+  assert.ok(result.stderr.indexOf(`API origin: ${fixture.url} (--api-url).`) >= 0, result.stderr);
+  assert.ok(result.stderr.indexOf(`API origin: ${fixture.url}`) < result.stderr.indexOf('Sign-in service: 127.0.0.1:'), result.stderr);
+  assert.ok(result.stderr.indexOf('Sign-in service: 127.0.0.1:') < result.stderr.indexOf('oauth2/device/verify'), result.stderr);
   assert.deepEqual(fixture.domainCalls().map((c) => c.path), ['/members/me']);
   const saved = JSON.parse(await readFile(`${fixture.config}.account.json`, 'utf8'));
   assert.equal(saved.memberId, fixture.state.memberId);

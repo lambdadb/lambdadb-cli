@@ -471,6 +471,8 @@ export async function management(options: AccountOptions, output: Output, vault 
   return api;
 }
 
+const DEFAULT_API_URL = 'https://api.lambdadb.ai';
+
 export async function login(options: AccountOptions, output: Output, vault = accountVault()) {
   const requestTimeoutMs = timeoutMs(options);
   return withManagementLock(options, async () => {
@@ -484,7 +486,18 @@ export async function login(options: AccountOptions, output: Output, vault = acc
         /* Explicit login can replace malformed non-secret metadata. */
       }
     }
-    const apiUrl = endpoint(options.apiUrl ?? previousOrigin ?? 'https://api.lambdadb.ai');
+    const apiUrl = endpoint(options.apiUrl ?? previousOrigin ?? DEFAULT_API_URL);
+    // A saved origin is reused silently otherwise, which can target another
+    // environment (for example a development server from an older login).
+    output.diagnostic(
+      options.apiUrl
+        ? `API origin: ${apiUrl} (--api-url).`
+        : !previousOrigin
+          ? `API origin: ${apiUrl} (default).`
+          : apiUrl === DEFAULT_API_URL
+            ? `API origin: ${apiUrl}, reused from the saved login.`
+            : `API origin: ${apiUrl}, reused from the saved login. To use production, rerun ${cli} login --api-url ${DEFAULT_API_URL}, or run ${cli} logout first.`,
+    );
     const store = await vault.select(options.credentialStore ?? 'auto');
     output.diagnostic(
       options.guided ? `Account login: ${store}, renewed while in use.` : `Account session: ${store}; non-secret metadata: ${path}. Login renews while in use and ends after seven idle days. Project credentials are separate.`,

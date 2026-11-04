@@ -219,7 +219,10 @@ For development deployments, select the account API origin with
 `--api-url https://api-dev.lambdadb.ai`. Later login renewal reuses that saved
 origin unless explicitly overridden. The CLI discovers that environment's sign-in
 service and Console URL from the API's OAuth metadata. HTTPS is required except
-for loopback tests.
+for loopback tests. `login` prints the API origin and its source before
+approval, and the approval message names the sign-in service and Console hosts.
+To leave a reused development origin, run
+`lambdadb login --api-url https://api.lambdadb.ai`, or `lambdadb logout` first.
 
 ### OS credential storage
 

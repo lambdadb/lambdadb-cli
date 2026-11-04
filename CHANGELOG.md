@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `login` names the API origin before opening a browser or printing a device
+  link, and says whether it came from `--api-url`, the default or the saved
+  login. A reused non-default origin, such as a development server saved by an
+  earlier version, also prints how to sign in to production instead
+  (`--api-url https://api.lambdadb.ai`, or `logout` first). The browser and
+  device approval messages name the sign-in service and Console hosts. The saved
+  origin is still reused, and JSON output is unchanged.
+- Pin stable MCP `0.4.0` (LambdaDB SDK 0.11.1). `lambdadb mcp` always passes an
+  explicit endpoint, project and key, which MCP 0.4.0 handles as before; its new
+  LambdaDB Connect mode applies only to MCP configurations without a project key
+  and is not used through the CLI. MCP 0.4.0 adds the `@napi-rs/keyring`
+  dependency, so the first launch downloads a platform-specific prebuilt binary.
+
 ### Maintenance
 
 - Update the Homebrew formula to verified stable 0.2.0 and its release-commit
