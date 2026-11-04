@@ -242,7 +242,10 @@ LAMBDADB_TEST_NATIVE_CREDENTIALS=1 node --test test/native-credentials.test.mjs
 LAMBDADB_TEST_NATIVE_CREDENTIALS=1 LAMBDADB_TEST_CREDENTIAL_STORE=secret-service node --test test/native-credentials.test.mjs
 ```
 
-The opt-in tests remove their credentials in `finally`. The Windows path checks the
+The opt-in tests remove their credentials in `finally`. CI runs them in the
+`credential-stores` job for macOS Keychain, Windows Credential Manager, Linux
+Secret Service (an unlocked gnome-keyring on a `dbus-run-session` bus) and kernel
+keyutils on GitHub-hosted runners, which are not desktop sessions. The Windows path checks the
 store and doctor but skips the POSIX fake-npx child. Run the kernel-keyutils check
 on a host that permits keyring syscalls; default Docker isolation may not. A
 missing/locked native backend must never make the environment path unavailable.

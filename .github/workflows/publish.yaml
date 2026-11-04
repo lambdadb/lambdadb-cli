@@ -47,6 +47,50 @@ jobs:
           npm test
           npm run test:package
 
+  # Runs the opt-in native credential tests in each OS store the CLI selects. GitHub-hosted
+  # runners are not desktop sessions: locked keyrings, SSH sessions without Secret Service and
+  # keyutils after reboot stay outside this check.
+  credential-stores:
+    name: Credential store ${{ matrix.store }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { store: keychain, os: macos-latest }
+          - { store: windows, os: windows-latest }
+          - { store: secret-service, os: ubuntu-latest }
+          - { store: keyutils, os: ubuntu-latest }
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install Secret Service
+        if: matrix.store == 'secret-service'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnome-keyring dbus
+      - name: Test the native credential store
+        shell: bash
+        env:
+          LAMBDADB_TEST_NATIVE_CREDENTIALS: "1"
+          LAMBDADB_TEST_CREDENTIAL_STORE: ${{ matrix.store }}
+        run: |
+          npm ci
+          npm run build
+          if [ "$LAMBDADB_TEST_CREDENTIAL_STORE" = secret-service ]; then
+            # A session bus with an unlocked keyring; the password is a synthetic test value.
+            dbus-run-session -- bash -c 'printf synthetic | gnome-keyring-daemon --unlock --components=secrets >/dev/null && node --test test/native-credentials.test.mjs'
+          else
+            node --test test/native-credentials.test.mjs
+          fi
+
   # A job's Environment must be known before it starts, so the run mode is selected in its
   # own job before the publishing job.
   mode:
