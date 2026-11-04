@@ -14,7 +14,7 @@ import { serveMcp } from './mcp.js';
 import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
 import { formatCreated, formatLogin, formatLogout, formatOrganizations, formatProjects, formatRegions, formatUse, framed, interactiveAccount, reported } from './account-ui.js';
-import { failure as formatFailure } from './human.js';
+import { failure as formatFailure, targetSummary } from './human.js';
 import { usage, formatUsage } from './usage.js';
 import { organizations, projects, createProject, regions, useProject } from './projects.js';
 
@@ -618,7 +618,8 @@ try {
     } else if (!output.json && process.stderr.isTTY) {
       // A person at a terminal reads the cause and next step; redirected stdout keeps its summary line.
       const safe = describeError(failure);
-      process.stderr.write(`${formatFailure({ message: output.safeDiagnostic(safe.message), hint: output.safeDiagnostic(safe.hint) }, unknownWrite ? summary : undefined)}\n`);
+      const selected = targetSummary(target);
+      process.stderr.write(`${formatFailure({ message: output.safeDiagnostic(safe.message), hint: output.safeDiagnostic(safe.hint) }, unknownWrite ? summary : undefined, selected && output.safeDiagnostic(selected))}\n`);
       if (!process.stdout.isTTY) process.stdout.write(`${summary}\n`);
     } else output.emit({
       schemaVersion: 1, command: commandName, ok: false, target,

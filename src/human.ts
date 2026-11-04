@@ -35,9 +35,17 @@ export function listing(title: string, headers: string[], rows: unknown[][], emp
 }
 
 /** The failure as a person at a terminal reads it: the cause, then the next step on its own line. */
-export function failure(error: Pick<SafeError, 'message' | 'hint'>, headline?: string): string {
+export function failure(error: Pick<SafeError, 'message' | 'hint'>, headline?: string, target?: string): string {
   const dim = (line: string) => styleText('dim', line, { stream: process.stderr });
   const [first = '', ...rest] = (headline ?? error.message).split('\n');
-  const detail = [...rest.map(line => `  ${line}`), ...[headline ? error.message : '', error.hint].filter(Boolean).flatMap(text => text.split('\n')).map(line => dim(`  ${line}`))];
+  const detail = [...rest.map(line => `  ${line}`), ...[headline ? error.message : '', error.hint, target].filter(Boolean).flatMap(text => text!.split('\n')).map(line => dim(`  ${line}`))];
   return [`${styleText('red', '✖', { stream: process.stderr })} ${first}`, ...detail].join('\n');
+}
+
+/** The selected target as one line, so recovery hints that refer to it stay actionable. */
+export function targetSummary(target: Record<string, unknown> | undefined): string | undefined {
+  const entries = Object.entries(target ?? {}).filter(([, value]) => value !== undefined);
+  if (!entries.length) return undefined;
+  const value = (v: unknown) => v && typeof v === 'object' && 'kind' in v && 'name' in v ? `${(v as { kind: string }).kind}:${(v as { name: string }).name}` : String(v);
+  return `Target: ${entries.map(([key, v]) => `${key} ${value(v)}`).join(', ')}`;
 }
