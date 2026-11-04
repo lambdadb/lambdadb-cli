@@ -26,6 +26,9 @@
 
 ### Maintenance
 
+- CI runs the opt-in native credential tests in macOS Keychain, Windows
+  Credential Manager, Linux Secret Service and kernel keyutils on GitHub-hosted
+  runners.
 - Update the Homebrew formula to verified stable 0.1.9 and its release-commit
   lockfile.
 - Resolve the lint toolchain's transitive `minimatch` to 11.x through an npm
