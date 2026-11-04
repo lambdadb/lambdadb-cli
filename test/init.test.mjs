@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from 'node:util';
 import { terminalInput, keys, enter, down, up, left, cancel } from './terminal-input.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -581,8 +582,8 @@ test('non-interactive init rejects missing choices, target or credentials before
     [['init', '--non-interactive', '--agents', 'none', '--json'], {}, /--scope/],
     [f.init('invalid'), {}, /--agents/],
     [f.init(), { CUSTOM_PROJECT_KEY: '' }, /Export CUSTOM_PROJECT_KEY/],
-    [f.init(), { LAMBDADB_ENDPOINT: '' }, /Endpoint and project/],
-    [f.init(), { LAMBDADB_PROJECT: '' }, /Endpoint and project/],
+    [f.init(), { LAMBDADB_ENDPOINT: '' }, /No project is selected\. Run lambdadb init/],
+    [f.init(), { LAMBDADB_PROJECT: '' }, /No project is selected\. Run lambdadb init/],
     [f.init(), { CUSTOM_PROJECT_KEY: 'invalid\nkey' }, /missing or invalid/],
   ]) {
     const result = await f.run(args, env);
@@ -914,7 +915,8 @@ for (const step of ['agents', 'empty selection', 'review']) {
           : [['Continue with this setup?', keys(down, down, down, '\r')]]),
     ]);
     assert.equal(result.code, 2, result.stderr);
-    assert.match(result.stderr, /Init canceled\. No files were changed\. Rerun lambdadb init when ready\.\n$/);
+    // A terminal shows the cause, then the next step on its own line.
+    assert.match(stripVTControlCharacters(result.stderr), /✖ Init canceled\. No files were changed\.\n {2}Rerun lambdadb init when ready\.\n$/);
     assert.ok(!result.stderr.includes('Check --help'));
     await assert.rejects(readFile(f.config), { code: 'ENOENT' });
     assert.equal(f.requests.length, 0);

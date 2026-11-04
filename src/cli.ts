@@ -13,7 +13,8 @@ import { formatInit } from './init-output.js';
 import { serveMcp } from './mcp.js';
 import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
-import { formatLogin, formatLogout, framed, interactiveAccount, reported } from './account-ui.js';
+import { formatCreated, formatLogin, formatLogout, formatOrganizations, formatProjects, formatRegions, formatUse, framed, interactiveAccount, reported } from './account-ui.js';
+import { failure as formatFailure } from './human.js';
 import { usage, formatUsage } from './usage.js';
 import { organizations, projects, createProject, regions, useProject } from './projects.js';
 
@@ -46,6 +47,11 @@ function result(data: unknown, summary: string, exitCode = 0) {
   const envelope: Envelope = { schemaVersion: 1, command: commandName, ok: exitCode === 0, target, data };
   output.emit(envelope, summary);
   process.exitCode = exitCode;
+}
+
+/** Emits the result with a formatted human summary instead of the raw data; JSON output is unchanged. */
+function summarized(data: unknown, summary: string) {
+  output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data }, summary, false);
 }
 
 type Context = ReturnType<typeof runtime>;
@@ -114,32 +120,46 @@ program.command('login').description('Authorize account management in a browser 
     const account = interactive
       ? await framed(output, scoped => login(options, scoped), signedIn => `Signed in as ${signedIn.email}`)
       : await login(options, output);
-    output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data: account }, formatLogin(account, configPath(options), interactive), false);
+    summarized(account, formatLogin(account, configPath(options), interactive));
   });
 program.command('logout').description('Revoke the saved account session and remove it locally; keep project connections')
   .action(async (_opts, cmd: Command) => {
     const outcome = await logout(cmd.optsWithGlobals(), output);
     const remoteRevoked = outcome?.remoteRevoked ?? false;
-    output.emit({ schemaVersion: 1, command: commandName, ok: true, target, data: { loggedOut: true, remoteRevoked, projectKeysRevoked: false } }, formatLogout(outcome), false);
+    summarized({ loggedOut: true, remoteRevoked, projectKeysRevoked: false }, formatLogout(outcome));
   });
 program.command('orgs').description('Manage account Organizations').command('list')
-  .action(async (_opts, cmd: Command) => result({ organizations: await organizations(cmd.optsWithGlobals(), output) }, 'Accessible Organizations.'));
+  .action(async (_opts, cmd: Command) => {
+    const listed = await organizations(cmd.optsWithGlobals(), output);
+    summarized({ organizations: listed }, formatOrganizations(listed));
+  });
 const projectCommands = program.command('projects').description('List, create and select projects using the saved account session');
-projectCommands.command('list').requiredOption('--org-id <uuid>', 'Organization ID')
-  .action(async (opts, cmd: Command) => result({ projects: await projects(cmd.optsWithGlobals(), opts.orgId, output) }, 'Projects in the selected Organization.'));
+projectCommands.command('list').option('--org-id <uuid>', 'Organization ID (optional when the account has one Organization)')
+  .action(async (opts, cmd: Command) => {
+    const listed = await projects(cmd.optsWithGlobals(), opts.orgId, output);
+    summarized({ projects: listed }, formatProjects(listed, opts.orgId));
+  });
 projectCommands.command('regions').description('List available regions before project creation')
-  .action(async (_opts, cmd: Command) => result(await regions(await management(cmd.optsWithGlobals(), output)), 'Project regions.'));
+  .action(async (_opts, cmd: Command) => {
+    const listed = await regions(await management(cmd.optsWithGlobals(), output));
+    summarized(listed, formatRegions(listed.regions));
+  });
 projectCommands.command('create').option('--org-id <uuid>', 'Existing Organization ID').option('--default-org', 'Explicitly prepare the default Organization on submission')
   .requiredOption('--name <name>', 'Project name').requiredOption('--region <region>', 'Region from projects regions')
   .action(async (opts, cmd: Command) => {
     const created = await createProject(cmd.optsWithGlobals(), opts, output);
-    result(created, 'Project requested. Check projects list for ACTIVE status; creation does not establish search readiness.');
+    summarized(created, formatCreated(created));
   });
-projectCommands.command('use').requiredOption('--org-id <uuid>', 'Organization ID').requiredOption('--project-id <uuid>', 'Project ID')
+projectCommands.command('use').option('--org-id <uuid>', 'Organization ID (optional when the account has one Organization)').requiredOption('--project-id <uuid>', 'Project ID')
   .option('--issue-key', 'Explicitly issue a new project key after approval in a browser, including replacement of a saved connection')
   .option('--no-browser', 'Approve key issuance at the printed URL on this or another device instead of a browser on this computer')
-  .action(async (opts, cmd: Command) => result(await useProject(cmd.optsWithGlobals(), opts.orgId, opts.projectId, !!opts.issueKey, output), 'CLI project selected. Agent configurations are unchanged.'));
-
+  .action(async (opts, cmd: Command) => {
+    const options = cmd.optsWithGlobals();
+    const interactive = interactiveAccount(output);
+    const use = (scoped: Output) => useProject(options, opts.orgId, opts.projectId, !!opts.issueKey, scoped);
+    const selected = interactive ? await framed(output, use, used => `Using project ${used.project}`) : await use(output);
+    summarized(selected, formatUse(selected, interactive));
+  });
 program.command('usage')
   .description('Show current project usage: Free quotas or Pay-As-You-Go recorded usage and list-rate cost estimates')
   .option('--org-id <uuid>', 'Show the entire Organization instead of the saved project; requires account login')
@@ -588,16 +608,22 @@ try {
     const failure = error instanceof CommanderError ? parseError(error, commandName) : error;
     const unknownWrite = (mutationStarted && !definitelyRejected(failure)) || (failure instanceof ManagementError && ['write_outcome_unknown', 'issuance_unconfirmed'].includes(failure.code));
     const exitCode = isInputError(failure) ? 2 : unknownWrite ? 5 : 3;
+    const summary = unknownWrite ? 'Write outcome unknown. Inspect the target before retrying.' : 'Command failed.';
     if (!output.json && failure && typeof failure === 'object' && reported.has(failure)) {
       // The interactive frame already showed this failure.
     } else if (commandName === 'mcp') {
       const safe = describeError(failure);
       output.diagnostic([safe.message, safe.hint].filter(Boolean).join(' '));
+    } else if (!output.json && process.stderr.isTTY) {
+      // A person at a terminal reads the cause and next step; redirected stdout keeps its summary line.
+      const safe = describeError(failure);
+      process.stderr.write(`${formatFailure({ message: output.safeDiagnostic(safe.message), hint: output.safeDiagnostic(safe.hint) }, unknownWrite ? summary : undefined)}\n`);
+      if (!process.stdout.isTTY) process.stdout.write(`${summary}\n`);
     } else output.emit({
       schemaVersion: 1, command: commandName, ok: false, target,
       ...(unknownWrite ? { data: { state: 'unknown', searchable: 'not_verified' } } : {}),
       error: describeError(failure),
-    }, unknownWrite ? 'Write outcome unknown. Inspect the target before retrying.' : 'Command failed.');
+    }, summary);
     process.exitCode = exitCode;
   }
 }

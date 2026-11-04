@@ -20,6 +20,7 @@ import { openBrowser } from './oauth.js';
 import { InputError, ManagementError } from './errors.js';
 import type { Output } from './output.js';
 import type { SetupPrompts } from './init-ui.js';
+import { storeName } from './human.js';
 
 export type Project = {
   id: string;
@@ -76,9 +77,23 @@ export async function regions(api: Management) {
   }
   return { regions: items };
 }
-export async function projects(options: AccountOptions, org: string, output: Output): Promise<Project[]> {
-  uuid(org, 'Organization');
-  return listProjects(await management(options, output), org);
+/** Uses the only active Organization when none is named; several require an explicit --org-id. */
+async function selectOrganization(api: Management, output: Output): Promise<Organization> {
+  const all = await listOrganizations(api);
+  if (all.length === 1) {
+    output.diagnostic(`Organization: ${all[0]!.name}`);
+    return all[0]!;
+  }
+  if (!all.length) throw new InputError('No active Organization is available to this account.', `Create a project in Console (https://app.lambdadb.ai) or accept an invitation, then rerun.`);
+  throw new InputError(
+    `This account has ${all.length} Organizations; choose one with --org-id:\n${all.map((o) => `${o.name}  ${o.id}`).join('\n')}`,
+    `Run ${cli} orgs list for details.`,
+  );
+}
+export async function projects(options: AccountOptions, org: string | undefined, output: Output): Promise<Project[]> {
+  if (org) uuid(org, 'Organization');
+  const api = await management(options, output);
+  return listProjects(api, org ?? (await selectOrganization(api, output)).id);
 }
 async function listProjects(api: Management, org: string): Promise<Project[]> {
   const response = await api.request('projects', 'GET', undefined, org);
@@ -227,19 +242,22 @@ export async function connectedProject(options: AccountOptions, account: Account
 
 export async function useProject(
   options: AccountOptions,
-  org: string,
+  orgId: string | undefined,
   projectId: string,
   issueKey: boolean,
   output: Output,
   vault = new CredentialVault(),
   client?: Awaited<ReturnType<typeof management>>,
 ) {
-  uuid(org, 'Organization');
+  if (orgId) uuid(orgId, 'Organization');
   uuid(projectId, 'Project');
   return withManagementLock(options, async () => {
     const api = client ?? (await management(options, output));
+    // An explicit --org-id keeps the original request order; otherwise the only Organization is selected first.
+    const only = orgId ? undefined : await selectOrganization(api, output);
+    const org = orgId ?? only!.id;
     const project = (await listProjects(api, org)).find((p) => p.id === projectId);
-    const organization = (await listOrganizations(api)).find((o) => o.id === org);
+    const organization = only ?? (await listOrganizations(api)).find((o) => o.id === org);
     if (!organization) throw new InputError('The Organization is not available to this account.');
     if (!project) throw new InputError('The project is not available in this Organization.');
     if (project.status !== 'ACTIVE')
@@ -252,7 +270,6 @@ export async function useProject(
     const original = configPath(options),
       destination = await fileIdentity(original),
       before = await readOptional(destination);
-    if (!options.guided) output.diagnostic(`CLI settings: ${destination}; saved project references: ${cache.path}.`);
     if (item?.pendingKeyName)
       output.diagnostic(
         `Previous delivery was uncertain: inspect/revoke ${item.pendingKeyName} in Console before replacing it.`,
@@ -269,7 +286,7 @@ export async function useProject(
         );
       const store = await vault.select(options.credentialStore ?? api.account.credentialStore);
       if (!options.guided) output.diagnostic(
-        `Project credential store: ${store}. The key retains existing API permissions, including writes; MCP write-tool visibility is configured separately.`,
+        `Issuing a project key, saved in ${storeName(store)}. It can write data; MCP write tools are enabled separately.`,
       );
       if (store === 'keyutils')
         output.diagnostic(
@@ -283,7 +300,7 @@ export async function useProject(
         onConnection: async (connectionId: string) => {
           keyName = `lambdadb-connection-${connectionId}`;
           output.diagnostic(
-            options.guided ? `Approve the project key in your browser.\nRecovery name: ${keyName}` : `Approve issuing ${keyName} in the browser. If delivery fails, inspect it in Console; no request will be retried automatically.`,
+            options.guided ? `Approve the project key in your browser.\nRecovery name: ${keyName}` : `Key name: ${keyName}. If delivery fails, find it under this name in Console; the CLI does not retry.`,
           );
           if (!item) {
             item = { account, org, projectId };
@@ -349,7 +366,6 @@ export async function useProject(
         'CLI settings changed. The connection is cached; rerun projects use without --issue-key.',
       );
     await saveSettings({ ...options, ...selected, config: destination });
-    if (!options.guided) output.diagnostic('CLI project selected. Existing agent entries remain pinned; rerun init to update their connection.');
     return selected;
   });
 }

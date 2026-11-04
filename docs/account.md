@@ -28,12 +28,21 @@ lambdadb logout
 ```
 
 `--org-id` and `--project-id` take UUIDs, not names. Find them with `orgs list`
-and `projects list --org-id UUID`. The global `--project <name>` remains a
-project-name selector for data API commands.
+and `projects list`. `projects list` and `projects use` may omit `--org-id` when
+the account has exactly one active Organization: they name it on stderr and use
+it. With several Organizations they stop and list each name and UUID; scripts
+that must not depend on the account's Organization count should pass `--org-id`.
+The global `--project <name>` remains a project-name selector for data API
+commands.
+
+Without `--json`, these commands print aligned tables or a short summary with the
+next command instead of the raw response; `--json` output is unchanged. In a
+terminal, `projects use` shows its approval steps in the same frame as `init`,
+and failures show the cause with the next step on its own line.
 
 `create` requires exactly one of `--org-id UUID` or `--default-org`, plus `--name`
 and `--region`. Creation does not select the CLI default or install agents.
-`use` requires both IDs; first connection or deliberate key replacement requires
+`use` requires `--project-id` and, with several Organizations, `--org-id`; first connection or deliberate key replacement requires
 `--issue-key` and owner/admin key-management permission. Issuing a key is a
 separate approval for that exact project in the browser (or at the printed link
 with `--no-browser`); the account login itself cannot mint keys. Saved project
