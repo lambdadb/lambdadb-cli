@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { Command, CommanderError, Option } from 'commander';
+import { Command, CommanderError, Help, Option } from 'commander';
+import type { FetchDocsInput } from '@functional-systems/lambdadb';
 import { cli } from './command.js';
 import { readFileSync } from 'node:fs';
 import { configPath, integer, name, resolveConfig, resolveCredential, saveSettings, settings, type Config, type Options } from './config.js';
@@ -14,11 +15,11 @@ import { formatInit } from './init-output.js';
 import { serveMcp } from './mcp.js';
 import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
-import { formatCreated, formatLogin, formatLogout, formatOrganizations, formatProjects, formatRegions, formatUse, framed, interactiveAccount, reported } from './account-ui.js';
+import { formatCreated, formatLogin, formatLogout, formatOrganizationChoice, formatOrganizations, formatProjects, formatRegions, formatUse, framed, interactiveAccount, reported } from './account-ui.js';
 import { failure as formatFailure, targetSummary } from './human.js';
 import { formatAliases, formatBranches, formatCollection, formatCollections, formatDocuments, formatDoctor, formatQuery, formatSettings, formatTags, formatTarget, shellArg } from './data-output.js';
 import { usage, formatUsage } from './usage.js';
-import { organizations, projects, createProject, regions, useProject } from './projects.js';
+import { OrganizationChoice, organizations, projects, createProject, regions, useProject } from './projects.js';
 
 const output = new Output();
 output.protect(process.env.LAMBDADB_API_KEY);
@@ -43,6 +44,12 @@ const program = new Command()
   .exitOverride()
   // Parse errors are reported through the CLI envelope; help for a missing subcommand still prints.
   .configureOutput({ outputError: () => {} })
+  .configureHelp({
+    optionDescription(option) {
+      const description = Help.prototype.optionDescription.call(this, option);
+      return option.mandatory ? `${description} (required)` : description;
+    },
+  })
   .addHelpText('after', '\nExamples:\n  lambdadb init\n  lambdadb doctor --json\n  lambdadb docs list --collection demo-docs --ref branch:main --size 5 --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query.json --json\n  lambdadb branches list --collection demo-docs --json\n\nExit codes: 0 success, 2 input/config error, 3 API/request failure, 4 partial import, 5 unknown write outcome.');
 
 /**
@@ -91,6 +98,15 @@ function scoped(command: Command): string {
   const collection = name(command.opts().collection, 'Collection name');
   target = { ...target, collection };
   return collection;
+}
+
+const consistentReadHelp = 'Include pending writes on the branch (bulk imports appear after indexing)';
+
+/** The next step after a write: read the branch back, including the pending writes. Redacted like other printed commands. */
+function readBack(command: Command, collection: string, branch: string, ids?: string[]): string {
+  const scope = `--collection ${shellArg(collection)} --ref branch:${shellArg(branch)}`;
+  const read = ids ? `docs fetch ${scope} --ids ${ids.map(shellArg).join(' ')}` : `query ${scope} --file <QUERY_FILE>`;
+  return output.safeDiagnostic(`Next: ${cli} ${read} --consistent-read${connectionFlags(command)}`);
 }
 
 program.hook('preSubcommand', (_parent, command) => {
@@ -239,12 +255,12 @@ collections.command('list')
   });
 
 collections.command('describe')
-  .description('Get collection metadata; counts describe the committed main branch')
+  .description('Show collection metadata and index fields; document counts are for branch main')
   .requiredOption('--collection <name>', 'Collection name')
   .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
     const collection = scoped(cmd);
     const described = await client.collection(collection).get(options);
-    result(described, 'Collection metadata (main-branch counts are not a readiness signal).', 0, safe => formatCollection(safe));
+    result(described, 'Collection metadata.', 0, safe => formatCollection(safe));
   }));
 
 collections.command('create')
@@ -266,7 +282,7 @@ collections.command('create')
       scoped(cmd);
       mutationStarted = true;
       const created = await client.createCollection(input, { ...options, retries: { strategy: 'none' } });
-      result({ ...created, state: 'created', searchable: 'not_verified' }, 'Collection created; query-serving readiness has not been verified.');
+      result({ ...created, state: 'created' }, 'Collection created.');
     });
   });
 
@@ -290,7 +306,7 @@ collections.command('update')
       const collection = scoped(cmd);
       mutationStarted = true;
       const updated = await client.collection(collection).update(input, { ...options, retries: { strategy: 'none' } });
-      result({ ...updated, state: 'updated', searchable: 'not_verified' }, 'Collection updated; query-serving readiness has not been verified.');
+      result({ ...updated, state: 'updated' }, 'Collection updated.');
     });
   });
 
@@ -464,7 +480,7 @@ aliases.command('delete')
 
 const docs = program.command('docs').description('Import, list, fetch, update and delete documents');
 docs.command('import')
-  .description('Validate JSONL, submit sequential batches, stop on first error; acceptance is not search readiness')
+  .description('Upsert the documents of a JSONL file into a branch in sequential batches, stopping on the first error')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--branch <name>', 'Explicit writable branch (for example main)')
   .requiredOption('--file <path>', 'UTF-8 JSONL file, at most 64 MiB and 100000 documents')
@@ -487,8 +503,11 @@ docs.command('import')
         output.diagnostic(`Batch ${batch.batch}: ${batch.state}, ${batch.documents} document(s), lines ${batch.firstLine}–${batch.lastLine}.`);
       });
       const exitCode = imported.state === 'accepted' ? 0 : imported.state === 'unknown' ? 5 : imported.state === 'partial' ? 4 : 3;
-      result(imported, `${imported.accepted}/${imported.total} document(s) accepted; search visibility not verified.`, exitCode,
-        exitCode ? null : safe => `${safe.accepted}/${safe.total} document(s) accepted; search visibility not verified.`);
+      const id = rows[0]?.doc.id;
+      const next = bulk ? 'Bulk imports become visible after indexing completes.'
+        : readBack(cmd, collection, branch, typeof id === 'string' && id ? [id] : undefined);
+      result(imported, `${imported.accepted}/${imported.total} document(s) accepted.`, exitCode,
+        exitCode ? null : safe => `${safe.accepted}/${safe.total} document(s) accepted.\n${next}`);
       if (exitCode) output.diagnostic('Import stopped. Inspect batch outcomes and the selected branch before retrying; automatic resume is not supported.');
     });
   });
@@ -526,7 +545,7 @@ docs.command('list')
   });
 
 docs.command('update')
-  .description('Merge JSONL field updates into existing documents by id; missing ids fail the batch, acceptance is not visibility')
+  .description('Merge JSONL field updates into existing documents by id; a missing id fails its batch')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--branch <name>', 'Explicit writable branch (for example main)')
   .requiredOption('--file <path>', 'UTF-8 JSONL file of partial documents, each with a nonempty string id; at most 64 MiB and 100000 documents')
@@ -548,14 +567,15 @@ docs.command('update')
         output.diagnostic(`Batch ${batch.batch}: ${batch.state}, ${batch.documents} document(s), lines ${batch.firstLine}–${batch.lastLine}.`);
       });
       const exitCode = updated.state === 'accepted' ? 0 : updated.state === 'unknown' ? 5 : updated.state === 'partial' ? 4 : 3;
-      result(updated, `${updated.accepted}/${updated.total} update(s) accepted; merged results are not yet verified as visible.`, exitCode,
-        exitCode ? null : safe => `${safe.accepted}/${safe.total} update(s) accepted; merged results are not yet verified as visible.`);
+      const next = readBack(cmd, collection, branch, rows[0] ? [String(rows[0].doc.id)] : undefined);
+      result(updated, `${updated.accepted}/${updated.total} update(s) accepted.`, exitCode,
+        exitCode ? null : safe => `${safe.accepted}/${safe.total} update(s) accepted.\n${next}`);
       if (exitCode) output.diagnostic('Update stopped. A batch with a missing id is rejected as a whole; inspect batch outcomes and the selected branch before retrying.');
     });
   });
 
 docs.command('delete')
-  .description('Delete documents on a writable branch by IDs or by a filter file; acceptance is not visibility')
+  .description('Delete documents on a writable branch by IDs or by a filter file')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--branch <name>', 'Explicit writable branch (for example main)')
   .option('--ids <id...>', 'Document IDs to delete (separate with spaces)')
@@ -570,7 +590,8 @@ docs.command('delete')
       target = { ...target, branch };
       mutationStarted = true;
       const deleted = await client.collection(collection).docs.delete(input, { ...options, retries: { strategy: 'none' } });
-      result({ ...deleted, state: 'accepted', searchable: 'not_verified' }, 'Delete request accepted; the documents can remain visible until the write commits.');
+      const next = readBack(cmd, collection, branch, input.ids?.slice(0, 1));
+      result({ ...deleted, state: 'accepted' }, 'Delete request accepted.', 0, () => `Delete request accepted.\n${next}`);
     });
   });
 
@@ -579,19 +600,17 @@ docs.command('fetch')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--ref <kind:name>', 'branch:NAME, tag:NAME or alias:NAME')
   .requiredOption('--ids <id...>', 'One or more IDs (separate with spaces)')
-  .option('--consistent-read', 'Overlay eligible pending writes; direct branch only, excludes bulk imports')
+  .option('--consistent-read', consistentReadHelp)
   .option('--include-vectors', 'Include vector fields in returned documents')
   .action(async (opts, cmd: Command) => {
     const ref = parseRef(opts.ref);
     if (opts.ids.length > 1000 || opts.ids.some((id: string) => !id)) throw new InputError('Fetch requires 1–1000 nonempty IDs.');
-    if (opts.consistentRead && ref.kind !== 'branch') throw new InputError('Consistent reads require a direct branch ref.');
     await connected(cmd, async ({ client, options }) => {
       const collection = scoped(cmd);
       target = { ...target, ref };
       const fetched = await client.collection(collection).docs.fetch({
-        ids: opts.ids, includeVectors: opts.includeVectors ?? false,
-        ...(ref.kind === 'branch' ? { ref, consistentRead: !!opts.consistentRead } : { ref, consistentRead: false }),
-      }, options);
+        ids: opts.ids, includeVectors: opts.includeVectors ?? false, ref, consistentRead: !!opts.consistentRead,
+      } as FetchDocsInput, options);
       const found = new Set(fetched.docs.map(item => item.doc.id));
       const { docsUrl: _signedUrl, ...data } = fetched;
       const missingIds = opts.ids.filter((id: string) => !found.has(id));
@@ -604,11 +623,12 @@ program.command('query')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--ref <kind:name>', 'branch:NAME, tag:NAME or alias:NAME; must match any ref in the file')
   .requiredOption('--file <path>', 'JSON request body; omit query for match-all, use size:0 with facets for counts only; optional rerank (typesafe or cohere) is per query')
+  .option('--consistent-read', consistentReadHelp)
   .addHelpText('after', '\nBayesian: exactly two unboosted subqueries, including Boolean descendants; no nested fusion.\nWithout rerank, set candidateSize with 1 <= size <= candidateSize <= 1000.\nWith rerank, omit top-level candidateSize and use rerank.candidateSize (server default preserved).\n  lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian.json --json\n  lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian-rerank.json --json')
   .addHelpText('after', '\nExamples:\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-facets-only.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-with-facets.json --json\n  lambdadb query --collection demo-docs --ref branch:main --file examples/query-rerank.json --json')
   .action(async (opts, cmd: Command) => {
     const ref = parseRef(opts.ref);
-    const input = queryInput(await readJson(opts.file), ref);
+    const input = queryInput(await readJson(opts.file), ref, !!opts.consistentRead);
     await connected(cmd, async ({ client, options }) => {
       const collection = scoped(cmd);
       target = { ...target, ref };
@@ -639,7 +659,10 @@ try {
     const unknownWrite = (mutationStarted && !definitelyRejected(failure)) || unknownOutcome(failure);
     const exitCode = isInputError(failure) ? 2 : unknownWrite ? 5 : 3;
     const summary = unknownWrite ? unknownOutcomeSummary : 'Command failed.';
-    if (!output.json && failure && typeof failure === 'object' && reported.has(failure)) {
+    if (!output.json && failure instanceof OrganizationChoice) {
+      // A choice, not a failure; a terminal that already saw it in the frame does not get it twice.
+      if (!reported.has(failure) || !process.stdout.isTTY) process.stdout.write(`${output.safeDiagnostic(formatOrganizationChoice(failure.organizations))}\n`);
+    } else if (!output.json && failure && typeof failure === 'object' && reported.has(failure)) {
       // The interactive frame already showed the cause; redirected stdout still gets its summary line.
       if (!process.stdout.isTTY) process.stdout.write(`${summary}\n`);
     } else if (commandName === 'mcp') {
@@ -653,7 +676,7 @@ try {
       if (!process.stdout.isTTY) process.stdout.write(`${summary}\n`);
     } else output.emit({
       schemaVersion: 1, command: commandName, ok: false, target,
-      ...(unknownWrite ? { data: { state: 'unknown', searchable: 'not_verified' } } : {}),
+      ...(unknownWrite ? { data: { state: 'unknown' } } : {}),
       error: describeError(failure),
     }, summary);
     process.exitCode = exitCode;

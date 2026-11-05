@@ -60,12 +60,12 @@ export function formatInit(data: Awaited<ReturnType<typeof initialize>>, config:
         `    Ask: "${customConfig ? `Use LambdaDB with CLI config ${JSON.stringify(config)}. ` : ''}List my LambdaDB collections and help me search one. Do not modify data."`,
       ] : [`    ${cli} collections list --json${customConfig ? ' (pass --config with the path above)' : ''}`]),
       '',
-      styleText('dim', '  Run your first query to verify search.'),
+      styleText('dim', '  Run your first query.'),
     ].join('\n');
   }
   return [
     `Connected to ${text(settings.project)}`,
-    'Authentication and collection access verified; search not yet verified.',
+    'Authentication and collection access verified.',
     ...(customConfig ? [`CLI config: ${text(config)}`] : []),
     ...(agents.length ? [`Agents: ${agents.join(', ')} (${data.scope} scope; MCP ${data.writeTools ? 'read and write' : 'read-only'})`] : []),
     ...(count ? [`Files: ${count} created/updated.`] : []),

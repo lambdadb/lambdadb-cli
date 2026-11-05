@@ -8,7 +8,7 @@ export type Envelope = {
 // These values are CLI protocol tokens, never arbitrary API or document data.
 const protocolValues = new Set([
   'command', 'error.code', 'target.ref.kind',
-  'data.state', 'data.searchable', 'data.batches.*.state', 'data.batches.*.error.code',
+  'data.state', 'data.batches.*.state', 'data.batches.*.error.code',
   'data.checks.*.name', 'data.checks.*.status',
 ]);
 // Rerank provider/model/reason schemas also accept arbitrary server strings.

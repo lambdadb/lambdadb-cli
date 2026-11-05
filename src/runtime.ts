@@ -42,11 +42,10 @@ export function runtime(config: Config, signal?: AbortSignal) {
   };
 }
 
-// Both doctor and init verify access without implying collection/query readiness.
 export async function checkConnection(ctx: Pick<ReturnType<typeof runtime>, 'client' | 'options'>) {
   await ctx.client.listCollections({ size: 1 }, ctx.options);
   return { checks: [
     { name: 'configuration', status: 'passed' },
     { name: 'authentication_and_project_collection_list', status: 'passed' },
-  ], writesVerified: false, queryReadinessVerified: false };
+  ] };
 }

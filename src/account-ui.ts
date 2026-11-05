@@ -4,10 +4,10 @@ import type { Account, Organization } from './account.js';
 import { cli } from './command.js';
 import { defaultConfigPath, type SelectedSettings } from './config.js';
 import { describeError, unknownOutcome, unknownOutcomeSummary } from './errors.js';
-import { listing, plain, storeName } from './human.js';
+import { listing, plain, storeName, table } from './human.js';
 import { wrapInfo } from './init-ui.js';
 import type { Output } from './output.js';
-import type { Project } from './projects.js';
+import { OrganizationChoice, type Project } from './projects.js';
 
 /** Failures already reported inside an interactive frame; the CLI skips its plain report for them. */
 export const reported = new WeakSet<object>();
@@ -25,12 +25,24 @@ export async function framed<T>(output: Output, action: (output: Output) => Prom
     outro(output.safeDiagnostic(done(value)), options);
     return value;
   } catch (error) {
-    const safe = describeError(error);
-    const cause = output.safeDiagnostic([safe.message, safe.hint].filter(Boolean).join(' '));
-    cancel(unknownOutcome(error) ? `${unknownOutcomeSummary}\n${cause}` : cause, options);
+    if (error instanceof OrganizationChoice) outro(output.safeDiagnostic(formatOrganizationChoice(error.organizations)), options);
+    else {
+      const safe = describeError(error);
+      const cause = output.safeDiagnostic([safe.message, safe.hint].filter(Boolean).join(' '));
+      cancel(unknownOutcome(error) ? `${unknownOutcomeSummary}\n${cause}` : cause, options);
+    }
     if (error && typeof error === 'object') reported.add(error);
     throw error;
   }
+}
+
+/** The Organizations to choose from when a project command needs --org-id. */
+export function formatOrganizationChoice(organizations: Organization[]) {
+  return [
+    'Choose an Organization and rerun with --org-id <ID>:',
+    '',
+    table(organizationColumns, organizations.map(organizationRow)),
+  ].join('\n');
 }
 
 export function formatLogin(account: Account, config: string, interactive: boolean) {
@@ -65,12 +77,13 @@ export function formatLogout(outcome: { remoteRevoked: boolean; email?: string; 
     : `Signed out of ${who} on this computer. The server did not confirm revocation, so the login ends after seven idle days.\n${unchanged}`;
 }
 
+const organizationColumns = ['NAME', 'ROLE', 'PLAN', 'PROJECTS', 'ID'];
+const organizationRow = (o: Organization) => [o.name, o.role, o.plan, `${o.projects_count} / ${o.max_projects}`, o.id];
+
 export function formatOrganizations(organizations: Organization[]) {
   const next = organizations.length === 1 ? `${cli} projects list`
     : organizations.length ? `${cli} projects list --org-id <ID>` : undefined;
-  return listing('Organizations', ['NAME', 'ROLE', 'PLAN', 'PROJECTS', 'ID'],
-    organizations.map(o => [o.name, o.role, o.plan, `${o.projects_count} / ${o.max_projects}`, o.id]),
-    'No active Organizations.', next);
+  return listing('Organizations', organizationColumns, organizations.map(organizationRow), 'No active Organizations.', next);
 }
 
 export function formatProjects(projects: Project[], orgId: string | undefined) {
@@ -91,7 +104,7 @@ export function formatRegions(regions: { cloud_provider: string; region: string;
 
 export function formatCreated(project: { id: string; organization_id: string; name: string; status: string }) {
   return [
-    `Project ${plain(project.name)} requested (${plain(project.status)}). Creation does not establish search readiness.`,
+    `Project ${plain(project.name)} requested (${plain(project.status)}).`,
     `Next: ${cli} projects list --org-id ${project.organization_id} until it is ACTIVE, then ${cli} projects use --org-id ${project.organization_id} --project-id ${project.id} --issue-key`,
   ].join('\n');
 }

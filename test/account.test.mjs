@@ -979,6 +979,22 @@ test('actual CLI: project commands use the only Organization when --org-id is om
     assert.equal(ambiguous.value.error.message, `This account has 2 Organizations; choose one with --org-id:\nTeam  ${org}\nOther  ${second}`);
   }
   assert.ok(fixture.domainCalls().every(c => c.path === '/organizations'), JSON.stringify(fixture.domainCalls()));
+  // A person sees the choice as a table and the next step, not as a failure.
+  const choice = [
+    'Choose an Organization and rerun with --org-id <ID>:', '',
+    '  NAME   ROLE   PLAN  PROJECTS  ID',
+    `  Team   owner  Free  1 / 1     ${org}`,
+    `  Other  owner  Free  1 / 1     ${second}`,
+  ].join('\n');
+  const listed2 = await fixture.run(['projects', 'list'], {}, []);
+  assert.equal(listed2.code, 2, listed2.stderr);
+  assert.equal(listed2.stdout, `${choice}\n`);
+  assert.doesNotMatch(listed2.stderr, /✖|Command failed/);
+  const framedUse = await fixture.run(['projects', 'use', '--project-id', first], {}, []);
+  assert.equal(framedUse.code, 2, framedUse.stderr);
+  assert.match(stripVTControlCharacters(framedUse.stderr), /└ {2}Choose an Organization and rerun with --org-id <ID>:\n/);
+  assert.doesNotMatch(framedUse.stderr, /✖|Command failed/);
+  assert.equal(framedUse.stdout, `${choice}\n`);
 });
 
 test('actual CLI: a terminal shows a failure as its cause and next step; redirected stdout keeps its summary', async t => {

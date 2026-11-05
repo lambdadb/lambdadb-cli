@@ -93,14 +93,15 @@ export function parseTarget(value: string): AliasTarget {
   return ref;
 }
 
-export function queryInput(body: Record<string, unknown>, ref: ReadRef): QueryCollectionInput {
+export function queryInput(body: Record<string, unknown>, ref: ReadRef, consistentRead = false): QueryCollectionInput {
   if (body.ref !== undefined) {
     const supplied = object(body.ref, 'File ref');
     if (Object.keys(supplied).some(k => !['kind', 'name'].includes(k)) || supplied.kind !== ref.kind || supplied.name !== ref.name) {
       throw new InputError('File ref conflicts with --ref. Use the same explicit target in both.');
     }
   }
-  const input: Record<string, unknown> = { ...body, ref };
+  if (consistentRead && body.consistentRead === false) throw new InputError('File consistentRead conflicts with --consistent-read. Remove one of them.');
+  const input: Record<string, unknown> = { ...body, ref, ...(consistentRead ? { consistentRead: true } : {}) };
   // Public API accepts null size, while the SDK only accepts undefined/number.
   if (input.size === null) delete input.size;
   // The SDK requires integer sizes and facets for zero; bound non-reranked queries here.
@@ -108,7 +109,7 @@ export function queryInput(body: Record<string, unknown>, ref: ReadRef): QueryCo
     throw new InputError('Query size must be from 0 to 1000; zero requires facets.');
   }
   try { queryCollectionRequestBodyToJSON(input as QueryCollectionInput); }
-  catch { throw new InputError('Invalid query request. Check fields, types and rerank settings; size:0 requires facets, rerank requires a scoring query without sort, and consistentRead:true requires a branch ref.'); }
+  catch { throw new InputError('Invalid query request. Check fields, types and rerank settings; size:0 requires facets and rerank requires a scoring query without sort.'); }
   return input as QueryCollectionInput;
 }
 

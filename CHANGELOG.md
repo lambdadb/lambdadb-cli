@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `collections list` names each collection's field count and its three most
+  common index types (for example `52 fields: text 50, keyword 2`) instead of
+  listing every field, shows dates in `UPDATED`, and prints the target line in
+  normal brightness. `collections describe` still lists every field. `--json`
+  output is unchanged.
+- Help marks required options with `(required)` in every command.
+- `query` accepts `--consistent-read`, like `docs fetch`; a query file that sets
+  `consistentRead` to `false` alongside the flag is an input error.
+- Write results end with the next step: `docs import`, `docs update` and
+  `docs delete` print the `docs fetch` or `query` command that reads the written
+  branch back with `--consistent-read`, and a bulk import says that it becomes
+  visible after indexing completes. The `searchable: "not_verified"` field is
+  gone from `docs import`, `docs update`, `docs delete`, `collections create`,
+  `collections update` and unknown-outcome results, as are `writesVerified` and
+  `queryReadinessVerified` from `doctor` and `init`; command descriptions,
+  summaries, docs and the bundled skill describe what each command does instead
+  of repeating that acceptance is not search visibility. The skill's
+  read-after-write section is the one rule: read the branch with a consistent
+  read, and bulk imports appear after indexing.
+- `projects list` and `projects use` without `--org-id` on an account with
+  several Organizations print the Organizations as a table with the next step
+  instead of a failure; the exit code stays 2 and `--json` output is unchanged.
+
 ### Maintenance
 
 - Update the Homebrew formula to verified stable 0.2.3 and its release-commit

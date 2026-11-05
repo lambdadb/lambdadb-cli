@@ -4,10 +4,9 @@
 
 ## Query existing data
 
-Init does not query documents or create collections/data. Connection success does
-not establish search readiness. The setup result includes a read-only agent
-prompt. To inspect data directly, list collections and choose an existing
-collection:
+Init does not query documents or create collections/data. The setup result
+includes a read-only agent prompt. To inspect data directly, list collections
+and choose an existing collection:
 
 ```sh
 lambdadb collections list --json
@@ -25,12 +24,14 @@ same way through `lambdadb query`. Inspect the index configuration before
 searching an actual indexed field, and list refs with `branches list`,
 `tags list` or `aliases list` when `main` is not the intended target.
 
-An empty project needs deliberately supplied data outside init. Empty results
-are not evidence of indexing failure or readiness.
+An empty project needs deliberately supplied data outside init.
 
-Without `--json`, output is written for people: a dim target line (project,
+Without `--json`, output is written for people: a target line (project,
 collection, ref and endpoint host), then a table for lists, a short summary for
-writes, or numbered documents for `query`, `docs list` and `docs fetch`. Each
+writes with the read-back command as the next step, or numbered documents for
+`query`, `docs list` and `docs fetch`. The collection table counts each
+collection's fields and names its three most common index types; `collections
+describe` lists every field. Each
 document keeps its full JSON, and its header carries the ID and the item's other
 fields, such as `score` and `retrievalScore`. Response fields such as `facets`,
 `rerank` and `maxScore` follow under their names. A list with more pages ends with
@@ -64,18 +65,12 @@ lambdadb collections delete --collection cli-demo-docs
 ```
 
 The last line removes the sample collection again; it is permanent and runs
-without confirmation. Collection creation returns `state: "created"`. Import returns accepted counts,
-not committed or searchable counts. Both explicitly report
-`searchable: "not_verified"`. The sample query uses `consistentRead: false`.
-The first query/fetch can therefore be empty or encounter a transient loading
-error. Repeat reads after an appropriate delay and inspect expected IDs and
-contents; do not recreate the collection or blindly replay the import as a wait
-mechanism. There is no CLI readiness endpoint or readiness polling claim.
-
-For eligible ordinary writes, `docs fetch --consistent-read` or a query file
-with `"consistentRead": true` can overlay pending writes when reading a direct
-branch. This does not establish committed indexing, excludes pending bulk
-imports, can return `429`, and is rejected for tag/alias refs.
+without confirmation. Collection creation returns `state: "created"`. Import
+returns accepted counts and ends with the command that reads the written branch
+back. LambdaDB indexes writes asynchronously: a read with `--consistent-read`
+(`docs fetch`, `query`) or a query file with `"consistentRead": true` includes
+the pending writes of the branch, while a read without it returns what is
+indexed so far. Pending bulk imports become visible after indexing completes.
 
 ### Collections
 
@@ -92,8 +87,7 @@ lambdadb collections delete --collection cli-demo-docs --json
 One page is the default; `nextPageToken` is an opaque continuation token.
 `--all` uses the SDK page iterator and buffers its result within the total network
 budget. No partial list is printed on failure. Collection statistics describe
-the committed head of `main`, not the selected read ref or whole-index readiness.
-Both create and update take the index map itself through `--index-config`, not a
+branch `main`. Both create and update take the index map itself through `--index-config`, not a
 full request body. Create also accepts `--description` (at most 255 characters),
 repeated `--tag KEY=VALUE` metadata tags (up to five; these are not
 data-versioning tags), `--partition-config` (a JSON object with `fieldName`,
@@ -104,8 +98,7 @@ combination of `--index-config`, `--description` (`""` clears it), `--tag`
 `--snapshot-retention-days`, and needs at least one; lowering retention can
 shorten the available history. Updates are subject to server index-change
 restrictions (existing fields cannot be removed or redefined) and return
-`state: "updated"`, `searchable: "not_verified"`; acceptance does not prove
-query readiness. `collections delete` permanently removes the collection with
+`state: "updated"`. `collections delete` permanently removes the collection with
 all documents, branches, tags and aliases, without confirmation; the server
 makes the name reusable before responding and physical cleanup can continue
 afterwards. Use `docs delete` to remove only some documents. Described `indexConfigs` include the server-managed `id` field as
@@ -290,7 +283,6 @@ Import result fields are stable under `schemaVersion: 1`:
 - `batches`: attempted batch number, first/last physical JSONL lines, document
   count, state and a sanitized error where applicable.
 - `state`: `accepted`, `failed`, `partial` or `unknown`.
-- `searchable`: always `not_verified` in this MVP.
 
 A definite HTTP rejection is `failed`. A disconnect, timeout, server error or
 invalid success response after dispatch is conservatively `unknown`. An unknown
@@ -302,8 +294,8 @@ between batches leaves unsent records `notAttempted`.
 
 There are no durable checkpoints, automatic resume, exactly-once guarantees,
 write retries or server mutation receipts. Inspect the selected branch and batch
-line ranges before constructing a deliberate retry. Do not treat accepted counts
-as a readiness check. A hard process kill may prevent any final report.
+line ranges before constructing a deliberate retry. A hard process kill may
+prevent any final report.
 
 ### Update and delete documents
 
@@ -329,8 +321,8 @@ is 4,000,000 bytes.
 `--branch`. `{"filter":{"queryString":{"query":"*:*"}}}` deletes every document
 on the branch while keeping the collection. Deletion runs without
 confirmation; preview a filter with `docs list --file` using the same `filter`
-first. The response is an acceptance (`state: "accepted"`, `searchable:
-"not_verified"`): deleted documents can remain visible until the write commits.
+first. The response is an acceptance (`state: "accepted"`); read the branch back
+with `--consistent-read` to see the result before indexing completes.
 
 ### Branches, tags and aliases
 
@@ -386,13 +378,14 @@ buffers the result; use a tag for a stable export because a branch can advance
 and an alias can be retargeted between pages. An optional `--file` holds
 `filter` (the query DSL), `partitionFilter` and `fields`; paging, vectors and
 the ref stay on flags, and the request then uses the extended list route. List
-does not support consistent reads. The returned `total` counts the page, not
-the collection.
+has no `--consistent-read`. The returned `total` counts the page, not the
+collection.
 
 These examples require the named ref to exist. Query files use the SDK/API
 request body, with optional `query`, `facets`, `size`, `sort`, `fields`,
 `partitionFilter`, `consistentRead`, `includeVectors`, `rerank` and Bayesian
-`candidateSize`. The query DSL is forwarded
+`candidateSize`. `--consistent-read` sets `consistentRead: true` and is rejected
+when the file sets it to `false`. The query DSL is forwarded
 to the API, not reimplemented in the CLI. Unknown top-level fields are rejected.
 Omit `query` for match-all. `size` accepts 1–1000, `null`, or omission; null is
 normalized to SDK omission. `size: 0` is accepted only with at least one facet.
@@ -431,8 +424,7 @@ from `docsUrl` as well. Counts use JavaScript numbers and may lose precision abo
 Facets require a supporting server and newly built keyword indexes. Existing
 indexes, partial updates, segment merges and old Tags do not gain support from
 this SDK update. If migration is needed, deliberately create a new Collection and
-reinsert the source data; the CLI performs no automatic migration. Accepted imports
-and `consistentRead` are not proof of committed facet/index readiness.
+reinsert the source data; the CLI performs no automatic migration.
 
 This source pins SDK 0.8.1. Existing CLI installations keep their packaged SDK
 until a new CLI version is published and installed.

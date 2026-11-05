@@ -279,7 +279,7 @@ export async function initialize(options: InitOptions, output: Output) {
       agentAdapters.filter(adapter => chosen.includes(adapter.id)).map(adapter => adapter.instructions).join(' '),
       `Agent prompt: Prefer LambdaDB CLI with --json and configuration file ${JSON.stringify(configPath(options))}; use the matching MCP connection if terminal execution is unavailable or I request MCP. List collections, inspect the collection I choose, then read a small sample at my selected ref (branch:main if none is intended). Help me search an actual indexed field. Do not create or modify data.`,
       `CLI reads: run ${cli} collections list --json and ${cli} collections describe --collection NAME --json, then ${cli} docs list --collection NAME --ref branch:main --size 5 --json for a sample. Pass the configuration file above with --config; replace NAME and ref with the chosen target.`,
-      'If the project has no collections/data, populate it deliberately outside init. Connection success does not establish search readiness.',
+      'If the project has no collections/data, populate it deliberately outside init.',
     ];
     return { ...connection, settings: selected, detectedAgents: detected, agents: chosen, scope: options.scope,
       writeTools: !!options.writeTools, files, nextSteps };
