@@ -590,7 +590,7 @@ docs.command('delete')
       target = { ...target, branch };
       mutationStarted = true;
       const deleted = await client.collection(collection).docs.delete(input, { ...options, retries: { strategy: 'none' } });
-      const next = readBack(cmd, collection, branch, input.ids);
+      const next = readBack(cmd, collection, branch, input.ids?.slice(0, 1));
       result({ ...deleted, state: 'accepted' }, 'Delete request accepted.', 0, () => `Delete request accepted.\n${next}`);
     });
   });
