@@ -83,7 +83,6 @@ test(
       assert.equal(child.stdout, digest);
       const doctor = await run(['doctor', '--json']);
       assert.equal(doctor.ok, true);
-      assert.equal(doctor.data.queryReadinessVerified, false);
       if (process.platform !== 'win32') {
         const bin = join(root, 'bin');
         await mkdir(bin);

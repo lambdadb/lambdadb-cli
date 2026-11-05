@@ -86,6 +86,15 @@ export async function regions(api: Management) {
   }
   return { regions: items };
 }
+/** The account has several Organizations and the command needs one named with --org-id. */
+export class OrganizationChoice extends InputError {
+  constructor(public organizations: Organization[]) {
+    super(
+      `This account has ${organizations.length} Organizations; choose one with --org-id:\n${organizations.map((o) => `${o.name}  ${o.id}`).join('\n')}`,
+      `Run ${cli} orgs list for details.`,
+    );
+  }
+}
 /** Uses the only active Organization when none is named; several require an explicit --org-id. */
 async function selectOrganization(api: Management, output: Output): Promise<Organization> {
   const all = await listOrganizations(api);
@@ -94,10 +103,7 @@ async function selectOrganization(api: Management, output: Output): Promise<Orga
     return all[0]!;
   }
   if (!all.length) throw new InputError('No active Organization is available to this account.', `Create a project in Console (https://app.lambdadb.ai) or accept an invitation, then rerun.`);
-  throw new InputError(
-    `This account has ${all.length} Organizations; choose one with --org-id:\n${all.map((o) => `${o.name}  ${o.id}`).join('\n')}`,
-    `Run ${cli} orgs list for details.`,
-  );
+  throw new OrganizationChoice(all);
 }
 export async function projects(options: AccountOptions, org: string | undefined, output: Output): Promise<Project[]> {
   if (org) uuid(org, 'Organization');

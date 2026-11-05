@@ -100,13 +100,12 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   await writeFile(input, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
   const imported = success(await run(['docs', 'import', '--collection', collection, '--branch', 'main', '--file', input, '--batch-size', '1']), 'upsert');
   assert.equal(imported.accepted, 2);
-  assert.equal(imported.searchable, 'not_verified');
   const bulkFile = join(temp, 'bulk.jsonl');
   const bulkRow = { id: 'bulk-1', text: 'serverless smoke', category: 'developer-tools' };
   await writeFile(bulkFile, JSON.stringify(bulkRow) + '\n');
   const bulk = success(await run(['docs', 'import', '--collection', collection, '--branch', 'main', '--mode', 'bulk', '--file', bulkFile]), 'bulk');
   assert.equal(bulk.accepted, 1);
-  progress('Ordinary writes (2) and bulk write (1) accepted; search visibility is not yet verified.');
+  progress('Ordinary writes (2) and bulk write (1) accepted.');
   const expected = [...rows, bulkRow];
   async function waitForContents(args, stage) {
     let nextProgressAt = 0;
@@ -246,7 +245,7 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   const patchFile = join(temp, 'updates.jsonl');
   await writeFile(patchFile, JSON.stringify({ id: 'bulk-1', note: 'updated by docs update' }) + '\n');
   const patched = success(await run(['docs', 'update', '--collection', collection, '--branch', 'main', '--file', patchFile]), 'docs update');
-  assert.deepEqual([patched.state, patched.accepted, patched.searchable], ['accepted', 1, 'not_verified']);
+  assert.deepEqual([patched.state, patched.accepted], ['accepted', 1]);
   await waitForFetch(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', 'bulk-1', '--consistent-read'],
     data => data.docs[0]?.doc.note === 'updated by docs update' && data.docs[0].doc.category === bulkRow.category && data.docs[0].doc.text === bulkRow.text, 'merged update');
   assert.equal(success(await run(['docs', 'delete', '--collection', collection, '--branch', 'main', '--ids', 'bulk-1']), 'delete by id').state, 'accepted');

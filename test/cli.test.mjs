@@ -171,7 +171,7 @@ test('local end-to-end configure → doctor → create → import → query → 
   assert.equal(r.code, 2, 'explicit empty env must not silently select stored target');
   assert.equal((await f.run(['doctor', '--json'])).code, 0);
   r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', await f.file('index.json', indexConfigs), '--json']);
-  assert.equal(r.code, 0); assert.equal(r.json.data.searchable, 'not_verified');
+  assert.equal(r.code, 0); assert.equal(r.json.data.state, 'created'); assert.ok(!('searchable' in r.json.data));
   r = await f.run(['docs', 'import', '--collection', 'demo-docs', '--branch', 'main', '--file', resolve('examples/documents.jsonl'), '--batch-size', '2', '--json']);
   assert.equal(r.code, 0); assert.equal(r.json.data.accepted, 3); assert.equal(r.json.data.batches.length, 2);
   assert.match(r.stderr, /Batch 2: accepted/); assert.equal(r.stdout.trim().split('\n').length, 1);
@@ -217,6 +217,8 @@ test('bulk SDK preserves branch, signed headers, upload body and completion; no 
   const r = await f.run(['docs', 'import', '--collection', 'demo-docs', '--branch', 'dev-branch', '--mode', 'bulk', '--file', resolve('examples/documents.jsonl'), '--json']);
   assert.equal(r.code, 0); assert.equal(r.json.data.accepted, 3);
   assert.equal(f.requests.length, 3);
+  const human = await f.run(['docs', 'import', '--collection', 'demo-docs', '--branch', 'dev-branch', '--mode', 'bulk', '--file', resolve('examples/documents.jsonl')]);
+  assert.ok(human.stdout.endsWith('\n3/3 document(s) accepted.\nBulk imports become visible after indexing completes.\n'), human.stdout);
   assert.equal(f.requests[0].url.searchParams.get('branch'), 'dev-branch');
   assert.equal(f.requests[1].headers['if-none-match'], '*');
   assert.equal(f.requests[1].headers['x-test-signed'], 'signed');
@@ -266,15 +268,14 @@ test('input errors reject the complete JSONL/query before any network call', asy
   const invalidJsonl = await f.file('bad.jsonl', '{"id":"good"}\n{bad}\n');
   const invalidQuery = await f.file('bad-query.json', { query: {}, typo: true });
   const conflicting = await f.file('ref.json', { query: {}, ref: { kind: 'tag', name: 'other' } });
-  const consistent = await f.file('consistent.json', { query: {}, consistentRead: true });
   const invalidSize = await f.file('size.json', { query: {}, size: 1001 });
   const cases = [
     ['docs', 'import', '--file', invalidJsonl, '--branch', 'main', '--collection', 'demo-docs'],
     ['docs', 'import', '--file', await f.file('empty.jsonl', '\n'), '--branch', 'main', '--collection', 'demo-docs'],
     ['docs', 'import', '--file', await f.file('id.jsonl', '{"id":5}\n'), '--branch', 'main', '--collection', 'demo-docs'],
     ['docs', 'import', '--file', resolve('examples/documents.jsonl'), '--branch', 'main', '--collection', 'demo-docs', '--batch-bytes', '64'],
-    ...[invalidQuery, conflicting, consistent, invalidSize].map(file => ['query', '--file', file, '--collection', 'demo-docs', '--ref', 'tag:release']),
-    ['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'tag:release', '--consistent-read', '--ids', 'id1'],
+    ...[invalidQuery, conflicting, invalidSize].map(file => ['query', '--file', file, '--collection', 'demo-docs', '--ref', 'tag:release']),
+    ['query', '--file', await f.file('committed.json', { query: {}, consistentRead: false }), '--collection', 'demo-docs', '--ref', 'branch:main', '--consistent-read'],
     ['collections', 'create', '--collection', 'demo-docs', '--index-config', await f.file('empty-map.json', {})],
     ['collections', 'list', '--size', 'NaN'],
     ['query'], ['docs', 'fetch', '--collection', 'demo-docs', '--ids', 'doc-1'], ['--unknown', secret],
@@ -329,7 +330,8 @@ test('create failure after dispatch is unknown; API rejection is definite', asyn
 });
 
 test('human data output: tables, next page commands, collection details and grouped help', async t => {
-  const page = { collections: [metadata, { ...metadata, collectionName: 'faq', numDocs: 1234567, indexConfigs: { embedding: { type: 'vector', dimensions: 1024, similarity: 'cosine' } } }], nextPageToken: "a/+'b" };
+  const wide = { id: { type: 'keyword' }, tenant: { type: 'keyword' }, tags: { type: 'keyword' }, title: { type: 'text' }, body: { type: 'text' }, rank: { type: 'long' }, price: { type: 'double' }, active: { type: 'boolean' } };
+  const page = { collections: [metadata, { ...metadata, collectionName: 'faq', numDocs: 1234567, indexConfigs: { embedding: { type: 'vector', dimensions: 1024, similarity: 'cosine' } } }, { ...metadata, collectionName: 'wide', numDocs: 8, indexConfigs: wide }], nextPageToken: "a/+'b" };
   const f = await fixture(t, (r, send) => {
     if (r.url.pathname.endsWith('/collections')) return send(200, page);
     if (/\/docs(\/list)?$/.test(r.url.pathname)) return send(200, { total: 1, isDocsInline: true, docs: [{ collection: 'demo-docs', doc: { id: 'doc-1' } }], nextPageToken: 'next' });
@@ -339,10 +341,12 @@ test('human data output: tables, next page commands, collection details and grou
   assert.equal(listed.code, 0, listed.stderr);
   assert.equal(listed.stdout, [
     `dev-project  (${new URL(f.base).host})`,
-    'Collections (2)', '',
-    '  NAME       DOCS       INDEXES                  UPDATED',
-    '  demo-docs  3          text (text)              2026-09-18T00:00:00Z',
-    '  faq        1,234,567  embedding (vector 1024)  2026-09-18T00:00:00Z', '',
+    'Collections (3)', '',
+    // The index column counts fields and names the three most common types, so a wide schema stays on one line.
+    '  NAME       DOCS       INDEXES                                  UPDATED',
+    '  demo-docs  3          1 field: text 1                          2026-09-18',
+    '  faq        1,234,567  1 field: vector 1                        2026-09-18',
+    '  wide       8          8 fields: keyword 3, text 2, long 1, +2  2026-09-18', '',
     // The opaque token is quoted for the shell, including an embedded single quote.
     "Next: lambdadb collections list --size 2 --page-token 'a/+'\\''b'", '',
   ].join('\n'));
@@ -355,10 +359,10 @@ test('human data output: tables, next page commands, collection details and grou
   const pinned = await f.run(['collections', 'list', '--size', '2', '--endpoint', f.base, '--project', 'dev-project', '--api-key-env', 'LAMBDADB_API_KEY']);
   assert.ok(pinned.stdout.endsWith(`\nNext: lambdadb collections list --size 2 --endpoint ${f.base} --project dev-project --api-key-env LAMBDADB_API_KEY --page-token 'a/+'\\''b'\n`), pinned.stdout);
   const described = await f.run(['collections', 'describe', '--collection', 'demo-docs']);
-  assert.match(described.stdout, /\n {2}Documents {3}3 on the committed main branch\n {2}Tags {8}team=search\n/);
+  assert.match(described.stdout, /\n {2}Documents {3}3 on branch main\n {2}Tags {8}team=search\n/);
   assert.match(described.stdout, /\n {2}FIELD {2}INDEX {2}SETTINGS\n {2}text {3}text {3}analyzers: \["english"\]\n/);
   const doctor = await f.run(['doctor']);
-  assert.match(doctor.stdout, /\n✓ Configuration\n✓ Authentication and collection access\n\nConnected\. Writes and search readiness were not checked\.\nNext: lambdadb collections list\n$/);
+  assert.match(doctor.stdout, /\n✓ Configuration\n✓ Authentication and collection access\n\nConnected\.\nNext: lambdadb collections list\n$/);
   const config = join(f.temp, 'saved.json');
   const configured = await f.run(['configure', '--config', config]);
   assert.match(configured.stdout, new RegExp(`^Configuration saved\\.\\n\\n {2}Endpoint {2}${f.base.replaceAll('.', '\\.')}\\n {2}Project {3}dev-project\\n {2}Key {7}\\$LAMBDADB_API_KEY\\n {2}File {6}`));
@@ -377,11 +381,18 @@ test('read retries use SDK and normal output is readable', async t => {
   assert.equal((await f.run(['--version'])).stdout.trim(), packageVersion);
 });
 
-test('null query size uses the public default and branch consistentRead reaches the API', async t => {
+test('null query size uses the public default and consistentRead reaches the API from the file or the flag', async t => {
   const f = await fixture(t, (_r, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [] }));
-  const r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('query.json', { query: {}, size: null, consistentRead: true }), '--json']);
+  let r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('query.json', { query: {}, size: null, consistentRead: true }), '--json']);
   assert.equal(r.code, 0); assert.equal(f.requests[0].body.consistentRead, true);
   assert.equal('size' in f.requests[0].body, false);
+  r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('plain.json', { query: {} }), '--consistent-read', '--json']);
+  assert.equal(r.code, 0); assert.equal(f.requests[1].body.consistentRead, true);
+  r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('plain.json', { query: {} }), '--json']);
+  assert.equal(r.code, 0); assert.equal(f.requests[2].body.consistentRead, false);
+  const help = await f.run(['query', '--help']);
+  assert.match(help.stdout, /--consistent-read {2,}Include pending writes on the branch \(bulk imports appear\s+after indexing\)\n/);
+  assert.match(help.stdout, /--file <path> {2,}JSON request body.*\(required\)\n/s);
 });
 
 test('deadline covers offloaded downloads and signed uploads as well as API requests', async t => {
@@ -439,13 +450,13 @@ test('credentials matching protocol tokens preserve output schema while redactin
     assert.equal(r.code, 0);
     assert.equal(r.json.command, 'docs import');
     assert.equal(r.json.data.state, 'accepted');
-    assert.equal(r.json.data.searchable, 'not_verified');
+    assert.ok(!('searchable' in r.json.data));
     assert.equal(r.json.data.batches[0].state, 'accepted');
   }
   r = await f.run(args, env);
   assert.equal(r.code, 0);
   // The human summary is built from the sanitized counts; its fixed wording is not credential data.
-  assert.match(r.stdout, /\n3\/3 document\(s\) accepted; search visibility not verified\.\n$/);
+  assert.match(r.stdout, /\n3\/3 document\(s\) accepted\.\nNext: lambdadb docs fetch --collection demo-docs --ref branch:main --ids doc-1 --consistent-read\n$/);
   r = await f.run(['docs', 'fetch', '--collection', 'demo-docs', '--ref', 'branch:main', '--ids', 'doc-1', '--json'], env);
   assert.equal(r.json.target.ref.kind, 'branch');
   assert.deepEqual(r.json.data.docs[0].doc, {
@@ -997,7 +1008,7 @@ test('native and legacy embedding create/update mapping preserves explicit value
       const r = await f.run(['collections', command, '--collection', 'demo-docs', '--index-config', await f.file('native.json', config), '--json']);
       assert.equal(r.code, 0, r.stderr);
       assert.equal(r.json.data.state, command === 'create' ? 'created' : 'updated');
-      assert.equal(r.json.data.searchable, 'not_verified');
+      assert.ok(!('searchable' in r.json.data));
       assert.equal(f.requests.at(-1).method, command === 'create' ? 'POST' : 'PATCH');
       assert.deepEqual(f.requests.at(-1).body.indexConfigs, config);
       if (command === 'update') {
@@ -1126,7 +1137,13 @@ test('fetch forwards up to 1000 IDs and rejects more before HTTP', async t => {
   assert.equal(rejected.code, 2);
   assert.equal(rejected.json.error.message, 'Fetch requires 1–1000 nonempty IDs.');
   assert.equal(f.requests.length, 1);
-  assert.match((await f.run(['docs', 'fetch', '--help'])).stdout, /up to 1000 IDs/);
+  const fetchHelp = (await f.run(['docs', 'fetch', '--help'])).stdout;
+  assert.match(fetchHelp, /up to 1000 IDs/);
+  // Required options are marked once by the help configuration, so every command shows them the same way.
+  assert.match(fetchHelp, /--collection <name> {2,}Collection name \(required\)\n/);
+  assert.match(fetchHelp, /--ids <id\.\.\.> {2,}One or more IDs \(separate with spaces\) \(required\)\n/);
+  assert.match(fetchHelp, /--include-vectors {2,}Include vector fields in returned documents\n/);
+  assert.match((await f.run(['projects', 'use', '--help'])).stdout, /--project-id <uuid> {2,}Project ID \(required\)\n/);
 });
 
 const snapshot = { snapshotId: 'snap-1', snapshotCommittedAt: 1789689600000 };
@@ -1303,8 +1320,11 @@ test('docs update merges JSONL rows in sequential batches with the branch and st
   assert.equal(request.url.pathname, '/projects/dev-project/collections/demo-docs/docs/update');
   assert.deepEqual(request.body, { docs: [{ id: 'doc-1', category: 'database', metadata: { reviewed: true } }, { id: 'doc-2', category: 'developer-tools' }], branch: 'edits' });
   assert.deepEqual(r.json.target, { endpoint: f.base, project: 'dev-project', collection: 'demo-docs', branch: 'edits' });
-  assert.deepEqual([r.json.data.state, r.json.data.accepted, r.json.data.total, r.json.data.searchable], ['accepted', 2, 2, 'not_verified']);
+  assert.deepEqual([r.json.data.state, r.json.data.accepted, r.json.data.total], ['accepted', 2, 2]);
+  assert.ok(!('searchable' in r.json.data));
   assert.match(r.stderr, /Batch 1: accepted, 2 document\(s\), lines 1–2/);
+  const human = await f.run(['docs', 'update', '--file', resolve('examples/updates.jsonl'), '--collection', 'demo-docs', '--branch', 'edits']);
+  assert.ok(human.stdout.endsWith('\n2/2 update(s) accepted.\nNext: lambdadb docs fetch --collection demo-docs --ref branch:edits --ids doc-1 --consistent-read\n'), human.stdout);
 
   r = await f.run(['docs', 'update', '--file', resolve('examples/updates.jsonl'), '--batch-size', '1', ...base]);
   assert.equal(r.code, 4, r.stdout);
@@ -1336,11 +1356,15 @@ test('docs delete requires exactly one selector, forwards ids or filter with the
   assert.equal(request.url.pathname, '/projects/dev-project/collections/demo-docs/docs/delete');
   assert.deepEqual(request.body, { ids: ['doc-1', 'doc-2'], branch: 'main' });
   assert.deepEqual(r.json.target, { endpoint: f.base, project: 'dev-project', collection: 'demo-docs', branch: 'main' });
-  assert.deepEqual(r.json.data, { message: 'Delete request is accepted', state: 'accepted', searchable: 'not_verified' });
+  assert.deepEqual(r.json.data, { message: 'Delete request is accepted', state: 'accepted' });
+  let human = await f.run(['docs', 'delete', '--ids', 'doc-1', 'doc-2', '--collection', 'demo-docs', '--branch', 'main']);
+  assert.ok(human.stdout.endsWith('\nDelete request accepted.\nNext: lambdadb docs fetch --collection demo-docs --ref branch:main --ids doc-1 doc-2 --consistent-read\n'), human.stdout);
 
   r = await f.run(['docs', 'delete', '--file', resolve('examples/delete-filter.json'), ...base]);
   assert.equal(r.code, 0, r.stdout);
   assert.deepEqual(f.requests.at(-1).body, { filter: { queryString: { query: 'category:developer-tools' } }, branch: 'main' });
+  human = await f.run(['docs', 'delete', '--file', resolve('examples/delete-filter.json'), '--collection', 'demo-docs', '--branch', 'main']);
+  assert.ok(human.stdout.endsWith('\nDelete request accepted.\nNext: lambdadb query --collection demo-docs --ref branch:main --file <QUERY_FILE> --consistent-read\n'), human.stdout);
 
   const partitioned = await f.file('delete-ids.json', { ids: ['doc-3'], partitionFilter: { field: 'tenant', in: ['acme'] }, branch: 'main' });
   r = await f.run(['docs', 'delete', '--file', partitioned, ...base]);
@@ -1414,7 +1438,7 @@ test('collection create and update forward description, metadata tags, partition
     assert.equal(r.code, 0, `${args.join(' ')}: ${r.stdout}`);
     assert.equal(f.requests.at(-1).method, 'PATCH');
     assert.deepEqual(f.requests.at(-1).body, body, args.join(' '));
-    assert.deepEqual([r.json.data.state, r.json.data.searchable], ['updated', 'not_verified']);
+    assert.equal(r.json.data.state, 'updated');
   }
 
   const before = f.requests.length;

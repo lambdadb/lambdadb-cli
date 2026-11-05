@@ -108,8 +108,8 @@ keeps `target`, so the skill continues through an MCP entry whose `--endpoint` a
 `--project` match and otherwise asks. Server authentication failures (`AUTH_ERROR`)
 are never bypassed through another transport, and the skill does not rerun `init`
 for an unreadable store. A recent
-empty read is not by itself an error: eligible ordinary writes can be read with
-`consistentRead:true` on a direct branch, separately from committed index checks.
+empty read is not by itself an error: a branch read with `consistentRead:true`
+includes pending writes.
 
 ## MCP launch and credential forwarding
 

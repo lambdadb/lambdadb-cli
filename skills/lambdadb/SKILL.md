@@ -27,7 +27,7 @@ reads are unavailable.
 
 Reuse the existing connection. `lambdadb doctor --json` verifies the selected
 connection and shows its non-secret `target`; it checks authentication and
-collection-list access, not search readiness. CLI defaults and a pinned MCP
+collection-list access. CLI defaults and a pinned MCP
 server can target different projects: compare the endpoint, project, collection
 and read ref before switching, and ask when the intended target is unclear. A
 failed request is not permission to change accounts, projects or keys. Preserve
@@ -147,28 +147,15 @@ configuration.
 
 ## Read after a recent write
 
-Write acceptance, pending-write visibility and committed search visibility are
-different observations. A successful import, `docs update`, `docs delete` or
-`doctor` does not prove search readiness (the CLI reports those writes as
-`accepted` with `searchable: "not_verified"`), and an empty result alone is not
-an error or proof of indexing delay. A deleted document can stay visible until
-the write commits.
-
-- Confirm the endpoint/project, collection, branch and expected document IDs
-  before retrying.
-- For eligible ordinary upserts, CLI `docs fetch --consistent-read` or query
-  JSON with `"consistentRead": true` can include pending writes; MCP query and
-  fetch tools accept the same boolean. Use a direct branch ref: tag and alias
-  refs reject it, and the document-list operation does not offer it.
-- Pending bulk imports are not included. The overlay can return HTTP 429; it
-  does not guarantee immediate visibility for every request.
-- If committed indexing matters, run the same query with
-  `"consistentRead": false` and validate the expected IDs. Say explicitly when
-  only the pending overlay has been verified. Metadata counts alone do not
-  establish readiness.
-- Retry reads only for a bounded period appropriate to the task, then report
-  the observed state. Do not recreate the collection, repeat writes, reinsert
-  documents as a visibility check, change the ref or enable write tools to wait.
+LambdaDB indexes writes asynchronously. To read a write back, read its branch
+with a consistent read: `docs fetch --consistent-read`, `query
+--consistent-read` or query JSON with `"consistentRead": true` (MCP query and
+fetch tools accept the same boolean). A read without it returns what is
+indexed so far, so an empty result shortly after a write is not an error.
+Pending bulk imports (`docs import --mode bulk`) become visible after indexing
+completes; retry such a read for a bounded period, then report the observed
+state. Do not recreate the collection, repeat writes or reinsert documents to
+make them appear.
 
 ## Recover without changing the target
 

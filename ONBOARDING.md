@@ -84,8 +84,7 @@ questions. No deletion, billing mutation, or member management is added to CLI.
 | Completion | Offer the optional survey without blocking use. | Show project setup guidance. | Verify authentication and collection-list access, show reload instructions, and provide an actionable next step. |
 
 Only create a project after the user submits its creation. Do not create a
-collection or insert sample documents during onboarding. A successful connection
-or doctor check does not establish search readiness. For an existing collection,
+collection or insert sample documents during onboarding. For an existing collection,
 guide the user to inspect its fields before forming a search. For an empty
 project, explain the next deliberate data setup step.
 
@@ -350,7 +349,7 @@ actionable environment-mode fallback, never a plaintext file.
   a browser, wait indefinitely, silently create resources, or claim success in
   that path.
 - Reuse authentication and collection-list verification. Report connection
-  success separately from data availability, indexing, and search readiness.
+  success separately from data availability.
 
 For CLI implementation, use the checks in [CONTRIBUTING.md](CONTRIBUTING.md):
 `npm ci`, `npm run lint`, `npm run check:version`, `npm run typecheck`, `npm test`,

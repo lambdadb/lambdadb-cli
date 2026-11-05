@@ -54,8 +54,7 @@ billing activation happen in Console. Project selection and creation continue
 in the terminal. See [setup and reruns](docs/setup.md).
 
 Init verifies authentication and collection-list access. It creates no collections
-or documents, and a successful check does not establish search readiness.
-For existing data, try this agent prompt:
+or documents. For existing data, try this agent prompt:
 
 > Use the LambdaDB CLI with JSON output and my selected configuration file.
 > List collections, inspect the chosen collection's index, and read a small sample

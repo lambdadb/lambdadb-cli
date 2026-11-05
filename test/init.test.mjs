@@ -81,8 +81,6 @@ test('init preserves unrelated TOML/JSONC, forwards environment names, installs 
   await f.file(cursor, originalJson);
   let result = await f.run(f.init());
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(result.data.data.queryReadinessVerified, false);
-  assert.equal(result.data.data.writesVerified, false);
   assert.equal(result.data.data.writeTools, false);
   assert.equal(f.requests.length, 1);
   assert.equal(f.requests[0].method, 'GET');

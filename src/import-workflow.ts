@@ -10,7 +10,7 @@ export type BatchResult = {
 export type ImportResult = {
   state: 'accepted' | 'failed' | 'partial' | 'unknown';
   total: number; accepted: number; failed: number; unknown: number; notAttempted: number;
-  searchable: 'not_verified'; batches: BatchResult[];
+  batches: BatchResult[];
 };
 
 export type WriteMode = 'upsert' | 'bulk' | 'update';
@@ -40,8 +40,7 @@ export async function importDocuments(
 ): Promise<ImportResult> {
   const total = batches.reduce((sum, b) => sum + b.rows.length, 0);
   const result: ImportResult = {
-    state: 'accepted', total, accepted: 0, failed: 0, unknown: 0, notAttempted: total,
-    searchable: 'not_verified', batches: [],
+    state: 'accepted', total, accepted: 0, failed: 0, unknown: 0, notAttempted: total, batches: [],
   };
   for (const [index, batch] of batches.entries()) {
     if (options.signal?.aborted) {

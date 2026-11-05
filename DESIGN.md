@@ -46,8 +46,8 @@ tag byte-for-byte. The query serializer accepts
 omitted `query`, validates up to five strict facet requests with nullable 1–100
 bucket sizes, and requires nonempty facets for `size: 0`. It enforces integer
 query size but lacks document-size bounds, so the CLI retains only the 0–100
-range check and null-to-omission adapter. Ref conflicts remain CLI-owned;
-Branch-only `consistentRead` validation stays with the SDK. The create serializer
+range check and null-to-omission adapter. Ref conflicts remain CLI-owned.
+The create serializer
 accepts all 16 analyzer names without a CLI allowlist. Omission, empty lists,
 duplicates and ordering pass through unchanged; duplicate rejection is server-owned.
 
@@ -215,12 +215,12 @@ helpers own presigned response downloads and authentication isolation.
 | Versioned JSON envelope and documented exits | Stable automation contract with explicit target and partial progress. |
 | Preserve fixed output keys/tokens during redaction | Credentials coinciding with protocol tokens must not corrupt the CLI protocol; redact variable values and arbitrary document/index/tag map keys. Values under eight characters are placeholders, not keys, and stay readable. |
 | Conservative unknown state for untyped bulk helper failures | Error strings are not a reliable upload/finalization stage contract. |
-| No readiness wait or version-management commands | First use works through main; reads can target existing refs, without assuming lifecycle or indexing guarantees. |
+| No readiness wait | First use works through main; a branch read with `consistentRead` includes pending writes, so writes end with that read as the next step instead of polling. |
 
 The public API documents ordinary upsert at 6 MB and bulk at 200 MB; CLI limits
 are deliberately smaller. Bulk is unsupported for native embedding vector
-fields. `consistentRead` only supports direct branches and excludes pending bulk
-imports. Collection statistics describe committed main, not selected ref readiness.
+fields, and pending bulk imports become visible after indexing. Collection
+statistics describe branch `main`.
 
 ## SDK compatibility findings
 

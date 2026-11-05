@@ -11,6 +11,7 @@ const time = (value: unknown) => {
   const date = new Date(value as string | number);
   return Number.isFinite(date.getTime()) ? date.toISOString().replace(/\.\d{3}Z$/, 'Z') : plain(value);
 };
+const date = (value: unknown) => time(value).slice(0, 10);
 const count = (value: unknown) => typeof value === 'number' ? value.toLocaleString('en-US') : '';
 const json = (value: unknown, indent = '') => JSON.stringify(value, null, 2).split('\n').map(line => indent + line).join('\n');
 /** A shell word: quoted only when it contains characters a POSIX shell would interpret. */
@@ -23,12 +24,22 @@ export function formatTarget(target: Row | undefined): string | undefined {
   const scope = [target.project, target.collection].filter(Boolean).map(plain).join(' / ');
   const at = ref ? `${plain(ref.kind)}:${plain(ref.name)}` : target.branch ? `branch:${plain(target.branch)}` : undefined;
   const host = typeof target.endpoint === 'string' ? (() => { try { return new URL(target.endpoint).host; } catch { return plain(target.endpoint); } })() : undefined;
-  return styleText('dim', [scope, at, host && `(${host})`].filter(Boolean).join('  '));
+  return [scope, at, host && `(${host})`].filter(Boolean).join('  ');
 }
 
-const indexSummary = (configs: unknown) => Object.entries((configs ?? {}) as Record<string, Row>)
-  .map(([field, config]) => config?.type === 'vector' && config.dimensions ? `${field} (vector ${config.dimensions})` : `${field} (${plain(config?.type ?? '?')})`)
-  .join(', ');
+/** Field count with the three most common index types, so a wide schema stays on one line. */
+function indexSummary(configs: unknown): string {
+  const types = new Map<string, number>();
+  for (const config of Object.values((configs ?? {}) as Record<string, Row>)) {
+    const type = plain(config?.type ?? '?');
+    types.set(type, (types.get(type) ?? 0) + 1);
+  }
+  const fields = [...types.values()].reduce((sum, n) => sum + n, 0);
+  const shown = [...types].sort(([, a], [, b]) => b - a).slice(0, 3).map(([type, n]) => `${type} ${n}`);
+  const more = types.size - shown.length;
+  if (!fields) return '0 fields';
+  return `${fields} field${fields === 1 ? '' : 's'}: ${[...shown, ...(more ? [`+${more}`] : [])].join(', ')}`;
+}
 
 const nextPage = (command: string, token: unknown) => typeof token === 'string' && token ? `${command} --page-token ${shellArg(token)}` : undefined;
 
@@ -38,7 +49,7 @@ export function formatDoctor(): string {
     `${ok} Configuration`,
     `${ok} Authentication and collection access`,
     '',
-    'Connected. Writes and search readiness were not checked.',
+    'Connected.',
     `Next: ${cli} collections list`,
   ].join('\n');
 }
@@ -46,7 +57,7 @@ export function formatDoctor(): string {
 export function formatCollections(page: { collections: Row[]; nextPageToken?: unknown }, again = `${cli} collections list`): string {
   const next = nextPage(again, page.nextPageToken);
   return listing('Collections', ['NAME', 'DOCS', 'INDEXES', 'UPDATED'],
-    page.collections.map(c => [c.collectionName, count(c.numDocs), indexSummary(c.indexConfigs), time(c.updatedAt)]),
+    page.collections.map(c => [c.collectionName, count(c.numDocs), indexSummary(c.indexConfigs), date(c.updatedAt)]),
     'No collections yet.',
     next ?? (page.collections.length ? `${cli} collections describe --collection <NAME>` : `${cli} collections create --collection <NAME> --index-config <FILE>`));
 }
@@ -59,7 +70,7 @@ export function formatCollection(described: { collection: Row }): string {
   return [
     `Collection ${plain(c.collectionName)}`,
     '',
-    row('Documents', `${count(c.numDocs)} on the committed main branch`),
+    row('Documents', `${count(c.numDocs)} on branch main`),
     ...(c.description ? [row('About', c.description)] : []),
     ...(tags ? [row('Tags', tags)] : []),
     row('Branch', c.defaultBranchName),
@@ -72,8 +83,6 @@ export function formatCollection(described: { collection: Row }): string {
       const { type, ...rest } = config ?? {};
       return [field, type, Object.entries(rest).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ')];
     })),
-    '',
-    'Document counts are not a readiness signal; run a query to verify search.',
   ].join('\n');
 }
 
