@@ -102,11 +102,11 @@ function scoped(command: Command): string {
 
 const consistentReadHelp = 'Include pending writes on the branch (bulk imports appear after indexing)';
 
-/** The next step after a write: read the branch back, including the pending writes. */
+/** The next step after a write: read the branch back, including the pending writes. Redacted like other printed commands. */
 function readBack(command: Command, collection: string, branch: string, ids?: string[]): string {
   const scope = `--collection ${shellArg(collection)} --ref branch:${shellArg(branch)}`;
   const read = ids ? `docs fetch ${scope} --ids ${ids.map(shellArg).join(' ')}` : `query ${scope} --file <QUERY_FILE>`;
-  return `Next: ${cli} ${read} --consistent-read${connectionFlags(command)}`;
+  return output.safeDiagnostic(`Next: ${cli} ${read} --consistent-read${connectionFlags(command)}`);
 }
 
 program.hook('preSubcommand', (_parent, command) => {

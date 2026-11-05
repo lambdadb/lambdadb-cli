@@ -1359,6 +1359,9 @@ test('docs delete requires exactly one selector, forwards ids or filter with the
   assert.deepEqual(r.json.data, { message: 'Delete request is accepted', state: 'accepted' });
   let human = await f.run(['docs', 'delete', '--ids', 'doc-1', 'doc-2', '--collection', 'demo-docs', '--branch', 'main']);
   assert.ok(human.stdout.endsWith('\nDelete request accepted.\nNext: lambdadb docs fetch --collection demo-docs --ref branch:main --ids doc-1 doc-2 --consistent-read\n'), human.stdout);
+  // The read-back command is redacted like every other printed command.
+  human = await f.run(['docs', 'delete', '--ids', secret, '--collection', 'demo-docs', '--branch', 'main', '--project', 'dev-project', '--api-key-env', 'LAMBDADB_API_KEY']);
+  assert.ok(human.stdout.endsWith('\nNext: lambdadb docs fetch --collection demo-docs --ref branch:main --ids [REDACTED] --consistent-read --project dev-project --api-key-env LAMBDADB_API_KEY\n'), human.stdout);
 
   r = await f.run(['docs', 'delete', '--file', resolve('examples/delete-filter.json'), ...base]);
   assert.equal(r.code, 0, r.stdout);
