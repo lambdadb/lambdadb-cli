@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-05
+
 ### Changed
 
 - Projects are created only in open regions. Guided `init` lists only open
