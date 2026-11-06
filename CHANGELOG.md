@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-06
+
 ### Changed
 
 - `lambdadb mcp` launches MCP 0.5.0 (LambdaDB SDK 0.12.0), which publishes
