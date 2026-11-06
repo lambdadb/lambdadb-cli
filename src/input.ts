@@ -49,6 +49,14 @@ export function parseRef(value: string): ReadRef {
   return { kind: kind as ReadRef['kind'], name: name(refName, 'Ref name') };
 }
 
+// Pending writes belong to a branch, read directly or through an alias that targets it; the server
+// resolves the alias and rejects one that targets a tag. A tag is immutable, so it is rejected here.
+export function checkConsistentRead(ref: ReadRef, consistentRead: boolean): void {
+  if (consistentRead && ref.kind === 'tag') {
+    throw new InputError('Consistent reads need branch:NAME or an alias that targets a branch; a tag has no pending writes.');
+  }
+}
+
 // Unix epoch milliseconds or an ISO 8601 time, forwarded as the API's millisecond cutoff.
 // Date.parse normalizes impossible calendar values (February 30 becomes March 2) and
 // accepts loose formats, so the ISO form is matched and its fields are checked instead.
@@ -101,6 +109,7 @@ export function queryInput(body: Record<string, unknown>, ref: ReadRef, consiste
     }
   }
   if (consistentRead && body.consistentRead === false) throw new InputError('File consistentRead conflicts with --consistent-read. Remove one of them.');
+  checkConsistentRead(ref, consistentRead || body.consistentRead === true);
   const input: Record<string, unknown> = { ...body, ref, ...(consistentRead ? { consistentRead: true } : {}) };
   // Public API accepts null size, while the SDK only accepts undefined/number.
   if (input.size === null) delete input.size;
@@ -150,7 +159,7 @@ export function deleteInput(ids: string[] | undefined, body: Record<string, unkn
   return input as DeleteDocsInput;
 }
 
-const invalidIndexConfig = 'Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract: vector dimensions 64–4096, similarity cosine or euclidean, and exactly one embedding sourceField or sources.';
+const invalidIndexConfig = 'Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract: vector dimensions 64–4096, similarity cosine or euclidean, exactly one embedding sourceField or sources, and field descriptions of at most 255 characters.';
 const invalidMetadata = 'Invalid collection settings. description takes at most 255 characters; up to five tags with keys of 1–63 letters, digits, dots, underscores or hyphens and nonblank values of at most 127 characters without ":", "#" or ","; snapshot retention is 1–31 days; partitionConfig needs fieldName, dataType keyword and numPartitions.';
 
 // Repeated --tag KEY=VALUE flags become the metadata tag map; the server validates key and value rules.

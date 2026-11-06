@@ -4,7 +4,7 @@ import type { FetchDocsInput } from '@functional-systems/lambdadb';
 import { cli } from './command.js';
 import { readFileSync } from 'node:fs';
 import { configPath, integer, name, resolveConfig, resolveCredential, saveSettings, settings, type Config, type Options } from './config.js';
-import { createInput, deleteInput, listSelectors, parseRef, parseSource, parseTags, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
+import { checkConsistentRead, createInput, deleteInput, listSelectors, parseRef, parseSource, parseTags, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
 import { CredentialStoreError, definitelyRejected, describeError, InputError, isInputError, parseError, unknownOutcome, unknownOutcomeSummary } from './errors.js';
 import { Output, type Envelope } from './output.js';
@@ -100,7 +100,7 @@ function scoped(command: Command): string {
   return collection;
 }
 
-const consistentReadHelp = 'Include pending writes on the branch (bulk imports appear after indexing)';
+const consistentReadHelp = 'Include pending writes of the branch, read directly or through an alias that targets it (bulk imports appear after indexing)';
 
 /** The next step after a write: read the branch back, including the pending writes. Redacted like other printed commands. */
 function readBack(command: Command, collection: string, branch: string, ids?: string[]): string {
@@ -266,7 +266,7 @@ collections.command('describe')
 collections.command('create')
   .description('Create a collection from a JSON field-to-index map, with optional description, metadata tags, partitioning and retention')
   .requiredOption('--collection <name>', 'New collection name')
-  .requiredOption('--index-config <path>', 'JSON field-to-index map; native embedding (sourceField or ordered sources) or legacy managedEmbedding:true supported')
+  .requiredOption('--index-config <path>', 'JSON field-to-index map; each field takes an optional description (at most 255 characters); native embedding (sourceField or ordered sources) or legacy managedEmbedding:true supported')
   .option('--description <text>', 'Description, at most 255 characters')
   .option('--tag <key=value>', 'Metadata tag; repeat for up to five (not a data-versioning tag)', collectTags)
   .option('--partition-config <path>', 'JSON object with fieldName, dataType "keyword" and numPartitions; cannot be changed later')
@@ -294,7 +294,7 @@ collections.command('update')
   .option('--tag <key=value>', 'Replace all metadata tags with the repeated values, up to five', collectTags)
   .option('--clear-tags', 'Replace all metadata tags with an empty map')
   .option('--snapshot-retention-days <days>', 'Snapshot retention, 1–31; lowering it can shorten available history')
-  .addHelpText('after', '\nExamples:\n  lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json\n  lambdadb collections update --collection demo-docs --description "Support articles" --tag team=search --json\n  lambdadb collections update --collection demo-docs --clear-tags --snapshot-retention-days 7 --json\n\nThe server validates permitted index changes: existing fields cannot be removed or redefined. Older servers require managedEmbedding:true.\nDescribe output includes the server-managed id keyword field; send it back unchanged or omit it. Tags replace the whole map, never merge.')
+  .addHelpText('after', '\nExamples:\n  lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json\n  lambdadb collections update --collection demo-docs --description "Support articles" --tag team=search --json\n  lambdadb collections update --collection demo-docs --clear-tags --snapshot-retention-days 7 --json\n\nThe server validates permitted index changes: existing fields cannot be removed or redefined, except for their description ("" clears it; null or omission keeps it). Older servers require managedEmbedding:true.\nDescribe output includes the server-managed id keyword field; send it back unchanged or omit it. Tags replace the whole map, never merge.')
   .action(async (opts, cmd: Command) => {
     name(opts.collection, 'Collection name');
     if (opts.tag && opts.clearTags) throw new InputError('Use either --tag or --clear-tags, not both.');
@@ -605,6 +605,7 @@ docs.command('fetch')
   .action(async (opts, cmd: Command) => {
     const ref = parseRef(opts.ref);
     if (opts.ids.length > 1000 || opts.ids.some((id: string) => !id)) throw new InputError('Fetch requires 1–1000 nonempty IDs.');
+    checkConsistentRead(ref, !!opts.consistentRead);
     await connected(cmd, async ({ client, options }) => {
       const collection = scoped(cmd);
       target = { ...target, ref };

@@ -2,10 +2,27 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Index fields take an optional `description` (at most 255 characters) in the
+  `--index-config` map of `collections create` and `collections update`,
+  including the nested fields of an `objectIndexConfigs` map. On update it is
+  the only setting of an existing field that may change: `""` clears it, `null`
+  or omission keeps it. `collections describe` shows descriptions in a new
+  `DESCRIPTION` column and lists nested fields as dotted paths; `--json` output
+  returns `description` where the server set it.
+- `--consistent-read` (`docs fetch`, `query`) and a query file with
+  `"consistentRead": true` work through `alias:NAME` as well as `branch:NAME`;
+  the server resolves the alias and rejects one that targets a tag (HTTP 400).
+  `tag:NAME` is rejected before any request with a message naming the rule
+  instead of a generic contract error.
+
 ### Maintenance
 
 - Update the Homebrew formula to verified stable 0.3.0 and its release-commit
   lockfile.
+- Pin `@functional-systems/lambdadb` 0.12.0, which carries both contract
+  changes.
 
 ## [0.3.0] - 2026-11-05
 
