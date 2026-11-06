@@ -114,8 +114,8 @@ includes pending writes.
 ## MCP launch and credential forwarding
 
 Agent settings launch `npx -y @functional-systems/lambdadb-cli@<installed-version> mcp`,
-which runs the exact stable `@functional-systems/lambdadb-mcp@0.4.0` stdio package
-(LambdaDB SDK 0.11.1).
+which runs the exact stable `@functional-systems/lambdadb-mcp@0.5.0` stdio package
+(LambdaDB SDK 0.12.0).
 No npx cache path is saved. The exact CLI version must be published before an
 agent can fetch it; a source checkout/unpublished tarball alone does not provide
 that registry version. Node/npm and `npx` must be on the agent's PATH; first launch

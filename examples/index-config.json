@@ -1,4 +1,4 @@
 {
-  "text": { "type": "text", "analyzers": ["english"] },
+  "text": { "type": "text", "analyzers": ["english"], "description": "Article body" },
   "category": { "type": "keyword" }
 }
