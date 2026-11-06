@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `lambdadb mcp` launches MCP 0.5.0 (LambdaDB SDK 0.12.0), which publishes
+  index field descriptions in its collection tools and accepts consistent reads
+  through an alias. The CLI still passes an explicit endpoint, project and key.
+- `examples/index-config.json` and `examples/index-config-native.json` describe
+  their `text` field, so the examples and the live smoke exercise field
+  descriptions end to end.
+
 ## [0.4.0] - 2026-11-06
 
 ### Changed

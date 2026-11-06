@@ -3,7 +3,8 @@
     "type": "text",
     "analyzers": [
       "english"
-    ]
+    ],
+    "description": "Article body"
   },
   "vector": {
     "type": "vector",
