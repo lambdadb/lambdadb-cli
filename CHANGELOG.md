@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Maintenance
+
+- Update the Homebrew formula to verified stable 0.4.1 and its release-commit
+  lockfile.
+
 ## [0.4.1] - 2026-11-06
 
 ### Changed
