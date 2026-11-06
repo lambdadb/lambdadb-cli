@@ -71,6 +71,9 @@ back. LambdaDB indexes writes asynchronously: a read with `--consistent-read`
 (`docs fetch`, `query`) or a query file with `"consistentRead": true` includes
 the pending writes of the branch, while a read without it returns what is
 indexed so far. Pending bulk imports become visible after indexing completes.
+A consistent read takes `branch:NAME` or `alias:NAME`: the server resolves the
+alias and rejects one that targets a tag (HTTP 400); the CLI rejects `tag:NAME`
+before any request, because a tag has no pending writes.
 
 ### Collections
 
@@ -88,7 +91,14 @@ One page is the default; `nextPageToken` is an opaque continuation token.
 `--all` uses the SDK page iterator and buffers its result within the total network
 budget. No partial list is printed on failure. Collection statistics describe
 branch `main`. Both create and update take the index map itself through `--index-config`, not a
-full request body. Create also accepts `--description` (at most 255 characters),
+full request body. Every field in the map, including the nested fields of an
+`objectIndexConfigs` map, takes an optional `description` of at most 255
+characters, for example `{"text":{"type":"text","description":"Article body"}}`;
+it never affects indexing. Reads return it only when set, and
+`collections describe` shows it in the `DESCRIPTION` column, with nested fields
+as dotted paths. On update it is the only setting of an existing field that may
+change: `""` clears it, `null` or omission keeps it. The server-managed `id`
+field takes no description. Create also accepts `--description` (at most 255 characters),
 repeated `--tag KEY=VALUE` metadata tags (up to five; these are not
 data-versioning tags), `--partition-config` (a JSON object with `fieldName`,
 `dataType` `keyword` and `numPartitions`, which cannot be changed later) and
@@ -385,7 +395,9 @@ These examples require the named ref to exist. Query files use the SDK/API
 request body, with optional `query`, `facets`, `size`, `sort`, `fields`,
 `partitionFilter`, `consistentRead`, `includeVectors`, `rerank` and Bayesian
 `candidateSize`. `--consistent-read` sets `consistentRead: true` and is rejected
-when the file sets it to `false`. The query DSL is forwarded
+when the file sets it to `false`; a consistent read needs `branch:NAME` or an
+alias that targets a branch, and `tag:NAME` is rejected before any request.
+The query DSL is forwarded
 to the API, not reimplemented in the CLI. Unknown top-level fields are rejected.
 Omit `query` for match-all. `size` accepts 1–1000, `null`, or omission; null is
 normalized to SDK omission. `size: 0` is accepted only with at least one facet.

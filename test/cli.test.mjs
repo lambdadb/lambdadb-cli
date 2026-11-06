@@ -360,7 +360,7 @@ test('human data output: tables, next page commands, collection details and grou
   assert.ok(pinned.stdout.endsWith(`\nNext: lambdadb collections list --size 2 --endpoint ${f.base} --project dev-project --api-key-env LAMBDADB_API_KEY --page-token 'a/+'\\''b'\n`), pinned.stdout);
   const described = await f.run(['collections', 'describe', '--collection', 'demo-docs']);
   assert.match(described.stdout, /\n {2}Documents {3}3 on branch main\n {2}Tags {8}team=search\n/);
-  assert.match(described.stdout, /\n {2}FIELD {2}INDEX {2}SETTINGS\n {2}text {3}text {3}analyzers: \["english"\]\n/);
+  assert.match(described.stdout, /\n {2}FIELD {2}INDEX {2}SETTINGS {16}DESCRIPTION\n {2}text {3}text {3}analyzers: \["english"\]\n/);
   const doctor = await f.run(['doctor']);
   assert.match(doctor.stdout, /\n✓ Configuration\n✓ Authentication and collection access\n\nConnected\.\nNext: lambdadb collections list\n$/);
   const config = join(f.temp, 'saved.json');
@@ -381,6 +381,88 @@ test('read retries use SDK and normal output is readable', async t => {
   assert.equal((await f.run(['--version'])).stdout.trim(), packageVersion);
 });
 
+// The help text wraps at a terminal-dependent column, so any whitespace may separate its words.
+const consistentReadHelp = 'Include pending writes of the branch, read directly or through an alias that targets it (bulk imports appear after indexing)'
+  .replace(/[()]/g, '\\$&').replace(/ /g, '\\s+');
+
+test('consistent reads reach the API through a branch or an alias and reject a tag before HTTP', async t => {
+  const f = await fixture(t, (_r, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [] }));
+  const flagged = await f.file('flagged.json', { query: {} });
+  const inFile = await f.file('in-file.json', { query: {}, consistentRead: true });
+  for (const ref of ['branch:main', 'alias:production']) {
+    const expected = { kind: ref.split(':')[0], name: ref.split(':')[1] };
+    for (const args of [['query', '--file', flagged, '--consistent-read'], ['query', '--file', inFile], ['docs', 'fetch', '--ids', 'doc-1', '--consistent-read']]) {
+      const r = await f.run([...args, '--collection', 'demo-docs', '--ref', ref, '--json']);
+      assert.equal(r.code, 0, `${args.join(' ')} ${ref}: ${r.stdout}`);
+      assert.equal(f.requests.at(-1).body.consistentRead, true);
+      assert.deepEqual(f.requests.at(-1).body.ref, expected);
+    }
+  }
+  // The server resolves the alias; an alias that targets a tag is its 400, reported as an API error.
+  const requests = f.requests.length;
+  for (const args of [['query', '--file', flagged, '--consistent-read'], ['query', '--file', inFile], ['docs', 'fetch', '--ids', 'doc-1', '--consistent-read']]) {
+    const r = await f.run([...args, '--collection', 'demo-docs', '--ref', 'tag:release', '--json']);
+    assert.equal(r.code, 2, `${args.join(' ')}: ${r.stdout}`);
+    assert.equal(r.json.error.code, 'INPUT_ERROR');
+    assert.equal(r.json.error.message, 'Consistent reads need branch:NAME or an alias that targets a branch; a tag has no pending writes.');
+  }
+  assert.equal(f.requests.length, requests);
+  // A tag read without the flag stays a committed read.
+  const r = await f.run(['docs', 'fetch', '--ids', 'doc-1', '--collection', 'demo-docs', '--ref', 'tag:release', '--json']);
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(f.requests.at(-1).body.consistentRead, false);
+  const help = await f.run(['docs', 'fetch', '--help']);
+  assert.match(help.stdout, new RegExp(`--consistent-read {2,}${consistentReadHelp}\\n`));
+});
+
+test('index field descriptions pass through create, update and describe, including nested fields', async t => {
+  const config = {
+    text: { type: 'text', analyzers: ['english'], description: 'Article body' },
+    category: { type: 'keyword' },
+    vector: { type: 'vector', dimensions: 256, similarity: 'cosine', description: 'OpenAI text-embedding-3-small' },
+    metadata: { type: 'object', description: 'Source metadata', objectIndexConfigs: { labels: { type: 'keyword', description: 'Editorial labels' }, rank: { type: 'long' } } },
+  };
+  const f = await fixture(t, (req, send) => send(req.method === 'POST' ? 201 : 200,
+    { collection: req.method === 'POST' ? created : { ...metadata, indexConfigs: req.body?.indexConfigs ?? config } }));
+  let r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', await f.file('described.json', config), '--json']);
+  assert.equal(r.code, 0, r.stdout);
+  // Descriptions are forwarded as written; a field without one sends none.
+  assert.deepEqual(f.requests.at(-1).body.indexConfigs, config);
+  assert.equal('description' in f.requests.at(-1).body.indexConfigs.category, false);
+  for (const description of ['', null, 'Replaced']) {
+    const update = { text: { type: 'text', analyzers: ['english'], description }, metadata: { type: 'object', objectIndexConfigs: { labels: { type: 'keyword', description } } } };
+    r = await f.run(['collections', 'update', '--collection', 'demo-docs', '--index-config', await f.file('update.json', update), '--json']);
+    assert.equal(r.code, 0, `${JSON.stringify(description)}: ${r.stdout}`);
+    assert.deepEqual(f.requests.at(-1).body, { indexConfigs: update });
+    // The SDK normalizes response nulls to omission.
+    assert.equal(r.json.data.collection.indexConfigs.text.description, description ?? undefined);
+  }
+  const requests = f.requests.length;
+  for (const invalid of [{ text: { type: 'text', description: 'x'.repeat(256) } }, { text: { type: 'text', description: 7 } }]) {
+    r = await f.run(['collections', 'update', '--collection', 'demo-docs', '--index-config', await f.file('long.json', invalid), '--json']);
+    assert.equal(r.code, 2); assert.match(r.json.error.message, /Invalid index configuration.*descriptions of at most 255 characters/);
+  }
+  assert.equal(f.requests.length, requests);
+  r = await f.run(['collections', 'describe', '--collection', 'demo-docs', '--json']);
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(r.json.data.collection.indexConfigs, config);
+  const described = await f.run(['collections', 'describe', '--collection', 'demo-docs']);
+  assert.equal(described.code, 0, described.stderr);
+  assert.ok(described.stdout.endsWith([
+    '  FIELD            INDEX    SETTINGS                             DESCRIPTION',
+    '  text             text     analyzers: ["english"]               Article body',
+    '  category         keyword',
+    '  vector           vector   dimensions: 256, similarity: cosine  OpenAI text-embedding-3-small',
+    '  metadata         object                                        Source metadata',
+    '  metadata.labels  keyword                                       Editorial labels',
+    '  metadata.rank    long', '',
+  ].join('\n')), described.stdout);
+  const help = await f.run(['collections', 'create', '--help']);
+  assert.match(help.stdout, /optional description \(at most 255\s+characters\)/);
+  const updateHelp = await f.run(['collections', 'update', '--help']);
+  assert.match(updateHelp.stdout, /except for their description \("" clears it; null or omission keeps it\)/);
+});
+
 test('null query size uses the public default and consistentRead reaches the API from the file or the flag', async t => {
   const f = await fixture(t, (_r, send) => send(200, { took: 1, total: 0, isDocsInline: true, docs: [] }));
   let r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('query.json', { query: {}, size: null, consistentRead: true }), '--json']);
@@ -391,7 +473,7 @@ test('null query size uses the public default and consistentRead reaches the API
   r = await f.run(['query', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('plain.json', { query: {} }), '--json']);
   assert.equal(r.code, 0); assert.equal(f.requests[2].body.consistentRead, false);
   const help = await f.run(['query', '--help']);
-  assert.match(help.stdout, /--consistent-read {2,}Include pending writes on the branch \(bulk imports appear\s+after indexing\)\n/);
+  assert.match(help.stdout, new RegExp(`--consistent-read {2,}${consistentReadHelp}\\n`));
   assert.match(help.stdout, /--file <path> {2,}JSON request body.*\(required\)\n/s);
 });
 
@@ -608,7 +690,6 @@ test('invalid facets, sizes, queries and conflicting or inconsistent refs fail b
     ...[0, 101, 1.5, '10'].map(size => ({ facets: { category: { size } } })),
     { facets: { category: { typo: true } } },
     { facets: Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f'].map(field => [field, {}])) },
-    { size: 0, facets: { category: {} }, consistentRead: true },
     { facets: { category: {} }, ref: { kind: 'branch', name: 'other' } },
   ];
   for (const [i, body] of bodies.entries()) {

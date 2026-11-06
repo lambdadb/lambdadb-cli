@@ -136,6 +136,31 @@ Feature descriptions use native embedding and native reranking. The legacy
 `managedEmbedding` wire field and existing CLI behavior remain unchanged.
 The versioned contracts above retain their original source paths.
 
+## SDK 0.12.0 contract update (2026-11-06)
+
+The runtime and lockfile pin stable `@functional-systems/lambdadb@0.12.0`, reviewed
+through its [changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.12.0/CHANGELOG.md)
+and `docs/OPENAPI_UPDATE.md`. The SDK aligns with the public contract
+`reference/api/openapi.json` in lambdadb/docs at commit
+`1714009a2659a18b26cb68193dd7a071fd6efb42` (SHA-256
+`604e6fdcf0e0a5af2c9ac8714e60d282d0ebfb9847a49371ff0452fac48be070`).
+
+Every index config variant takes an optional `description` (string or null, at
+most 255 characters), nested `objectIndexConfigs` children included. The CLI
+keeps forwarding the index map as JSON: an omitted description stays off the
+wire, `null` and `""` are sent as supplied so an update keeps or clears the
+stored value, and a longer value fails the SDK serializer before HTTP (exit 2,
+named in the index-config input error). The `id` restriction and the rule that
+only a description of an existing field may change stay server-owned. Human
+describe output adds a `DESCRIPTION` column and lists nested fields as dotted
+paths instead of one `objectIndexConfigs` JSON cell.
+
+`consistentRead: true` is admitted with a branch ref or an alias ref; the server
+resolves the alias and rejects one that targets a tag with HTTP 400, which the
+CLI reports as an API error. The SDK rejects only tag refs. The CLI checks the
+tag case itself in `queryInput` and `docs fetch` so the message names the rule,
+and never looks an alias up before a read.
+
 ## SDK 0.11.0 contract update (2026-10-30)
 
 The runtime and lockfile pin stable `@functional-systems/lambdadb@0.11.0`, reviewed

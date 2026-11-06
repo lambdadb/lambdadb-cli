@@ -41,6 +41,16 @@ function indexSummary(configs: unknown): string {
   return `${fields} field${fields === 1 ? '' : 's'}: ${[...shown, ...(more ? [`+${more}`] : [])].join(', ')}`;
 }
 
+/** One row per index field; an object field is followed by its nested fields as dotted paths. */
+function fieldRows(configs: Record<string, Row>, prefix = ''): unknown[][] {
+  return Object.entries(configs).flatMap(([field, config]) => {
+    const { type, description, objectIndexConfigs, ...rest } = config ?? {};
+    const settings = Object.entries(rest).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ');
+    const nested = objectIndexConfigs && typeof objectIndexConfigs === 'object' ? fieldRows(objectIndexConfigs as Record<string, Row>, `${prefix}${field}.`) : [];
+    return [[prefix + field, type, settings, description ?? ''], ...nested];
+  });
+}
+
 const nextPage = (command: string, token: unknown) => typeof token === 'string' && token ? `${command} --page-token ${shellArg(token)}` : undefined;
 
 export function formatDoctor(): string {
@@ -79,10 +89,7 @@ export function formatCollection(described: { collection: Row }): string {
     row('Created', time(c.createdAt)),
     row('Updated', time(c.updatedAt)),
     '',
-    table(['FIELD', 'INDEX', 'SETTINGS'], Object.entries((c.indexConfigs ?? {}) as Record<string, Row>).map(([field, config]) => {
-      const { type, ...rest } = config ?? {};
-      return [field, type, Object.entries(rest).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ')];
-    })),
+    table(['FIELD', 'INDEX', 'SETTINGS', 'DESCRIPTION'], fieldRows((c.indexConfigs ?? {}) as Record<string, Row>)),
   ].join('\n');
 }
 
