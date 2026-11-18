@@ -1,6 +1,6 @@
 import { open } from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
-import type { AliasTarget, BranchSource, CreateCollectionInput, DeleteDocsInput, ListDocsInput, QueryCollectionInput, ReadRef, RefSource, UpdateCollectionInput } from '@functional-systems/lambdadb';
+import type { AliasTarget, BranchSource, CreateCollectionInput, DeleteDocsInput, ListDocsInput, QueryCollectionInput, ReadRef, RefSource, UpdateBranchInput, UpdateCollectionInput } from '@functional-systems/lambdadb';
 import { createCollectionRequestToJSON, deleteDocsRequestBodyToJSON, listDocsExtendedRequestBodyToJSON, queryCollectionRequestBodyToJSON, updateCollectionRequestBodyToJSON } from '@functional-systems/lambdadb/models/operations';
 import { InputError } from './errors.js';
 import { name } from './config.js';
@@ -82,13 +82,10 @@ export function parseAsOf(value: string): number {
   return milliseconds;
 }
 
-// A branch creation copies another branch; a tag pins a branch or a tag. Aliases are never sources.
-export function parseSource(value: string | undefined, asOf: string | undefined, allowTag: false): BranchSource | undefined;
-export function parseSource(value: string | undefined, asOf: string | undefined, allowTag: true): RefSource | undefined;
-export function parseSource(value: string | undefined, asOf: string | undefined, allowTag: boolean): RefSource | undefined {
-  const accepted = allowTag ? 'branch:NAME or tag:NAME; aliases cannot be tag sources' : 'branch:NAME; tags and aliases cannot be branch sources';
+// A new branch or tag starts from a branch or a tag. Aliases are never sources; `created` names the ref being made.
+export function parseSource(value: string | undefined, asOf: string | undefined, created: 'branch' | 'tag'): RefSource | undefined {
   const ref = value === undefined ? undefined : parseRef(value);
-  if (ref && (ref.kind === 'alias' || (ref.kind === 'tag' && !allowTag))) throw new InputError(`Source must be ${accepted}.`);
+  if (ref?.kind === 'alias') throw new InputError(`Source must be branch:NAME or tag:NAME; aliases cannot be ${created} sources.`);
   if (asOf === undefined) return ref as RefSource | undefined;
   if (ref && ref.kind !== 'branch') throw new InputError('--as-of requires a branch source.');
   // Omitted source means main, so an as-of alone pins main's history.
@@ -201,6 +198,13 @@ export function updateInput(indexConfigs: Record<string, unknown> | undefined, s
   try { updateCollectionRequestBodyToJSON(input as UpdateCollectionInput); }
   catch { throw new InputError(invalidMetadata); }
   return input as UpdateCollectionInput;
+}
+
+// A branch owns its index schema only; the map is checked like the collection update's so the message stays the same.
+export function branchUpdateInput(indexConfigs: Record<string, unknown>): UpdateBranchInput {
+  try { updateCollectionRequestBodyToJSON({ indexConfigs } as UpdateCollectionInput); }
+  catch { throw new InputError(invalidIndexConfig); }
+  return { indexConfigs } as UpdateBranchInput;
 }
 
 function defined<T extends object>(value: T): Partial<T> {

@@ -136,6 +136,55 @@ Feature descriptions use native embedding and native reranking. The legacy
 `managedEmbedding` wire field and existing CLI behavior remain unchanged.
 The versioned contracts above retain their original source paths.
 
+## SDK 0.13.0 contract update (2026-11-19)
+
+The runtime and lockfile pin stable `@functional-systems/lambdadb@0.13.0`, reviewed
+through its [changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.13.0/CHANGELOG.md)
+and the installed `src/versioning.ts`, `src/models/versioning.ts` and
+`src/types/public.ts`. The SDK aligns with the public contract
+`reference/api/openapi.json` (`info.version` 1.3.0) in lambdadb/docs at commit
+`7be299af9cac4195b75feb6e38b5cd7f8989f5a0` (SHA-256
+`ec499bb6ad4fd7359c1854359e9ecfd4cd8609420f440f7dcbf75566ccda8f32`), synced from
+lambdadb/lambdadb `f9aa63c79cbac2ac477a76ec45e5015ce665afd1`.
+
+A branch owns its index schema. `branches describe`, `tags describe` and
+`aliases describe` call the SDK's single-ref `get`, and `branches update` calls
+`branches.update(name, { indexConfigs })` with the map read like the collection
+`--index-config`. The SDK does not export the branch body schema, so the map is
+checked with the collection update serializer, which uses the same index union
+and nonempty rule, and fails with the same index-config message before HTTP
+(exit 2). The additive rule, the tag-or-alias 400 and the mirroring of `main`
+onto the collection stay server-owned. `--index-config` on `collections update`
+is deprecated in help text only: it is forwarded unchanged and prints no
+warning, because the CLI has no runtime deprecation channel and agents parse
+stderr diagnostics.
+
+The server pages ref listings. The SDK's `list()` still returns every entry,
+but `branches list`, `tags list` and `aliases list` use `listPage`/`listPages`
+so they take `--size` (default 20), `--page-token` and `--all` and return
+`nextPageToken` exactly like `collections list` and `docs list`. One page by
+default is a behavior change for a collection with more than 20 refs of a
+kind; the alternative, an unbounded default, would have made the three lists
+the only ones without a page bound. An empty `--page-token` is omitted by the
+SDK rather than sent.
+
+Branch creation accepts a tag source; `--as-of` stays branch-only and is
+rejected locally for a tag source with the message tag creation already used.
+Without `--as-of`, the contract now has a new branch or tag take over the
+writes still pending on its source, so the command descriptions and result
+summaries state that instead of "pending writes are not copied", which remains
+true only with `--as-of`.
+
+Ref responses carry `indexConfigs`, and branches and tags `numDocs` and
+`dataUpdatedAt`; JSON output passes them through (`indexConfigs` keys are
+already redacted as a free-form map), list tables add `DOCS`, `INDEXES` and
+`DATA UPDATED`, and `describe` prints the fields table of `collections
+describe`. A response without the new fields, or a reduced collection-create
+response, fails SDK response validation (`INVALID_RESPONSE`; exit 5 for a
+write), so this CLI needs a server on contract 1.3.0. The HTTP 409 hint also
+names a concurrent change, since a branch update can conflict without any
+alias involved. The MCP mode still runs its separately pinned package.
+
 ## SDK 0.12.0 contract update (2026-11-06)
 
 The runtime and lockfile pin stable `@functional-systems/lambdadb@0.12.0`, reviewed
@@ -223,7 +272,7 @@ CLI arguments/configuration → input validation → SDK facade → LambdaDB API
 Project data requests remain SDK-only. Device authorization and project management use a small, bounded
 control-plane JSON client because the project SDK has no account authorization API.
 There is no separate workflow package, plugin system
-or SDK fork. `listCollectionsPages` owns pagination. `bulkUpsertDocs` owns upload
+or SDK fork. `listCollectionsPages` and the ref `listPage`/`listPages` own pagination. `bulkUpsertDocs` owns upload
 metadata, signed PUT, server-provided byte limit and finalization. Query/fetch
 helpers own presigned response downloads and authentication isolation.
 

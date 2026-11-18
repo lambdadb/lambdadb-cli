@@ -89,8 +89,11 @@ lambdadb collections delete --collection cli-demo-docs --json
 
 One page is the default; `nextPageToken` is an opaque continuation token.
 `--all` uses the SDK page iterator and buffers its result within the total network
-budget. No partial list is printed on failure. Collection statistics describe
-branch `main`. Both create and update take the index map itself through `--index-config`, not a
+budget. No partial list is printed on failure. Collection statistics and
+`indexConfigs` describe branch `main`; every branch owns its index schema (see
+[Branches, tags and aliases](#branches-tags-and-aliases)). `collections create`
+returns the same collection shape as `collections describe`. Create, update and
+`branches update` take the index map itself through `--index-config`, not a
 full request body. Every field in the map, including the nested fields of an
 `objectIndexConfigs` map, takes an optional `description` of at most 255
 characters, for example `{"text":{"type":"text","description":"Article body"}}`;
@@ -103,10 +106,13 @@ repeated `--tag KEY=VALUE` metadata tags (up to five; these are not
 data-versioning tags), `--partition-config` (a JSON object with `fieldName`,
 `dataType` `keyword` and `numPartitions`, which cannot be changed later) and
 `--snapshot-retention-days` (1–31, server default 30). Update takes any
-combination of `--index-config`, `--description` (`""` clears it), `--tag`
-(replacing the whole tag map) or `--clear-tags`, and
-`--snapshot-retention-days`, and needs at least one; lowering retention can
-shorten the available history. Updates are subject to server index-change
+combination of `--description` (`""` clears it), `--tag`
+(replacing the whole tag map) or `--clear-tags`,
+`--snapshot-retention-days` and the deprecated `--index-config`, and needs at
+least one; lowering retention can shorten the available history.
+`--index-config` on `collections update` still works and changes the index
+schema of branch `main` only; use `branches update --branch main`, which sends
+the same map and also covers other branches. Updates are subject to server index-change
 restrictions (existing fields cannot be removed or redefined) and return
 `state: "updated"`. `collections delete` permanently removes the collection with
 all documents, branches, tags and aliases, without confirmation; the server
@@ -149,7 +155,7 @@ lambdadb collections create --collection native-docs --index-config examples/ind
 lambdadb docs import --collection native-docs --branch main --file examples/documents.jsonl --json
 lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian.json --json
 lambdadb query --collection native-docs --ref branch:main --file examples/query-bayesian-rerank.json --json
-lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json
+lambdadb branches update --collection native-docs --branch main --index-config examples/index-config-native.json --json
 ```
 
 A vector configuration with `embedding` enables native embedding without a
@@ -338,34 +344,66 @@ with `--consistent-read` to see the result before indexing completes.
 
 ```sh
 lambdadb branches list --collection cli-demo-docs --json
+lambdadb branches list --collection cli-demo-docs --all --size 100 --json
 lambdadb branches create --collection cli-demo-docs --branch candidate --json
 lambdadb branches create --collection cli-demo-docs --branch replay --source branch:main --as-of 2026-10-01T00:00:00Z --json
+lambdadb branches describe --collection cli-demo-docs --branch candidate --json
+lambdadb branches update --collection cli-demo-docs --branch candidate --index-config examples/index-config.json --json
 lambdadb tags create --collection cli-demo-docs --tag release-one --source branch:candidate --json
+lambdadb tags describe --collection cli-demo-docs --tag release-one --json
+lambdadb branches create --collection cli-demo-docs --branch hotfix --source tag:release-one --json
 lambdadb aliases create --collection cli-demo-docs --alias production --target tag:release-one --json
+lambdadb aliases describe --collection cli-demo-docs --alias production --json
 lambdadb aliases retarget --collection cli-demo-docs --alias production --target branch:main --json
 lambdadb aliases delete --collection cli-demo-docs --alias production --json
 lambdadb tags delete --collection cli-demo-docs --tag release-one --json
 lambdadb branches delete --collection cli-demo-docs --branch candidate --json
 ```
 
-Every collection has a `main` branch. `branches create` copies the committed
-state of a branch (`--source branch:NAME`, default `main`); pending writes are
-not copied, and tags or aliases are rejected as sources before any request.
-`tags create` pins the committed snapshot of a branch or tag (`--source
-branch:NAME` or `tag:NAME`, default `main`); an empty head is rejected by the
-server, and accepted but uncommitted writes are not included. `--as-of` takes
-Unix epoch milliseconds or an ISO 8601 time and selects the retained committed
-snapshot at or before it; it applies to branch sources only. Aliases are read
+Every collection has a `main` branch. `branches create` starts a writable
+branch from a branch or a tag (`--source branch:NAME` or `tag:NAME`, default
+`main`); aliases are rejected as sources before any request. The new branch
+inherits the source's index schema and committed snapshot and, without
+`--as-of`, the writes that were still pending on the source at creation:
+ordinary reads see them after indexing, a `--consistent-read` at once. A
+branch created from a tag has `parentBranch: null`. `tags create` pins the
+state of a branch or tag (`--source branch:NAME` or `tag:NAME`, default
+`main`), including, without `--as-of`, the writes the source held at creation;
+an empty head is rejected by the server. `--as-of` takes Unix epoch
+milliseconds or an ISO 8601 time and selects only the retained committed
+snapshot at or before it, without pending writes; it applies to branch sources
+only, and a tag source with `--as-of` is rejected before any request. Aliases are read
 names for a branch or tag (`--target`), never write targets and never targets
 of other aliases; `retarget` changes what every reader of the alias sees
 immediately. Names use 3–52 letters, digits, underscores or hyphens.
+
+The three `list` commands page like `collections list`: one page of `--size`
+entries (1–100, default 20) in name order, `nextPageToken` in the result when
+more follow, `--page-token` for the next page, and `--all` to follow every
+token and buffer the result. A script that needs every ref must pass `--all` or
+follow the token. `describe` reads one branch (`--branch`), tag (`--tag`) or
+alias (`--alias`); a name that is not that kind of ref is HTTP 404. Every ref
+result carries `indexConfigs`; branches and tags also carry `numDocs` and
+`dataUpdatedAt` (`null` for an empty branch). An alias shows the schema its
+readers get from its target, and a dangling alias has `indexConfigs: null`.
+Human output lists the counts and an index summary per ref, and `describe`
+prints the index fields like `collections describe`.
+
+A branch owns its index schema. `branches update --branch NAME --index-config
+FILE` sends the branch's complete field-to-index map with new fields added,
+under the same rules as a collection index update: existing fields cannot be
+removed or redefined, except for their `description`. Only that branch
+changes; updating `main` also changes the collection's `indexConfigs`, and
+promoting a schema change to `main` is a manual second update. A tag or alias
+name is rejected by the server (HTTP 400). The result returns the updated
+branch with `state: "updated"`.
 
 Deletes take effect without confirmation, like every non-`init` command. The
 server refuses to delete `main` (HTTP 400) and refuses to delete a branch or
 tag while an alias references it (HTTP 409): list aliases, then retarget or
 delete them first. Mutations are never retried; an unverifiable outcome exits
 with code 5 and `state: "unknown"`, so list the refs before retrying. Creation
-times are printed as ISO 8601 because the SDK converts them to `Date`. See
+and data-update times are printed as ISO 8601 because the SDK converts them to `Date`. See
 [Branches, tags, and aliases](https://docs.lambdadb.ai/guides/data-versioning/branches-tags-aliases.md)
 for the full semantics.
 
@@ -438,7 +476,7 @@ indexes, partial updates, segment merges and old Tags do not gain support from
 this SDK update. If migration is needed, deliberately create a new Collection and
 reinsert the source data; the CLI performs no automatic migration.
 
-This source pins SDK 0.8.1. Existing CLI installations keep their packaged SDK
+This source pins SDK 0.13.0. Existing CLI installations keep their packaged SDK
 until a new CLI version is published and installed.
 
 ## Output, deadlines and exit codes
