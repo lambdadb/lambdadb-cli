@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-18
+
 ### Added
 
 - `branches describe`, `tags describe` and `aliases describe` read one ref
