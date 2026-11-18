@@ -48,7 +48,12 @@
 - Update the Homebrew formula to verified stable 0.4.1 and its release-commit
   lockfile.
 - Pin `@functional-systems/lambdadb` 0.13.0 (API contract 1.3.0), which carries
-  these contract changes. The MCP package pin is unchanged.
+  these contract changes.
+- `lambdadb mcp` launches MCP 0.6.0 (LambdaDB SDK 0.13.0), which adds
+  `lambdadb_get_branch`, `lambdadb_get_tag`, `lambdadb_get_alias` and
+  `lambdadb_update_branch`, returns one page per call from the branch, tag and
+  alias list tools (`size`, `pageToken`, `nextPageToken`), and accepts a tag as
+  a `lambdadb_create_branch` source.
 - The live smoke runs the new commands against a deployed server: `describe`
   for a branch, tag and alias, paged branch lists with `--page-token` and
   `--all`, a `branches update` that leaves `main` unchanged, and a branch
