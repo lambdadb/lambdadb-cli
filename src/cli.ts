@@ -4,7 +4,7 @@ import type { FetchDocsInput } from '@functional-systems/lambdadb';
 import { cli } from './command.js';
 import { readFileSync } from 'node:fs';
 import { configPath, integer, name, resolveConfig, resolveCredential, saveSettings, settings, type Config, type Options } from './config.js';
-import { checkConsistentRead, createInput, deleteInput, listSelectors, parseRef, parseSource, parseTags, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
+import { branchUpdateInput, checkConsistentRead, createInput, deleteInput, listSelectors, parseRef, parseSource, parseTags, parseTarget, queryInput, readJson, readJsonl, requireIds, updateInput } from './input.js';
 import { importDocuments, planBatches } from './import-workflow.js';
 import { CredentialStoreError, definitelyRejected, describeError, InputError, isInputError, parseError, unknownOutcome, unknownOutcomeSummary } from './errors.js';
 import { Output, type Envelope } from './output.js';
@@ -17,7 +17,7 @@ import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
 import { formatCreated, formatLogin, formatLogout, formatOrganizationChoice, formatOrganizations, formatProjects, formatRegions, formatUse, framed, interactiveAccount, reported } from './account-ui.js';
 import { failure as formatFailure, targetSummary } from './human.js';
-import { formatAliases, formatBranches, formatCollection, formatCollections, formatDocuments, formatDoctor, formatQuery, formatSettings, formatTags, formatTarget, shellArg } from './data-output.js';
+import { formatAlias, formatAliases, formatBranch, formatBranches, formatCollection, formatCollections, formatDocuments, formatDoctor, formatQuery, formatSettings, formatTag, formatTags, formatTarget, shellArg } from './data-output.js';
 import { usage, formatUsage } from './usage.js';
 import { OrganizationChoice, organizations, projects, createProject, regions, useProject } from './projects.js';
 
@@ -255,7 +255,7 @@ collections.command('list')
   });
 
 collections.command('describe')
-  .description('Show collection metadata and index fields; document counts are for branch main')
+  .description('Show collection metadata with the index fields and document count of branch main')
   .requiredOption('--collection <name>', 'Collection name')
   .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
     const collection = scoped(cmd);
@@ -287,14 +287,14 @@ collections.command('create')
   });
 
 collections.command('update')
-  .description('Update a collection: add index fields from a JSON map, or change description, metadata tags or retention')
+  .description('Update a collection: change description, metadata tags or retention; adding index fields here is deprecated in favor of branches update')
   .requiredOption('--collection <name>', 'Existing collection name')
-  .option('--index-config <path>', 'Full JSON field-to-index map with existing fields kept and new ones added; native dimensions/similarity go inside embedding')
+  .option('--index-config <path>', 'Deprecated: use branches update --branch main. Full JSON field-to-index map with existing fields kept and new ones added; changes branch main only')
   .option('--description <text>', 'New description, at most 255 characters; "" clears it')
   .option('--tag <key=value>', 'Replace all metadata tags with the repeated values, up to five', collectTags)
   .option('--clear-tags', 'Replace all metadata tags with an empty map')
   .option('--snapshot-retention-days <days>', 'Snapshot retention, 1–31; lowering it can shorten available history')
-  .addHelpText('after', '\nExamples:\n  lambdadb collections update --collection native-docs --index-config examples/index-config-native.json --json\n  lambdadb collections update --collection demo-docs --description "Support articles" --tag team=search --json\n  lambdadb collections update --collection demo-docs --clear-tags --snapshot-retention-days 7 --json\n\nThe server validates permitted index changes: existing fields cannot be removed or redefined, except for their description ("" clears it; null or omission keeps it). Older servers require managedEmbedding:true.\nDescribe output includes the server-managed id keyword field; send it back unchanged or omit it. Tags replace the whole map, never merge.')
+  .addHelpText('after', '\nExamples:\n  lambdadb collections update --collection demo-docs --description "Support articles" --tag team=search --json\n  lambdadb collections update --collection demo-docs --clear-tags --snapshot-retention-days 7 --json\n\n--index-config is deprecated but still works: it changes the index schema of branch main only, exactly like branches update --branch main, which also covers other branches.\nThe server validates permitted index changes: existing fields cannot be removed or redefined, except for their description ("" clears it; null or omission keeps it). Older servers require managedEmbedding:true.\nDescribe output includes the server-managed id keyword field; send it back unchanged or omit it. Tags replace the whole map, never merge.')
   .action(async (opts, cmd: Command) => {
     name(opts.collection, 'Collection name');
     if (opts.tag && opts.clearTags) throw new InputError('Use either --tag or --clear-tags, not both.');
@@ -321,34 +321,101 @@ collections.command('delete')
     result({ ...deleted, state: 'deleted' }, 'Collection deleted; physical cleanup can continue after this response.');
   }));
 
-// Branch, tag and alias commands take refs as kind:NAME like --ref, so one grammar covers reads and writes.
-const branches = program.command('branches').description('List, create and delete writable branches of a collection');
-branches.command('list')
-  .description('List branches with parent, head and fork snapshot metadata')
-  .requiredOption('--collection <name>', 'Collection name')
-  .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
-    const collection = scoped(cmd);
-    const listed = await client.collection(collection).branches.list(options);
-    result(listed, `${listed.branches.length} branch(es).`, 0, safe => formatBranches(safe));
-  }));
+type RefKind = 'branches' | 'tags' | 'aliases';
+type RefPage<K extends RefKind> = Record<K, Record<string, unknown>[]> & { nextPageToken?: string | undefined };
+type RefLister<K extends RefKind> = {
+  listPage(params: { size: number; pageToken?: string }, options: Context['options']): Promise<RefPage<K>>;
+  listPages(params: { size: number; pageToken?: string }, options: Context['options']): AsyncGenerator<RefPage<K>>;
+};
 
-branches.command('create')
-  .description('Create a branch from the committed state of another branch; pending writes are not copied')
+/** Branch, tag and alias lists page like collections list: one page by default, every page with --all. */
+function refList<K extends RefKind>(
+  group: Command, key: K, description: string, noun: string,
+  lister: (ctx: Context, collection: string) => RefLister<K>, format: (page: RefPage<K>, again?: string) => string,
+) {
+  group.command('list')
+    .description(description)
+    .requiredOption('--collection <name>', 'Collection name')
+    .option('--size <count>', 'Page size, 1–100', '20')
+    .option('--page-token <token>', 'Opaque continuation token')
+    .option('--all', 'Fetch all pages within the total timeout (results are buffered)')
+    .action(async (opts, cmd: Command) => {
+      const size = integer(opts.size, 'Page size', 1, 100);
+      await connected(cmd, async ctx => {
+        const collection = scoped(cmd);
+        const refs = lister(ctx, collection);
+        const params = { size, pageToken: opts.pageToken };
+        if (!opts.all) {
+          const page = await refs.listPage(params, ctx.options);
+          const again = output.safeDiagnostic(`${cli} ${key} list --collection ${collection}${opts.size === '20' ? '' : ` --size ${size}`}${connectionFlags(cmd)}`);
+          result(page, `${page[key].length} ${noun}${page.nextPageToken ? '; more pages available' : ''}.`, 0, safe => format(safe, again));
+        } else {
+          const items: Record<string, unknown>[] = [];
+          for await (const page of refs.listPages(params, ctx.options)) items.push(...page[key]);
+          result({ [key]: items } as RefPage<K>, `${items.length} ${noun}.`, 0, safe => format(safe));
+        }
+      });
+    });
+}
+
+// Branch, tag and alias commands take refs as kind:NAME like --ref, so one grammar covers reads and writes.
+const branches = program.command('branches').description('List, describe, create, update and delete writable branches of a collection');
+refList(branches, 'branches', 'List branches with parent, head and fork snapshot metadata, document counts and index fields; one page by default', 'branch(es)',
+  ({ client }, collection) => client.collection(collection).branches, formatBranches);
+
+branches.command('describe')
+  .description('Show one branch with its own index fields, document count and snapshots')
   .requiredOption('--collection <name>', 'Collection name')
-  .requiredOption('--branch <name>', 'New branch name')
-  .option('--source <kind:name>', 'branch:NAME to copy (default branch:main); tags and aliases cannot be sources')
-  .option('--as-of <time>', 'Copy the retained committed snapshot at or before this Unix-millisecond or ISO 8601 time')
-  .addHelpText('after', '\nExamples:\n  lambdadb branches create --collection demo-docs --branch candidate --json\n  lambdadb branches create --collection demo-docs --branch replay --source branch:main --as-of 2026-10-01T00:00:00Z --json')
+  .requiredOption('--branch <name>', 'Existing branch name')
   .action(async (opts, cmd: Command) => {
     name(opts.collection, 'Collection name');
     const branch = name(opts.branch, 'Branch name');
-    const source = parseSource(opts.source, opts.asOf, false);
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, branch };
+      const described = await client.collection(collection).branches.get(branch, options);
+      result(described, 'Branch metadata.', 0, safe => formatBranch(safe));
+    });
+  });
+
+branches.command('create')
+  .description('Create a writable branch from a branch or tag; it inherits the source index schema and, without --as-of, the writes the source held at creation')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--branch <name>', 'New branch name')
+  .option('--source <kind:name>', 'branch:NAME or tag:NAME to start from (default branch:main); aliases cannot be sources')
+  .option('--as-of <time>', 'Start from the retained committed snapshot at or before this Unix-millisecond or ISO 8601 time, without pending writes; branch sources only')
+  .addHelpText('after', '\nExamples:\n  lambdadb branches create --collection demo-docs --branch candidate --json\n  lambdadb branches create --collection demo-docs --branch replay --source branch:main --as-of 2026-10-01T00:00:00Z --json\n  lambdadb branches create --collection demo-docs --branch hotfix --source tag:release-one --json')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const branch = name(opts.branch, 'Branch name');
+    const source = parseSource(opts.source, opts.asOf, 'branch');
     await connected(cmd, async ({ client, options }) => {
       const collection = scoped(cmd);
       target = { ...target, branch };
       mutationStarted = true;
       const created = await client.collection(collection).branches.create({ branchName: branch, ...(source ? { source } : {}) }, { ...options, retries: { strategy: 'none' } });
-      result({ ...created, state: 'created' }, 'Branch created from committed source state; pending source writes were not copied.');
+      result({ ...created, state: 'created' }, source && 'asOf' in source
+        ? 'Branch created from the retained committed snapshot; pending source writes were not copied.'
+        : 'Branch created with the source index schema and the writes the source held at creation; read pending ones with --consistent-read.');
+    });
+  });
+
+branches.command('update')
+  .description('Add index fields to one branch from a JSON map; other branches keep their schema, and updating main also changes the collection')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--branch <name>', 'Existing branch name')
+  .requiredOption('--index-config <path>', 'Full JSON field-to-index map of the branch with existing fields kept and new ones added; native dimensions/similarity go inside embedding')
+  .addHelpText('after', '\nExamples:\n  lambdadb branches update --collection demo-docs --branch candidate --index-config examples/index-config.json --json\n  lambdadb branches update --collection native-docs --branch main --index-config examples/index-config-native.json --json\n\nThe server validates permitted index changes: existing fields of the branch cannot be removed or redefined, except for their description ("" clears it; null or omission keeps it).\nbranches describe output includes the server-managed id keyword field; send it back unchanged or omit it. A tag or alias name is rejected by the server (HTTP 400).\nPromoting a schema change to main is manual: apply the same change with --branch main.')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const branch = name(opts.branch, 'Branch name');
+    const input = branchUpdateInput(await readJson(opts.indexConfig));
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, branch };
+      mutationStarted = true;
+      const updated = await client.collection(collection).branches.update(branch, input, { ...options, retries: { strategy: 'none' } });
+      result({ ...updated, state: 'updated' }, 'Branch index schema updated.');
     });
   });
 
@@ -368,33 +435,44 @@ branches.command('delete')
     });
   });
 
-const tags = program.command('tags').description('List, create and delete immutable tags of a collection');
-tags.command('list')
-  .description('List tags with their pinned snapshot metadata')
+const tags = program.command('tags').description('List, describe, create and delete immutable tags of a collection');
+refList(tags, 'tags', 'List tags with their pinned snapshot metadata, document counts and index fields; one page by default', 'tag(s)',
+  ({ client }, collection) => client.collection(collection).tags, formatTags);
+
+tags.command('describe')
+  .description('Show one tag with the index fields and document count of the snapshot it pins')
   .requiredOption('--collection <name>', 'Collection name')
-  .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
-    const collection = scoped(cmd);
-    const listed = await client.collection(collection).tags.list(options);
-    result(listed, `${listed.tags.length} tag(s).`, 0, safe => formatTags(safe));
-  }));
+  .requiredOption('--tag <name>', 'Existing tag name')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const tag = name(opts.tag, 'Tag name');
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, tag };
+      const described = await client.collection(collection).tags.get(tag, options);
+      result(described, 'Tag metadata.', 0, safe => formatTag(safe));
+    });
+  });
 
 tags.command('create')
-  .description('Pin the committed snapshot of a branch or tag as an immutable tag; an empty head is rejected')
+  .description('Pin the state of a branch or tag as an immutable tag, including, without --as-of, the writes the source held at creation; an empty head is rejected')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--tag <name>', 'New tag name')
   .option('--source <kind:name>', 'branch:NAME or tag:NAME to pin (default branch:main); aliases cannot be sources')
-  .option('--as-of <time>', 'Pin the retained committed snapshot at or before this Unix-millisecond or ISO 8601 time; branch sources only')
+  .option('--as-of <time>', 'Pin the retained committed snapshot at or before this Unix-millisecond or ISO 8601 time, without pending writes; branch sources only')
   .addHelpText('after', '\nExamples:\n  lambdadb tags create --collection demo-docs --tag release-one --json\n  lambdadb tags create --collection demo-docs --tag release-two --source branch:candidate --json')
   .action(async (opts, cmd: Command) => {
     name(opts.collection, 'Collection name');
     const tag = name(opts.tag, 'Tag name');
-    const source = parseSource(opts.source, opts.asOf, true);
+    const source = parseSource(opts.source, opts.asOf, 'tag');
     await connected(cmd, async ({ client, options }) => {
       const collection = scoped(cmd);
       target = { ...target, tag };
       mutationStarted = true;
       const created = await client.collection(collection).tags.create({ tagName: tag, ...(source ? { source } : {}) }, { ...options, retries: { strategy: 'none' } });
-      result({ ...created, state: 'created' }, 'Tag created from the committed snapshot; accepted but uncommitted writes are not included.');
+      result({ ...created, state: 'created' }, source && 'asOf' in source
+        ? 'Tag created from the retained committed snapshot; pending source writes are not included.'
+        : 'Tag created with the index schema and the writes the source held at creation.');
     });
   });
 
@@ -414,15 +492,24 @@ tags.command('delete')
     });
   });
 
-const aliases = program.command('aliases').description('List, create, retarget and delete read aliases of a collection');
-aliases.command('list')
-  .description('List aliases with their current branch or tag targets')
+const aliases = program.command('aliases').description('List, describe, create, retarget and delete read aliases of a collection');
+refList(aliases, 'aliases', 'List aliases with their current branch or tag targets and the index fields they serve; one page by default', 'alias(es)',
+  ({ client }, collection) => client.collection(collection).aliases, formatAliases);
+
+aliases.command('describe')
+  .description('Show one alias with its target and the index fields its readers get; a dangling alias has none')
   .requiredOption('--collection <name>', 'Collection name')
-  .action(async (_opts, cmd: Command) => connected(cmd, async ({ client, options }) => {
-    const collection = scoped(cmd);
-    const listed = await client.collection(collection).aliases.list(options);
-    result(listed, `${listed.aliases.length} alias(es).`, 0, safe => formatAliases(safe));
-  }));
+  .requiredOption('--alias <name>', 'Existing alias name')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const alias = name(opts.alias, 'Alias name');
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, alias };
+      const described = await client.collection(collection).aliases.get(alias, options);
+      result(described, 'Alias metadata.', 0, safe => formatAlias(safe));
+    });
+  });
 
 aliases.command('create')
   .description('Create a read alias for a branch or tag; aliases are not write targets')

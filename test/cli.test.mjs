@@ -155,7 +155,7 @@ test('local end-to-end configure → doctor → create → import → query → 
   const stored = [];
   const f = await fixture(t, async (r, send) => {
     const path = r.url.pathname;
-    if (path.endsWith('/collections') && r.method === 'POST') return send(201, { collection: created });
+    if (path.endsWith('/collections') && r.method === 'POST') return send(201, { collection: metadata });
     if (path.endsWith('/collections')) return send(200, { collections: [metadata], ...(r.url.searchParams.get('size') === '1' && !r.url.searchParams.has('pageToken') ? { nextPageToken: 'next opaque/+' } : {}) });
     if (path.endsWith('/docs/upsert')) { stored.push(...r.body.docs); return send(202, { message: 'Upsert request is accepted' }); }
     if (path.endsWith('/query')) return send(200, { took: 1, total: 1, isDocsInline: true, docs: [{ collection: 'demo-docs', score: 0.8, doc: stored[0] }] });
@@ -172,6 +172,8 @@ test('local end-to-end configure → doctor → create → import → query → 
   assert.equal((await f.run(['doctor', '--json'])).code, 0);
   r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', await f.file('index.json', indexConfigs), '--json']);
   assert.equal(r.code, 0); assert.equal(r.json.data.state, 'created'); assert.ok(!('searchable' in r.json.data));
+  // Create returns the full collection shape, passed through like describe.
+  assert.deepEqual(r.json.data.collection.indexConfigs, indexConfigs); assert.equal(r.json.data.collection.numDocs, 3);
   r = await f.run(['docs', 'import', '--collection', 'demo-docs', '--branch', 'main', '--file', resolve('examples/documents.jsonl'), '--batch-size', '2', '--json']);
   assert.equal(r.code, 0); assert.equal(r.json.data.accepted, 3); assert.equal(r.json.data.batches.length, 2);
   assert.match(r.stderr, /Batch 2: accepted/); assert.equal(r.stdout.trim().split('\n').length, 1);
@@ -423,7 +425,7 @@ test('index field descriptions pass through create, update and describe, includi
     metadata: { type: 'object', description: 'Source metadata', objectIndexConfigs: { labels: { type: 'keyword', description: 'Editorial labels' }, rank: { type: 'long' } } },
   };
   const f = await fixture(t, (req, send) => send(req.method === 'POST' ? 201 : 200,
-    { collection: req.method === 'POST' ? created : { ...metadata, indexConfigs: req.body?.indexConfigs ?? config } }));
+    { collection: { ...metadata, indexConfigs: req.body?.indexConfigs ?? config } }));
   let r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', await f.file('described.json', config), '--json']);
   assert.equal(r.code, 0, r.stdout);
   // Descriptions are forwarded as written; a field without one sends none.
@@ -702,7 +704,7 @@ test('invalid facets, sizes, queries and conflicting or inconsistent refs fail b
 
 test('create forwards all 49 SDK analyzers unchanged and rejects unknown names before HTTP', async t => {
   const analyzers = ['standard', 'english', 'korean', 'japanese', 'chinese', 'cjk', 'arabic', 'french', 'german', 'hindi', 'indonesian', 'italian', 'portuguese', 'russian', 'spanish', 'turkish', 'armenian', 'basque', 'bengali', 'brazilian', 'bulgarian', 'catalan', 'czech', 'danish', 'dutch', 'estonian', 'finnish', 'galician', 'greek', 'hungarian', 'irish', 'latvian', 'lithuanian', 'norwegian', 'persian', 'romanian', 'serbian', 'sorani', 'swedish', 'thai', 'simple', 'whitespace', 'stop', 'keyword', 'pattern', 'fingerprint', 'nepali', 'tamil', 'telugu'];
-  const f = await fixture(t, (_r, send) => send(201, { collection: created }));
+  const f = await fixture(t, (_r, send) => send(201, { collection: metadata }));
   for (const config of [{ type: 'text', analyzers }, { type: 'text' }, { type: 'text', analyzers: [] }, { type: 'text', analyzers: ['chinese', 'chinese'] }]) {
     const indexConfigs = { text: config };
     const r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', await f.file('analyzers.json', indexConfigs), '--json']);
@@ -1066,7 +1068,7 @@ test('ordinary text, KNN, RRF, Min-Max and L2 preserve boosts and omit Bayesian 
 test('native and legacy embedding create/update mapping preserves explicit values without inferred defaults', async t => {
   const embedding = { provider: 'openai', model: 'text-embedding-3-small', sourceField: 'text' };
   const f = await fixture(t, (req, send) => send(req.method === 'POST' ? 201 : 200,
-    { collection: req.method === 'POST' ? created : { ...metadata, indexConfigs: req.body.indexConfigs } }));
+    { collection: { ...metadata, indexConfigs: req.body.indexConfigs } }));
   const configs = [
     JSON.parse(await readFile('examples/index-config-native.json', 'utf8')),
     ...[undefined, true].flatMap(flag => [embedding, { ...embedding, dimensions: 256, similarity: 'cosine' }].map(value => ({
@@ -1099,7 +1101,8 @@ test('native and legacy embedding create/update mapping preserves explicit value
         assert.deepEqual(r.json.data.collection.indexConfigs, JSON.parse(JSON.stringify(config, (_key, value) => value ?? undefined)));
       }
     }
-    const help = await f.run(['collections', command, '--help']);
+    // The native example moved with the recommended schema update: branches update, not the deprecated collection flag.
+    const help = await f.run(command === 'create' ? ['collections', 'create', '--help'] : ['branches', 'update', '--help']);
     assert.match(help.stdout, /index-config-native.json/);
   }
 });
@@ -1228,24 +1231,30 @@ test('fetch forwards up to 1000 IDs and rejects more before HTTP', async t => {
 });
 
 const snapshot = { snapshotId: 'snap-1', snapshotCommittedAt: 1789689600000 };
-const branchDetails = { name: 'candidate', parentBranch: { branchId: 'b-main', name: 'main' }, headSnapshot: snapshot, parentSnapshot: snapshot, createdAt: 1789689600000 };
-const tagDetails = { ...snapshot, name: 'release-one', createdAt: 1789689600000 };
-const aliasDetails = { aliasId: 'a-1', aliasName: 'production', targetKind: 'TAG', targetName: 'release-one', targetId: 't-1', aliasRevision: 2, dangling: false, createdAt: 1789689600000 };
+const refStats = { numDocs: 1234, dataUpdatedAt: 1789693200000, indexConfigs };
+const branchDetails = { name: 'candidate', parentBranch: { branchId: 'b-main', name: 'main' }, headSnapshot: snapshot, parentSnapshot: snapshot, ...refStats, createdAt: 1789689600000 };
+const tagDetails = { ...snapshot, name: 'release-one', ...refStats, createdAt: 1789689600000 };
+const aliasDetails = { aliasId: 'a-1', aliasName: 'production', targetKind: 'TAG', targetName: 'release-one', targetId: 't-1', aliasRevision: 2, dangling: false, indexConfigs, createdAt: 1789689600000 };
+const isoDates = value => JSON.parse(JSON.stringify(value, (key, item) => /(At)$/.test(key) && typeof item === 'number' ? new Date(item).toISOString() : item));
 
 test('branch, tag and alias commands forward kind:NAME refs, as-of cutoffs and names to the versioning API', async t => {
   const f = await fixture(t, (r, send) => {
     const path = r.url.pathname.replace('/projects/dev-project/collections/demo-docs', '');
     if (r.method === 'DELETE') return send(200, { message: 'deleted' });
     if (path === '/branches') return send(r.method === 'POST' ? 201 : 200, r.method === 'POST' ? { branch: branchDetails } : { branches: [branchDetails] });
+    if (path === '/branches/candidate') return send(200, { branch: r.method === 'PATCH' ? { ...branchDetails, indexConfigs: r.body.indexConfigs } : branchDetails });
     if (path === '/tags') return send(r.method === 'POST' ? 201 : 200, r.method === 'POST' ? { tag: tagDetails } : { tags: [tagDetails] });
+    if (path === '/tags/release-one' && r.method === 'GET') return send(200, { tag: tagDetails });
     if (path === '/aliases') return send(r.method === 'POST' ? 201 : 200, r.method === 'POST' ? { alias: aliasDetails } : { aliases: [aliasDetails] });
-    if (path === '/aliases/production' && r.method === 'PATCH') return send(200, { alias: aliasDetails });
+    if (path === '/aliases/production') return send(200, { alias: aliasDetails });
     return send(404, { message: 'unexpected route' });
   });
   const base = ['--collection', 'demo-docs', '--json'];
   const asOf = Date.parse('2026-10-01T00:00:00Z');
+  const added = { ...indexConfigs, category: { type: 'keyword', description: 'Topic' } };
   const cases = [
     [['branches', 'list'], 'GET', '/branches', undefined, {}, undefined, 'branches'],
+    [['branches', 'describe', '--branch', 'candidate'], 'GET', '/branches/candidate', undefined, { branch: 'candidate' }, undefined, 'branch'],
     [['branches', 'create', '--branch', 'candidate'], 'POST', '/branches', { branchName: 'candidate' }, { branch: 'candidate' }, 'created', 'branch'],
     [['branches', 'create', '--branch', 'candidate', '--source', 'branch:main', '--as-of', '2026-10-01T00:00:00Z'], 'POST', '/branches',
       { branchName: 'candidate', source: { kind: 'branch', name: 'main', asOf } }, { branch: 'candidate' }, 'created', 'branch'],
@@ -1255,8 +1264,14 @@ test('branch, tag and alias commands forward kind:NAME refs, as-of cutoffs and n
       { branchName: 'candidate', source: { kind: 'branch', name: 'main', asOf } }, { branch: 'candidate' }, 'created', 'branch'],
     [['branches', 'create', '--branch', 'candidate', '--as-of', '2026-10-01T09:30:15.250+09:30'], 'POST', '/branches',
       { branchName: 'candidate', source: { kind: 'branch', name: 'main', asOf: asOf + 15_250 } }, { branch: 'candidate' }, 'created', 'branch'],
+    // A tag is a branch source too; the server returns such a branch without a parent.
+    [['branches', 'create', '--branch', 'candidate', '--source', 'tag:release-one'], 'POST', '/branches',
+      { branchName: 'candidate', source: { kind: 'tag', name: 'release-one' } }, { branch: 'candidate' }, 'created', 'branch'],
+    [['branches', 'update', '--branch', 'candidate', '--index-config', await f.file('added.json', added)], 'PATCH', '/branches/candidate',
+      { indexConfigs: added }, { branch: 'candidate' }, 'updated', 'branch'],
     [['branches', 'delete', '--branch', 'candidate'], 'DELETE', '/branches/candidate', undefined, { branch: 'candidate' }, 'deleted', 'message'],
     [['tags', 'list'], 'GET', '/tags', undefined, {}, undefined, 'tags'],
+    [['tags', 'describe', '--tag', 'release-one'], 'GET', '/tags/release-one', undefined, { tag: 'release-one' }, undefined, 'tag'],
     [['tags', 'create', '--tag', 'release-one'], 'POST', '/tags', { tagName: 'release-one' }, { tag: 'release-one' }, 'created', 'tag'],
     [['tags', 'create', '--tag', 'release-one', '--source', 'tag:release-zero'], 'POST', '/tags',
       { tagName: 'release-one', source: { kind: 'tag', name: 'release-zero' } }, { tag: 'release-one' }, 'created', 'tag'],
@@ -1264,6 +1279,7 @@ test('branch, tag and alias commands forward kind:NAME refs, as-of cutoffs and n
       { tagName: 'release-one', source: { kind: 'branch', name: 'candidate', asOf } }, { tag: 'release-one' }, 'created', 'tag'],
     [['tags', 'delete', '--tag', 'release-one'], 'DELETE', '/tags/release-one', undefined, { tag: 'release-one' }, 'deleted', 'message'],
     [['aliases', 'list'], 'GET', '/aliases', undefined, {}, undefined, 'aliases'],
+    [['aliases', 'describe', '--alias', 'production'], 'GET', '/aliases/production', undefined, { alias: 'production' }, undefined, 'alias'],
     [['aliases', 'create', '--alias', 'production', '--target', 'tag:release-one'], 'POST', '/aliases',
       { aliasName: 'production', target: { kind: 'tag', name: 'release-one' } }, { alias: 'production' }, 'created', 'alias'],
     [['aliases', 'retarget', '--alias', 'production', '--target', 'branch:main'], 'PATCH', '/aliases/production',
@@ -1284,18 +1300,109 @@ test('branch, tag and alias commands forward kind:NAME refs, as-of cutoffs and n
     assert.ok(key in r.json.data, `${args.join(' ')} lacks ${key}`);
     assert.equal(r.stdout.trim().split('\n').length, 1);
   }
-  // The SDK converts creation times to Date, which the envelope prints as ISO 8601.
-  assert.deepEqual((await f.run(['aliases', 'list', ...base])).json.data.aliases[0], { ...aliasDetails, createdAt: new Date(aliasDetails.createdAt).toISOString() });
+  // The SDK converts times to Date, which the envelope prints as ISO 8601; the new ref fields pass through.
+  assert.deepEqual((await f.run(['aliases', 'list', ...base])).json.data.aliases[0], isoDates(aliasDetails));
+  assert.deepEqual((await f.run(['branches', 'describe', '--branch', 'candidate', ...base])).json.data, { branch: isoDates(branchDetails) });
+  assert.deepEqual((await f.run(['tags', 'describe', '--tag', 'release-one', ...base])).json.data, { tag: isoDates(tagDetails) });
+  assert.deepEqual((await f.run(['aliases', 'retarget', '--alias', 'production', '--target', 'branch:main', ...base])).json.data, { alias: isoDates(aliasDetails), state: 'retargeted' });
+  assert.deepEqual((await f.run(['branches', 'update', '--branch', 'candidate', '--index-config', await f.file('added.json', added), ...base])).json.data.branch.indexConfigs, added);
   const human = await f.run(['branches', 'list', '--collection', 'demo-docs']);
-  assert.equal(human.code, 0); assert.match(human.stdout, /\nBranches \(1\)\n\n {2}NAME {7}PARENT {2}CREATED\n {2}candidate {2}main {4}2026-09-18T00:00:00Z\n$/);
+  assert.equal(human.code, 0);
+  assert.match(human.stdout, /\nBranches \(1\)\n\n {2}NAME {7}PARENT {2}DOCS {3}INDEXES {10}DATA UPDATED {10}CREATED\n {2}candidate {2}main {4}1,234 {2}1 field: text 1 {2}2026-09-18T01:00:00Z {2}2026-09-18T00:00:00Z\n$/);
+  const created = await f.run(['branches', 'create', '--branch', 'candidate', '--source', 'tag:release-one', '--collection', 'demo-docs']);
+  assert.match(created.stdout, /\nBranch created with the source index schema and the writes the source held at creation; read pending ones with --consistent-read\.\n$/);
+  const replay = await f.run(['branches', 'create', '--branch', 'candidate', '--as-of', String(asOf), '--collection', 'demo-docs']);
+  assert.match(replay.stdout, /\nBranch created from the retained committed snapshot; pending source writes were not copied\.\n$/);
+});
+
+test('describe shows a branch, tag or alias with its own index fields; an empty branch and a dangling alias stay readable', async t => {
+  const empty = { ...branchDetails, name: 'from-tag', parentBranch: null, headSnapshot: null, parentSnapshot: null, numDocs: 0, dataUpdatedAt: null };
+  const dangling = { ...aliasDetails, aliasName: 'orphan', dangling: true, indexConfigs: null };
+  const f = await fixture(t, (r, send) => {
+    const path = r.url.pathname.replace('/projects/dev-project/collections/demo-docs', '');
+    const found = { '/branches/candidate': { branch: branchDetails }, '/branches/from-tag': { branch: empty }, '/tags/release-one': { tag: tagDetails },
+      '/aliases/production': { alias: aliasDetails }, '/aliases/orphan': { alias: dangling } }[path];
+    return found ? send(200, found) : send(404, { message: 'not found' });
+  });
+  const human = async args => { const r = await f.run([...args, '--collection', 'demo-docs']); assert.equal(r.code, 0, r.stdout); return r.stdout.split('\n').slice(1).join('\n'); };
+  const fields = '\n  FIELD  INDEX  SETTINGS                DESCRIPTION\n  text   text   analyzers: ["english"]\n';
+  assert.equal(await human(['branches', 'describe', '--branch', 'candidate']), [
+    'Branch candidate', '',
+    '  Documents    1,234', '  Parent       main', '  Head         snap-1 committed 2026-09-18T00:00:00Z', '  Forked from  snap-1 committed 2026-09-18T00:00:00Z',
+    '  Data updated 2026-09-18T01:00:00Z', '  Created      2026-09-18T00:00:00Z',
+  ].join('\n') + '\n' + fields);
+  assert.equal(await human(['branches', 'describe', '--branch', 'from-tag']), [
+    'Branch from-tag', '', '  Documents    0', '  Head         none', '  Data updated never', '  Created      2026-09-18T00:00:00Z',
+  ].join('\n') + '\n' + fields);
+  assert.equal(await human(['tags', 'describe', '--tag', 'release-one']), [
+    'Tag release-one', '', '  Documents    1,234', '  Snapshot     snap-1 committed 2026-09-18T00:00:00Z', '  Data updated 2026-09-18T01:00:00Z', '  Created      2026-09-18T00:00:00Z',
+  ].join('\n') + '\n' + fields);
+  assert.equal(await human(['aliases', 'describe', '--alias', 'production']), [
+    'Alias production', '', '  Target       tag:release-one', '  Revision     2', '  Created      2026-09-18T00:00:00Z',
+  ].join('\n') + '\n' + fields);
+  assert.match(await human(['aliases', 'describe', '--alias', 'orphan']), /Target {7}tag:release-one \(dangling\)\n[^]*\n\nNo index schema: the target of this alias is gone\.\n$/);
+  // JSON keeps the nulls the server sent for an empty branch and a dangling alias.
+  const json = async args => (await f.run([...args, '--collection', 'demo-docs', '--json'])).json;
+  assert.deepEqual((await json(['branches', 'describe', '--branch', 'from-tag'])).data.branch, isoDates(empty));
+  assert.equal((await json(['aliases', 'describe', '--alias', 'orphan'])).data.alias.indexConfigs, null);
+  // A name that is not that kind of ref is the server's 404, reported as an API error with the ref hint.
+  for (const args of [['branches', 'describe', '--branch', 'release-one'], ['tags', 'describe', '--tag', 'candidate'], ['aliases', 'describe', '--alias', 'candidate']]) {
+    const r = await json(args);
+    assert.deepEqual([r.ok, r.error.code, r.error.httpStatus], [false, 'API_ERROR', 404], args.join(' '));
+    assert.match(r.error.hint, /ref names/);
+    assert.equal(r.data, undefined);
+  }
+});
+
+test('branch, tag and alias lists page like collections list: one page by default, tokens forwarded, --all follows them', async t => {
+  const entries = { branches: branchDetails, tags: tagDetails, aliases: aliasDetails };
+  const f = await fixture(t, (r, send) => {
+    const key = r.url.pathname.split('/').at(-1);
+    const token = r.url.searchParams.get('pageToken');
+    return send(200, { [key]: [entries[key]], ...(token === 'second/+' ? {} : { nextPageToken: 'second/+' }) });
+  });
+  for (const key of ['branches', 'tags', 'aliases']) {
+    let r = await f.run([key, 'list', '--collection', 'demo-docs', '--json']);
+    assert.equal(r.code, 0, r.stdout);
+    assert.equal(f.requests.at(-1).url.pathname, `/projects/dev-project/collections/demo-docs/${key}`);
+    assert.deepEqual(Object.fromEntries(f.requests.at(-1).url.searchParams), { size: '20' });
+    assert.equal(r.json.data[key].length, 1);
+    assert.equal(r.json.data.nextPageToken, 'second/+');
+
+    r = await f.run([key, 'list', '--collection', 'demo-docs', '--size', '100', '--page-token', 'second/+', '--json']);
+    assert.equal(r.code, 0, r.stdout);
+    assert.deepEqual(Object.fromEntries(f.requests.at(-1).url.searchParams), { size: '100', pageToken: 'second/+' });
+    assert.ok(!('nextPageToken' in r.json.data));
+
+    const before = f.requests.length;
+    r = await f.run([key, 'list', '--collection', 'demo-docs', '--all', '--size', '1', '--json']);
+    assert.equal(r.code, 0, r.stdout);
+    assert.deepEqual(f.requests.slice(before).map(request => Object.fromEntries(request.url.searchParams)), [{ size: '1' }, { size: '1', pageToken: 'second/+' }]);
+    assert.deepEqual(Object.keys(r.json.data), [key]);
+    assert.equal(r.json.data[key].length, 2);
+
+    // People get the command for the next page, with the size they chose and the token quoted for a shell.
+    const human = await f.run([key, 'list', '--collection', 'demo-docs', '--size', '5']);
+    assert.match(human.stdout, new RegExp(`\\n\\nNext: lambdadb ${key} list --collection demo-docs --size 5 --page-token second/\\+\\n$`));
+    const last = await f.run([key, 'list', '--collection', 'demo-docs', '--page-token', 'second/+']);
+    assert.ok(!last.stdout.includes('Next:'), last.stdout);
+    assert.match((await f.run([key, 'list', '--help'])).stdout, /--size <count> {2,}Page size, 1–100 \(default: "20"\)\n[^]*--page-token <token>[^]*--all /);
+  }
+  const sent = f.requests.length;
+  for (const size of ['0', '101', 'ten']) {
+    const r = await f.run(['tags', 'list', '--collection', 'demo-docs', '--size', size, '--json']);
+    assert.equal(r.code, 2); assert.equal(r.json.error.code, 'INPUT_ERROR'); assert.match(r.json.error.message, /Page size must be an integer from 1 to 100/);
+  }
+  assert.equal(f.requests.length, sent, 'an out-of-range size fails before any request');
 });
 
 test('invalid ref sources, targets, names and as-of values fail before any versioning request', async t => {
   const f = await fixture(t, (_r, send) => send(500, { message: 'must not be called' }));
   const base = ['--collection', 'demo-docs', '--json'];
+  const invalidIndexConfig = 'Invalid index configuration. Provide a nonempty field-to-index map matching the SDK contract: vector dimensions 64–4096, similarity cosine or euclidean, exactly one embedding sourceField or sources, and field descriptions of at most 255 characters.';
   for (const [args, message] of [
-    [['branches', 'create', '--branch', 'candidate', '--source', 'tag:release-one'], 'Source must be branch:NAME; tags and aliases cannot be branch sources.'],
-    [['branches', 'create', '--branch', 'candidate', '--source', 'alias:production'], 'Source must be branch:NAME; tags and aliases cannot be branch sources.'],
+    [['branches', 'create', '--branch', 'candidate', '--source', 'alias:production'], 'Source must be branch:NAME or tag:NAME; aliases cannot be branch sources.'],
+    [['branches', 'create', '--branch', 'candidate', '--source', 'tag:release-one', '--as-of', '1789689600000'], '--as-of requires a branch source.'],
     [['branches', 'create', '--branch', 'candidate', '--source', 'main'], 'Ref must be branch:NAME, tag:NAME or alias:NAME.'],
     // Impossible calendar values must not be normalized into a different snapshot cutoff.
     ...['2026-13-01', '2026-02-30T00:00:00Z', '2026-10-01T24:00:00Z', '2026-10-01T00:60:00Z', '2026-10-01 00:00:00', '2026-10-01T00:00:00',
@@ -1303,6 +1410,13 @@ test('invalid ref sources, targets, names and as-of values fail before any versi
       [['branches', 'create', '--branch', 'candidate', '--as-of', asOf], '--as-of must be Unix epoch milliseconds or an ISO 8601 time.']),
     [['branches', 'create', '--branch', 'no'], 'Branch name must contain 3–52 letters, digits, underscores or hyphens.'],
     [['branches', 'delete', '--branch', 'bad name'], 'Branch name must contain 3–52 letters, digits, underscores or hyphens.'],
+    [['branches', 'describe', '--branch', 'x'], 'Branch name must contain 3–52 letters, digits, underscores or hyphens.'],
+    [['branches', 'update', '--branch', 'x', '--index-config', 'unread.json'], 'Branch name must contain 3–52 letters, digits, underscores or hyphens.'],
+    [['branches', 'update', '--branch', 'candidate', '--index-config', await f.file('empty.json', {})], invalidIndexConfig],
+    [['branches', 'update', '--branch', 'candidate', '--index-config', await f.file('wide.json', { vector: { type: 'vector', dimensions: 8, similarity: 'cosine' } })], invalidIndexConfig],
+    [['branches', 'update', '--branch', 'candidate', '--index-config', await f.file('wrapped.json', { indexConfigs: { text: { type: 'text' } } })], invalidIndexConfig],
+    [['tags', 'describe', '--tag', 'a/b'], 'Tag name must contain 3–52 letters, digits, underscores or hyphens.'],
+    [['aliases', 'describe', '--alias', 'no'], 'Alias name must contain 3–52 letters, digits, underscores or hyphens.'],
     [['tags', 'create', '--tag', 'release-one', '--source', 'alias:production'], 'Source must be branch:NAME or tag:NAME; aliases cannot be tag sources.'],
     [['tags', 'create', '--tag', 'release-one', '--source', 'tag:release-zero', '--as-of', '1789689600000'], '--as-of requires a branch source.'],
     [['tags', 'delete', '--tag', 'x'], 'Tag name must contain 3–52 letters, digits, underscores or hyphens.'],
@@ -1317,6 +1431,8 @@ test('invalid ref sources, targets, names and as-of values fail before any versi
   }
   const missing = await f.run(['aliases', 'create', '--alias', 'production', ...base]);
   assert.equal(missing.code, 2); assert.match(missing.json.error.message, /--target/);
+  const noMap = await f.run(['branches', 'update', '--branch', 'candidate', ...base]);
+  assert.equal(noMap.code, 2); assert.match(noMap.json.error.message, /--index-config/);
   assert.equal(f.requests.length, 0);
 });
 
@@ -1326,6 +1442,7 @@ test('ref mutations keep definite rejections distinct from uncertain outcomes an
     const f = await fixture(t, (r, send) => send(status === 'ok' ? (r.method === 'POST' ? 201 : 200) : status, {}));
     for (const args of [
       ['branches', 'create', '--branch', 'candidate'], ['branches', 'delete', '--branch', 'main'],
+      ['branches', 'update', '--branch', 'candidate', '--index-config', resolve('examples/index-config.json')],
       ['tags', 'create', '--tag', 'release-one'], ['tags', 'delete', '--tag', 'release-one'],
       ['aliases', 'create', '--alias', 'production', '--target', 'branch:main'], ['aliases', 'retarget', '--alias', 'production', '--target', 'branch:main'],
       ['aliases', 'delete', '--alias', 'production'],
@@ -1497,7 +1614,7 @@ test('docs delete requires exactly one selector, forwards ids or filter with the
 });
 
 test('collection create and update forward description, metadata tags, partitioning and retention; update needs one change', async t => {
-  const f = await fixture(t, (req, send) => send(req.method === 'POST' ? 201 : 200, { collection: req.method === 'POST' ? created : metadata }));
+  const f = await fixture(t, (req, send) => send(req.method === 'POST' ? 201 : 200, { collection: metadata }));
   const index = await f.file('index.json', indexConfigs);
   const partition = await f.file('partition.json', { fieldName: 'tenant', dataType: 'keyword', numPartitions: 4 });
   let r = await f.run(['collections', 'create', '--collection', 'demo-docs', '--index-config', index, '--description', 'Support articles',
@@ -1524,6 +1641,15 @@ test('collection create and update forward description, metadata tags, partition
     assert.deepEqual(f.requests.at(-1).body, body, args.join(' '));
     assert.equal(r.json.data.state, 'updated');
   }
+  // --index-config on collections update is deprecated in help only: it is still forwarded, without a warning.
+  r = await f.run(['collections', 'update', '--collection', 'demo-docs', '--index-config', index, '--json']);
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(f.requests.at(-1).url.pathname, '/projects/dev-project/collections/demo-docs');
+  assert.deepEqual(f.requests.at(-1).body, { indexConfigs });
+  assert.equal(r.stderr, '');
+  const updateHelp = (await f.run(['collections', 'update', '--help'])).stdout;
+  assert.match(updateHelp, /--index-config <path> {2,}Deprecated: use branches update --branch\s+main\./);
+  assert.match(updateHelp, /--index-config is deprecated but still works/);
 
   const before = f.requests.length;
   const metadataMessage = /Invalid collection settings/;

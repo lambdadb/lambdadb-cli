@@ -183,6 +183,32 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   assert.deepEqual(success(await run(['tags', 'list', '--collection', collection]), 'tag list').tags.map(item => item.name), ['smoke-tag']);
   const alias = success(await run(['aliases', 'create', '--collection', collection, '--alias', 'smoke-alias', '--target', 'tag:smoke-tag']), 'alias create');
   assert.deepEqual([alias.alias.targetKind, alias.alias.targetName], ['TAG', 'smoke-tag']);
+  // Contract 1.3.0: single ref reads, paged ref lists, a branch-owned index schema and a branch from a tag.
+  const mainSchema = success(await run(['branches', 'describe', '--collection', collection, '--branch', 'main']), 'main describe').branch.indexConfigs;
+  assert.deepEqual(mainSchema, success(await run(['collections', 'describe', '--collection', collection]), 'collection describe').collection.indexConfigs);
+  const describedBranch = success(await run(['branches', 'describe', '--collection', collection, '--branch', 'smoke-branch']), 'branch describe').branch;
+  assert.equal(describedBranch.parentBranch?.name, 'main');
+  assert.deepEqual(describedBranch.indexConfigs, mainSchema);
+  const describedTag = success(await run(['tags', 'describe', '--collection', collection, '--tag', 'smoke-tag']), 'tag describe').tag;
+  assert.equal(typeof describedTag.numDocs, 'number');
+  assert.deepEqual(describedTag.indexConfigs, mainSchema);
+  const describedAlias = success(await run(['aliases', 'describe', '--collection', collection, '--alias', 'smoke-alias']), 'alias describe').alias;
+  assert.deepEqual([describedAlias.targetName, describedAlias.indexConfigs], ['smoke-tag', mainSchema]);
+  const firstRefs = success(await run(['branches', 'list', '--collection', collection, '--size', '1']), 'branch list page 1');
+  assert.deepEqual(firstRefs.branches.map(item => item.name), ['main']);
+  const secondRefs = success(await run(['branches', 'list', '--collection', collection, '--size', '1', '--page-token', firstRefs.nextPageToken]), 'branch list page 2');
+  assert.deepEqual([secondRefs.branches.map(item => item.name), secondRefs.nextPageToken], [['smoke-branch'], undefined]);
+  assert.deepEqual(success(await run(['branches', 'list', '--collection', collection, '--size', '1', '--all']), 'branch list --all').branches.map(item => item.name), ['main', 'smoke-branch']);
+  const branchIndexFile = join(temp, 'branch-index-config.json');
+  await writeFile(branchIndexFile, JSON.stringify({ ...describedBranch.indexConfigs, reviewed: { type: 'boolean' } }));
+  const widened = success(await run(['branches', 'update', '--collection', collection, '--branch', 'smoke-branch', '--index-config', branchIndexFile]), 'branch update');
+  assert.deepEqual([widened.state, widened.branch.indexConfigs.reviewed?.type], ['updated', 'boolean']);
+  assert.equal(success(await run(['branches', 'describe', '--collection', collection, '--branch', 'main']), 'main after branch update').branch.indexConfigs.reviewed, undefined);
+  assert.equal(success(await run(['collections', 'describe', '--collection', collection]), 'collection after branch update').collection.indexConfigs.reviewed, undefined);
+  const fromTag = success(await run(['branches', 'create', '--collection', collection, '--branch', 'from-tag', '--source', 'tag:smoke-tag']), 'branch from tag');
+  assert.deepEqual([fromTag.branch.parentBranch, fromTag.branch.indexConfigs], [null, describedTag.indexConfigs]);
+  assert.equal(success(await run(['branches', 'delete', '--collection', collection, '--branch', 'from-tag']), 'tag-sourced branch delete').state, 'deleted');
+  progress('Contract 1.3.0 verified: describe for branch, tag and alias, paged branch lists and --all, a branch schema update that leaves main unchanged, and a branch from a tag.');
   for (const ref of ['tag:smoke-tag', 'alias:smoke-alias', 'branch:smoke-branch']) {
     const pinned = success(await run(['docs', 'fetch', '--collection', collection, '--ref', ref, '--ids', ...expected.map(row => row.id)]), `fetch at ${ref}`);
     assert.deepEqual(pinned.docs.map(hit => hit.doc.id).sort(), expected.map(row => row.id).sort(), `${ref} must expose the committed documents.`);

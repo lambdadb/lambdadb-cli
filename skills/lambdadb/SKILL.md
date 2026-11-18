@@ -34,14 +34,18 @@ failed request is not permission to change accounts, projects or keys. Preserve
 explicit branch, tag or alias selections; do not substitute `main` for an
 unavailable ref. To see which refs exist, run `lambdadb branches list`,
 `tags list` or `aliases list` with `--collection`, or the MCP list tools for
-branches, tags and aliases.
+branches, tags and aliases. A CLI result with `nextPageToken` is one page; add
+`--all` for every ref.
 
 ## Inspect before searching
 
 1. List collections. A response with `nextPageToken` is one page, not the whole
    inventory; follow the token, or use CLI `collections list --all`.
 2. Describe the chosen collection and read `indexConfigs`. Its document count
-   describes committed `main`, not other refs or pending writes. The
+   and index fields describe committed `main`, not other refs or pending
+   writes. A branch owns its index schema: for another ref, read the fields it
+   serves with CLI `branches describe --branch NAME`, `tags describe --tag NAME`
+   or `aliases describe --alias NAME`. The
    server-managed `id` field can appear as `{"type":"keyword"}`; native
    embedding vector fields carry an `embedding` block naming the provider, model
    and source text field.
@@ -83,16 +87,16 @@ retrying it unchanged.
 
 The same rule applies to collections, refs and writes, which the CLI
 (`collections create`, `collections update`, `collections delete`, `branches`,
-`tags`, `aliases`, `docs import`, `docs update`, `docs delete`, `docs list`,
+`branches update`, `tags`, `aliases`, `docs import`, `docs update`, `docs delete`, `docs list`,
 `docs fetch`) and the MCP write tools can perform when the user asks:
 
 | Task | Read |
 | --- | --- |
 | Index types and analyzers for an index configuration | https://docs.lambdadb.ai/guides/collections/index-types.md and https://docs.lambdadb.ai/guides/collections/choose-text-analyzers.md |
 | Create a collection: index config, description, metadata tags, partitioning, retention (`collections create` flags) | https://docs.lambdadb.ai/guides/collections/create-a-collection.md |
-| Change or delete a collection: added index fields, description, tags, retention (`collections update`, `collections delete`) | https://docs.lambdadb.ai/guides/collections/manage-collections.md |
+| Change or delete a collection: description, tags, retention (`collections update`, `collections delete`); add index fields with `branches update --branch main --index-config FILE` | https://docs.lambdadb.ai/guides/collections/manage-collections.md |
 | Native embedding fields: providers, models, dimensions, write rules | https://docs.lambdadb.ai/guides/collections/native-embeddings.md |
-| What a branch, tag or alias ref means, how reads select one, and creating, pinning, retargeting or deleting refs (`branches`, `tags`, `aliases` commands take `--source`/`--target` as `kind:NAME`) | https://docs.lambdadb.ai/guides/data-versioning/branches-tags-aliases.md |
+| What a branch, tag or alias ref means, how reads select one, a branch's own index schema (`branches update`), and creating, pinning, retargeting or deleting refs (`branches`, `tags`, `aliases` commands take `--source`/`--target` as `kind:NAME`) | https://docs.lambdadb.ai/guides/data-versioning/branches-tags-aliases.md |
 | Upsert documents (`docs import --mode upsert`, MCP upsert) | https://docs.lambdadb.ai/guides/documents/upsert-data.md |
 | Bulk upsert (`docs import --mode bulk`) and its exclusions | https://docs.lambdadb.ai/guides/documents/bulk-upsert-data.md |
 | Update fields of existing documents by ID (`docs update`, MCP update) | https://docs.lambdadb.ai/guides/documents/update-data.md |

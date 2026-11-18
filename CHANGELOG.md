@@ -2,10 +2,57 @@
 
 ## [Unreleased]
 
+### Added
+
+- `branches describe`, `tags describe` and `aliases describe` read one ref
+  (`--branch`, `--tag` or `--alias`) with the index fields it serves; a name
+  that is not that kind of ref is HTTP 404, and a dangling alias is returned
+  with `indexConfigs: null`.
+- `branches update --collection NAME --branch NAME --index-config FILE` adds
+  index fields to one branch. A branch owns its index schema: other branches
+  are unchanged, updating `main` also changes the collection's `indexConfigs`,
+  and a tag or alias name is rejected by the server (HTTP 400). The map follows
+  the same rules and local checks as a collection index update.
+- `branches create --source tag:NAME` creates a branch from a tag; the result
+  has `parentBranch: null`. `--as-of` stays branch-only and a tag source with
+  it is rejected before any request.
+
+### Changed
+
+- `branches list`, `tags list` and `aliases list` page like `collections list`:
+  they return one page of `--size` entries (1–100, default 20) with
+  `nextPageToken` when more follow, and take `--page-token` and `--all`. A
+  script that relied on one call returning every ref must pass `--all` or
+  follow the token once a collection has more than 20 refs of that kind.
+- Every branch, tag and alias result (list, describe, create, update,
+  retarget) carries `indexConfigs`; branches and tags also carry `numDocs` and
+  `dataUpdatedAt` (`null` for an empty branch). The list tables show `DOCS`,
+  `INDEXES` and `DATA UPDATED` columns.
+- `collections create` returns the full collection, the same shape as
+  `collections describe`.
+- `--index-config` on `collections update` is deprecated in favor of
+  `branches update --branch main`. It still works, changes branch `main` only
+  and prints no warning.
+- Help, result summaries and docs for `branches create` and `tags create`
+  follow the contract: without `--as-of` the new ref also takes over the writes
+  that were pending on its source at creation; with `--as-of` it starts from
+  the committed snapshot only.
+- The HTTP 409 hint also names a concurrent change, which is what a conflicting
+  branch update reports.
+- This version needs a LambdaDB server on API contract 1.3.0: a ref or
+  collection-create response without the new fields fails as
+  `INVALID_RESPONSE`.
+
 ### Maintenance
 
 - Update the Homebrew formula to verified stable 0.4.1 and its release-commit
   lockfile.
+- Pin `@functional-systems/lambdadb` 0.13.0 (API contract 1.3.0), which carries
+  these contract changes. The MCP package pin is unchanged.
+- The live smoke runs the new commands against a deployed server: `describe`
+  for a branch, tag and alias, paged branch lists with `--page-token` and
+  `--all`, a `branches update` that leaves `main` unchanged, and a branch
+  created from a tag.
 
 ## [0.4.1] - 2026-11-06
 

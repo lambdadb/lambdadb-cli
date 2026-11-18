@@ -93,14 +93,69 @@ export function formatCollection(described: { collection: Row }): string {
   ].join('\n');
 }
 
-export const formatBranches = (listed: { branches: Row[] }) => listing('Branches', ['NAME', 'PARENT', 'CREATED'],
-  listed.branches.map(b => [b.name, (b.parentBranch as Row | undefined)?.name ?? '', time(b.createdAt)]), 'No branches.');
+/** The index fields of one ref, as collections describe lists them. */
+const fields = (configs: unknown) => table(['FIELD', 'INDEX', 'SETTINGS', 'DESCRIPTION'], fieldRows((configs ?? {}) as Record<string, Row>));
+const detail = (label: string, value: unknown) => `  ${styleText('dim', label.padEnd(12))} ${plain(value)}`;
+const snapshot = (value: unknown) => {
+  const s = value as Row | null | undefined;
+  return s ? `${plain(s.snapshotId)} committed ${time(s.snapshotCommittedAt)}` : 'none';
+};
+const aliasTarget = (a: Row) => `${String(a.targetKind ?? '').toLowerCase()}:${plain(a.targetName)}${a.dangling ? ' (dangling)' : ''}`;
+/** The next step of a ref list: the command for the following page, when the server returned a token. */
+const refNext = (again: string | undefined, token: unknown) => again ? nextPage(again, token) : undefined;
 
-export const formatTags = (listed: { tags: Row[] }) => listing('Tags', ['NAME', 'CREATED'],
-  listed.tags.map(t => [t.name, time(t.createdAt)]), 'No tags.');
+export const formatBranches = (listed: { branches: Row[]; nextPageToken?: unknown }, again?: string) => listing('Branches', ['NAME', 'PARENT', 'DOCS', 'INDEXES', 'DATA UPDATED', 'CREATED'],
+  listed.branches.map(b => [b.name, (b.parentBranch as Row | undefined)?.name ?? '', count(b.numDocs), indexSummary(b.indexConfigs), time(b.dataUpdatedAt), time(b.createdAt)]), 'No branches.', refNext(again, listed.nextPageToken));
 
-export const formatAliases = (listed: { aliases: Row[] }) => listing('Aliases', ['NAME', 'TARGET', 'REVISION', 'CREATED'],
-  listed.aliases.map(a => [a.aliasName, `${String(a.targetKind ?? '').toLowerCase()}:${plain(a.targetName)}${a.dangling ? ' (dangling)' : ''}`, count(a.aliasRevision), time(a.createdAt)]), 'No aliases.');
+export const formatTags = (listed: { tags: Row[]; nextPageToken?: unknown }, again?: string) => listing('Tags', ['NAME', 'DOCS', 'INDEXES', 'DATA UPDATED', 'CREATED'],
+  listed.tags.map(t => [t.name, count(t.numDocs), indexSummary(t.indexConfigs), time(t.dataUpdatedAt), time(t.createdAt)]), 'No tags.', refNext(again, listed.nextPageToken));
+
+export const formatAliases = (listed: { aliases: Row[]; nextPageToken?: unknown }, again?: string) => listing('Aliases', ['NAME', 'TARGET', 'INDEXES', 'REVISION', 'CREATED'],
+  listed.aliases.map(a => [a.aliasName, aliasTarget(a), a.indexConfigs ? indexSummary(a.indexConfigs) : '', count(a.aliasRevision), time(a.createdAt)]), 'No aliases.', refNext(again, listed.nextPageToken));
+
+export function formatBranch(described: { branch: Row }): string {
+  const b = described.branch;
+  const parent = b.parentBranch as Row | null | undefined;
+  return [
+    `Branch ${plain(b.name)}`,
+    '',
+    detail('Documents', count(b.numDocs)),
+    ...(parent ? [detail('Parent', parent.name)] : []),
+    detail('Head', snapshot(b.headSnapshot)),
+    ...(b.parentSnapshot ? [detail('Forked from', snapshot(b.parentSnapshot))] : []),
+    detail('Data updated', time(b.dataUpdatedAt) || 'never'),
+    detail('Created', time(b.createdAt)),
+    '',
+    fields(b.indexConfigs),
+  ].join('\n');
+}
+
+export function formatTag(described: { tag: Row }): string {
+  const t = described.tag;
+  return [
+    `Tag ${plain(t.name)}`,
+    '',
+    detail('Documents', count(t.numDocs)),
+    detail('Snapshot', snapshot(t)),
+    detail('Data updated', time(t.dataUpdatedAt)),
+    detail('Created', time(t.createdAt)),
+    '',
+    fields(t.indexConfigs),
+  ].join('\n');
+}
+
+export function formatAlias(described: { alias: Row }): string {
+  const a = described.alias;
+  return [
+    `Alias ${plain(a.aliasName)}`,
+    '',
+    detail('Target', aliasTarget(a)),
+    detail('Revision', count(a.aliasRevision)),
+    detail('Created', time(a.createdAt)),
+    '',
+    a.indexConfigs ? fields(a.indexConfigs) : 'No index schema: the target of this alias is gone.',
+  ].join('\n');
+}
 
 const scalar = (value: unknown) => value === null || ['string', 'number', 'boolean'].includes(typeof value);
 
