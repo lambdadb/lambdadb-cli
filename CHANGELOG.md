@@ -49,6 +49,10 @@
   lockfile.
 - Pin `@functional-systems/lambdadb` 0.13.0 (API contract 1.3.0), which carries
   these contract changes. The MCP package pin is unchanged.
+- The live smoke runs the new commands against a deployed server: `describe`
+  for a branch, tag and alias, paged branch lists with `--page-token` and
+  `--all`, a `branches update` that leaves `main` unchanged, and a branch
+  created from a tag.
 
 ## [0.4.1] - 2026-11-06
 
