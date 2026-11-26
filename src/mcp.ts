@@ -3,7 +3,7 @@ import type { Config } from './config.js';
 import { InputError } from './errors.js';
 
 // Exact stdio package; this CLI only adapts credentials and process lifecycle.
-export const mcpPackage = '@functional-systems/lambdadb-mcp@0.6.0';
+export const mcpPackage = '@functional-systems/lambdadb-mcp@0.7.0';
 
 export function mcpEnvironment(config: Config, writeTools: boolean): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
