@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-26
+
 ### Added
 
 - `branches rollback --collection NAME --branch NAME --tag NAME` restores a
