@@ -54,7 +54,9 @@ branches, tags and aliases. A CLI result with `nextPageToken` is one page; add
    require `--ref`; MCP reads should pass `ref` explicitly. Use `branch:main`
    for a first sample only when no other ref is intended. Result entries wrap
    document fields under `doc`, so the example ID is `docs[0].doc.id`. Keep
-   scores and response metadata separate from document fields.
+   scores and response metadata separate from document fields. To continue a
+   document list, repeat the same command, with the same `--size`, `--file` and
+   flags, plus `--page-token`; a changed condition is HTTP 400.
 4. Build the query from the actual index types and observed document structure:
    analyzed `text`, literal `keyword`, or an existing vector field. Do not invent
    vector dimensions, embedding providers, field names or server capabilities.
@@ -87,8 +89,8 @@ retrying it unchanged.
 
 The same rule applies to collections, refs and writes, which the CLI
 (`collections create`, `collections update`, `collections delete`, `branches`,
-`branches update`, `tags`, `aliases`, `docs import`, `docs update`, `docs delete`, `docs list`,
-`docs fetch`) and the MCP write tools can perform when the user asks:
+`branches update`, `branches rollback`, `tags`, `aliases`, `docs import`, `docs update`,
+`docs delete`, `docs list`, `docs fetch`) and the MCP write tools can perform when the user asks:
 
 | Task | Read |
 | --- | --- |
@@ -96,11 +98,11 @@ The same rule applies to collections, refs and writes, which the CLI
 | Create a collection: index config, description, metadata tags, partitioning, retention (`collections create` flags) | https://docs.lambdadb.ai/guides/collections/create-a-collection.md |
 | Change or delete a collection: description, tags, retention (`collections update`, `collections delete`); add index fields with `branches update --branch main --index-config FILE` | https://docs.lambdadb.ai/guides/collections/manage-collections.md |
 | Native embedding fields: providers, models, dimensions, write rules | https://docs.lambdadb.ai/guides/collections/native-embeddings.md |
-| What a branch, tag or alias ref means, how reads select one, a branch's own index schema (`branches update`), and creating, pinning, retargeting or deleting refs (`branches`, `tags`, `aliases` commands take `--source`/`--target` as `kind:NAME`) | https://docs.lambdadb.ai/guides/data-versioning/branches-tags-aliases.md |
+| What a branch, tag or alias ref means, how reads select one, a branch's own index schema (`branches update`), rolling a branch back to a tag (`branches rollback`), and creating, pinning, retargeting or deleting refs (`branches`, `tags`, `aliases` commands take `--source`/`--target` as `kind:NAME`) | https://docs.lambdadb.ai/guides/data-versioning/branches-tags-aliases.md |
 | Upsert documents (`docs import --mode upsert`, MCP upsert) | https://docs.lambdadb.ai/guides/documents/upsert-data.md |
 | Bulk upsert (`docs import --mode bulk`) and its exclusions | https://docs.lambdadb.ai/guides/documents/bulk-upsert-data.md |
 | Update fields of existing documents by ID (`docs update`, MCP update) | https://docs.lambdadb.ai/guides/documents/update-data.md |
-| Fetch by ID or list documents (`docs fetch`, `docs list`), with consistent reads | https://docs.lambdadb.ai/guides/documents/fetch-data.md and https://docs.lambdadb.ai/guides/documents/list-data.md |
+| Fetch by ID or list documents (`docs fetch`, `docs list`, whose `--file` can carry `sort`), with consistent reads | https://docs.lambdadb.ai/guides/documents/fetch-data.md and https://docs.lambdadb.ai/guides/documents/list-data.md |
 | Delete documents by IDs or filter (`docs delete`, MCP delete) | https://docs.lambdadb.ai/guides/documents/delete-data.md |
 | How reads, writes, storage and inference are billed | https://docs.lambdadb.ai/guides/costs/understanding-costs.md |
 
@@ -152,10 +154,11 @@ configuration.
 ## Read after a recent write
 
 LambdaDB indexes writes asynchronously. To read a write back, read its branch
-with a consistent read: `docs fetch --consistent-read`, `query
---consistent-read` or query JSON with `"consistentRead": true` (MCP query and
-fetch tools accept the same boolean). A read without it returns what is
-indexed so far, so an empty result shortly after a write is not an error.
+with a consistent read: `docs fetch --consistent-read`, `docs list
+--consistent-read`, `query --consistent-read` or query JSON with
+`"consistentRead": true` (MCP query and fetch tools accept the same boolean).
+A read without it returns what is indexed so far, so an empty result shortly
+after a write is not an error.
 Pending bulk imports (`docs import --mode bulk`) become visible after indexing
 completes; retry such a read for a bounded period, then report the observed
 state. Do not recreate the collection, repeat writes or reinsert documents to
@@ -170,7 +173,7 @@ make them appear.
 | `CREDENTIAL_STORE_ERROR` (CLI exit 2, no server request) | The CLI could not read its local OS credential store. Continue through the MCP server whose endpoint and project match the envelope's `target`, or retry from an interactive terminal of the same OS user. Do not run `init`, issue a key or switch to a differently targeted MCP server. |
 | HTTP 401/403 | Check the selected credential and permissions. Stop for explicit login/key repair if needed; do not switch identities or transports, and do not create a replacement project. |
 | HTTP 404 | Verify the resource and ref still exist. A deleted resource cannot be repaired by replacing its key. |
-| HTTP 429 | Reduce load and use a bounded read backoff, respecting retry guidance when provided. A consistent-read overlay may have reached its limit. |
+| HTTP 429 | Reduce load and use a bounded read backoff, respecting retry guidance when provided. The pending writes a consistent read or a tag read includes may have reached their limit. |
 | Timeout, transport error or HTTP 5xx on a read | Retry only within the task's read budget; preserve the original target and report persistent failures. |
 | Uncertain write outcome | Inspect the recorded identity/batch and resource state before any explicit retry. A lost response is not proof the write failed. |
 
@@ -202,7 +205,9 @@ Guided setup enables MCP write tools; non-interactive setup requires
 changing data. Perform writes only when requested, using the user's collection
 and branch, and read the matching page above first: collections with native
 embedding fields take the source text, not vectors, and do not support bulk
-upsert.
+upsert. `branches rollback` replaces a branch's data and schema with a tag's
+and can undo writes; run it only when asked, and after an uncertain outcome
+describe the branch instead of running it again.
 
 ## Usage and plan limits
 

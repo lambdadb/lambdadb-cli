@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command, CommanderError, Help, Option } from 'commander';
-import type { FetchDocsInput } from '@functional-systems/lambdadb';
+import type { FetchDocsInput, ListDocsInput } from '@functional-systems/lambdadb';
 import { cli } from './command.js';
 import { readFileSync } from 'node:fs';
 import { configPath, integer, name, resolveConfig, resolveCredential, saveSettings, settings, type Config, type Options } from './config.js';
@@ -17,7 +17,7 @@ import { agentNames } from './agents.js';
 import { login, logout, management } from './account.js';
 import { formatCreated, formatLogin, formatLogout, formatOrganizationChoice, formatOrganizations, formatProjects, formatRegions, formatUse, framed, interactiveAccount, reported } from './account-ui.js';
 import { failure as formatFailure, targetSummary } from './human.js';
-import { formatAlias, formatAliases, formatBranch, formatBranches, formatCollection, formatCollections, formatDocuments, formatDoctor, formatQuery, formatSettings, formatTag, formatTags, formatTarget, shellArg } from './data-output.js';
+import { formatAlias, formatAliases, formatBranch, formatBranches, formatCollection, formatCollections, formatDocuments, formatDoctor, formatQuery, formatRollback, formatSettings, formatTag, formatTags, formatTarget, shellArg } from './data-output.js';
 import { usage, formatUsage } from './usage.js';
 import { OrganizationChoice, organizations, projects, createProject, regions, useProject } from './projects.js';
 
@@ -359,7 +359,7 @@ function refList<K extends RefKind>(
 }
 
 // Branch, tag and alias commands take refs as kind:NAME like --ref, so one grammar covers reads and writes.
-const branches = program.command('branches').description('List, describe, create, update and delete writable branches of a collection');
+const branches = program.command('branches').description('List, describe, create, update, roll back and delete writable branches of a collection');
 refList(branches, 'branches', 'List branches with parent, head and fork snapshot metadata, document counts and index fields; one page by default', 'branch(es)',
   ({ client }, collection) => client.collection(collection).branches, formatBranches);
 
@@ -419,6 +419,33 @@ branches.command('update')
     });
   });
 
+branches.command('rollback')
+  .description('Restore a branch to the data and index schema of a tag, undoing the branch writes the tag does not hold; runs without confirmation and is never retried')
+  .requiredOption('--collection <name>', 'Collection name')
+  .requiredOption('--branch <name>', 'Existing branch to roll back')
+  .requiredOption('--tag <name>', 'Tag in this collection to restore')
+  .addHelpText('after', '\nExamples:\n  lambdadb tags create --collection demo-docs --tag before-rollback --source branch:candidate --json\n  lambdadb branches rollback --collection demo-docs --branch candidate --tag release-one --json\n\nThe branch keeps its name and identity. Like every non-init command, rollback runs without confirmation: tag the branch first, as above, to keep a way back.\nA tag without a published snapshot leaves the branch head empty (headSnapshot null) and the branch inherits the writes the tag captured: reads without --consistent-read return no documents until a build publishes them.\nThe request is never retried, because a repeat is another rollback and can undo writes made in between. After an unknown outcome (exit 5), run branches describe before deciding to run it again.')
+  .action(async (opts, cmd: Command) => {
+    name(opts.collection, 'Collection name');
+    const branch = name(opts.branch, 'Branch name');
+    const tag = name(opts.tag, 'Tag name');
+    await connected(cmd, async ({ client, options }) => {
+      const collection = scoped(cmd);
+      target = { ...target, branch };
+      mutationStarted = true;
+      // The SDK never retries a rollback; the CLI states the same policy as for every mutation.
+      const rolledBack = await client.collection(collection).branches.rollback(branch, { tag }, { ...options, retries: { strategy: 'none' } });
+      const scope = `--collection ${shellArg(collection)}`;
+      const summary = rolledBack.headSnapshot
+        ? `Branch rolled back to tag ${tag}.`
+        : `Branch rolled back to tag ${tag}, which has no published snapshot yet: the branch head is empty and the branch inherits the writes the tag captured. Reads without --consistent-read return no documents until a build publishes them.`;
+      const next = rolledBack.headSnapshot
+        ? `${cli} branches describe ${scope} --branch ${shellArg(branch)}`
+        : `${cli} docs list ${scope} --ref branch:${shellArg(branch)} --consistent-read`;
+      result({ ...rolledBack, state: 'rolledBack' }, summary, 0, safe => formatRollback(safe, output.safeDiagnostic(summary), output.safeDiagnostic(`${next}${connectionFlags(cmd)}`)));
+    });
+  });
+
 branches.command('delete')
   .description('Delete a branch and its data; main and alias-referenced branches are rejected by the server')
   .requiredOption('--collection <name>', 'Collection name')
@@ -455,7 +482,7 @@ tags.command('describe')
   });
 
 tags.command('create')
-  .description('Pin the state of a branch or tag as an immutable tag, including, without --as-of, the writes the source held at creation; an empty head is rejected')
+  .description('Pin the state of a branch or tag as an immutable tag, including, without --as-of, the writes the source held at creation; a source with neither a snapshot nor pending writes is rejected')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--tag <name>', 'New tag name')
   .option('--source <kind:name>', 'branch:NAME or tag:NAME to pin (default branch:main); aliases cannot be sources')
@@ -472,7 +499,9 @@ tags.command('create')
       const created = await client.collection(collection).tags.create({ tagName: tag, ...(source ? { source } : {}) }, { ...options, retries: { strategy: 'none' } });
       result({ ...created, state: 'created' }, source && 'asOf' in source
         ? 'Tag created from the retained committed snapshot; pending source writes are not included.'
-        : 'Tag created with the index schema and the writes the source held at creation.');
+        : created.tag.snapshotId === null
+          ? 'Tag created before its first snapshot with the index schema and the writes the source held at creation; reads include them, and its document count stays 0 until a build publishes them.'
+          : 'Tag created with the index schema and the writes the source held at creation.');
     });
   });
 
@@ -600,28 +629,31 @@ docs.command('import')
   });
 
 docs.command('list')
-  .description('List documents at an explicit ref, one page by default; a page token is a position, not a snapshot pin')
+  .description('List documents at an explicit ref in document ID order or a sort from --file, one page by default; a page token is a position, not a snapshot pin')
   .requiredOption('--collection <name>', 'Collection name')
   .requiredOption('--ref <kind:name>', 'branch:NAME, tag:NAME or alias:NAME')
   .option('--size <count>', 'Documents per page, 1–100; pages can be smaller than requested', '20')
-  .option('--page-token <token>', 'Opaque continuation token from the previous page')
-  .option('--all', 'Follow page tokens to the end within the total timeout (results are buffered); use a tag for a stable export')
+  .option('--page-token <token>', 'Opaque continuation token from the previous page; repeat every other option unchanged, including --size, or the server returns HTTP 400')
+  .option('--all', 'Follow page tokens to the end within the total timeout (results are buffered); use a tag created with --as-of for a stable export')
+  .option('--consistent-read', consistentReadHelp)
   .option('--include-vectors', 'Include vector fields in returned documents')
-  .option('--file <path>', 'Optional JSON object with filter (query DSL), partitionFilter and fields; sends the extended list request')
-  .addHelpText('after', '\nExamples:\n  lambdadb docs list --collection demo-docs --ref branch:main --size 5 --json\n  lambdadb docs list --collection demo-docs --ref tag:release-one --all --json\n  lambdadb docs list --collection demo-docs --ref branch:main --file examples/list-filter.json --json')
+  .option('--file <path>', 'Optional JSON object with filter (query DSL), partitionFilter, fields and sort (1 to 4 {"FIELD": "asc" or "desc"} objects); sends the extended list request')
+  .addHelpText('after', '\nExamples:\n  lambdadb docs list --collection demo-docs --ref branch:main --size 5 --json\n  lambdadb docs list --collection demo-docs --ref tag:release-one --all --json\n  lambdadb docs list --collection demo-docs --ref branch:main --file examples/list-filter.json --json\n  lambdadb docs list --collection demo-docs --ref branch:main --file examples/list-sort.json --consistent-read --json\n\nA branch lists its published snapshot; --consistent-read adds its pending writes. A tag, or an alias that targets one, also lists the writes the tag captured.\nA page token is bound to the ref, --size, --file contents, --consistent-read and --include-vectors of its first page; a changed condition returns HTTP 400.')
   .action(async (opts, cmd: Command) => {
     const ref = parseRef(opts.ref);
     const size = integer(opts.size, 'Page size', 1, 100);
+    checkConsistentRead(ref, !!opts.consistentRead);
     const selectors = opts.file ? listSelectors(await readJson(opts.file)) : {};
     await connected(cmd, async ({ client, options }) => {
       const collection = scoped(cmd);
       target = { ...target, ref };
-      const params = { ...selectors, ref, size, pageToken: opts.pageToken, includeVectors: opts.includeVectors ?? false };
+      // consistentRead is sent only when set: any value moves the SDK to the extended route, and a token is bound to its route.
+      const params = { ...selectors, ref, size, pageToken: opts.pageToken, includeVectors: opts.includeVectors ?? false, ...(opts.consistentRead ? { consistentRead: true } : {}) } as ListDocsInput;
       if (!opts.all) {
         const page = await client.collection(collection).docs.list(params, options);
         const { docsUrl: _signedUrl, ...data } = page;
         const summary = `${page.docs.length} document(s)${page.nextPageToken ? '; more pages available' : ''}.`;
-        const again = `${cli} docs list --collection ${collection} --ref ${opts.ref}${opts.size === '20' ? '' : ` --size ${size}`}${opts.file ? ` --file ${shellArg(opts.file)}` : ''}${opts.includeVectors ? ' --include-vectors' : ''}${connectionFlags(cmd)}`;
+        const again = `${cli} docs list --collection ${collection} --ref ${opts.ref}${opts.size === '20' ? '' : ` --size ${size}`}${opts.file ? ` --file ${shellArg(opts.file)}` : ''}${opts.consistentRead ? ' --consistent-read' : ''}${opts.includeVectors ? ' --include-vectors' : ''}${connectionFlags(cmd)}`;
         result(data, summary, 0, safe => formatDocuments(safe, output.safeDiagnostic(summary), output.safeDiagnostic(again)));
       } else {
         const items = [];

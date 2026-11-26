@@ -20,6 +20,7 @@ const bundledSkills = new Set([
   '9bed465c36f3c6174a27ff6c92d89ffeebff3ecc6c54354c276a33eeb290fc03',
   '674233610eadcf348670999751fdd32f6b0f5d94ba8fe163b6c8c648eab924f7',
   'ea2ae1f08e78fcd325629c99f400bc3e86d83d32cbd5c4940ed22e66ccdf986d',
+  '4e464904fab0b23aeed76aa8c933997557887ac973857b5d575668455239cdc6',
 ]);
 
 // references/usage.md shipped with 0.1.7 and earlier; the skill is a single file now.

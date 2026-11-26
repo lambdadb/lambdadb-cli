@@ -68,12 +68,13 @@ The last line removes the sample collection again; it is permanent and runs
 without confirmation. Collection creation returns `state: "created"`. Import
 returns accepted counts and ends with the command that reads the written branch
 back. LambdaDB indexes writes asynchronously: a read with `--consistent-read`
-(`docs fetch`, `query`) or a query file with `"consistentRead": true` includes
-the pending writes of the branch, while a read without it returns what is
-indexed so far. Pending bulk imports become visible after indexing completes.
+(`docs fetch`, `docs list`, `query`) or a query file with `"consistentRead": true`
+includes the pending writes of the branch, while a read without it returns what
+is indexed so far. Pending bulk imports become visible after indexing completes.
 A consistent read takes `branch:NAME` or `alias:NAME`: the server resolves the
 alias and rejects one that targets a tag (HTTP 400); the CLI rejects `tag:NAME`
-before any request, because a tag has no pending writes.
+before any request, because a tag read already includes the writes the tag
+captured.
 
 ### Collections
 
@@ -351,6 +352,7 @@ lambdadb branches describe --collection cli-demo-docs --branch candidate --json
 lambdadb branches update --collection cli-demo-docs --branch candidate --index-config examples/index-config.json --json
 lambdadb tags create --collection cli-demo-docs --tag release-one --source branch:candidate --json
 lambdadb tags describe --collection cli-demo-docs --tag release-one --json
+lambdadb branches rollback --collection cli-demo-docs --branch candidate --tag release-one --json
 lambdadb branches create --collection cli-demo-docs --branch hotfix --source tag:release-one --json
 lambdadb aliases create --collection cli-demo-docs --alias production --target tag:release-one --json
 lambdadb aliases describe --collection cli-demo-docs --alias production --json
@@ -369,13 +371,31 @@ ordinary reads see them after indexing, a `--consistent-read` at once. A
 branch created from a tag has `parentBranch: null`. `tags create` pins the
 state of a branch or tag (`--source branch:NAME` or `tag:NAME`, default
 `main`), including, without `--as-of`, the writes the source held at creation;
-an empty head is rejected by the server. `--as-of` takes Unix epoch
+a source with neither a snapshot nor pending writes is rejected by the server.
+A tag can therefore exist before its first snapshot: its `snapshotId`,
+`snapshotCommittedAt` and `dataUpdatedAt` are `null` and `numDocs` is `0` until
+a build publishes the captured writes, which reads of the tag already include.
+Human output shows such a tag as `not published`. `--as-of` takes Unix epoch
 milliseconds or an ISO 8601 time and selects only the retained committed
 snapshot at or before it, without pending writes; it applies to branch sources
 only, and a tag source with `--as-of` is rejected before any request. Aliases are read
 names for a branch or tag (`--target`), never write targets and never targets
 of other aliases; `retarget` changes what every reader of the alias sees
 immediately. Names use 3–52 letters, digits, underscores or hyphens.
+
+`branches rollback --branch NAME --tag NAME` restores a branch to the data and
+index schema of a tag in the same collection. The branch keeps its name and
+identity; branch writes the tag does not hold are undone, and writes accepted
+just before the rollback can still finish on the previous write stream. When
+the tag has a published snapshot, the result carries the new `headSnapshot`;
+when it has none yet, `headSnapshot` is `null`, the branch head is empty and
+the branch inherits the writes the tag captured: ordinary reads and `docs list`
+return no documents until a build publishes them, and `--consistent-read`
+includes them at once. The result has `state: "rolledBack"` and `branchId`.
+Rollback runs without confirmation and is never retried, because a repeat is
+another rollback and can undo writes made in between; to keep a way back, tag
+the branch first (`tags create --source branch:NAME`). After an unknown outcome
+(exit 5), run `branches describe` before deciding to roll back again.
 
 The three `list` commands page like `collections list`: one page of `--size`
 entries (1–100, default 20) in name order, `nextPageToken` in the result when
@@ -384,7 +404,8 @@ token and buffer the result. A script that needs every ref must pass `--all` or
 follow the token. `describe` reads one branch (`--branch`), tag (`--tag`) or
 alias (`--alias`); a name that is not that kind of ref is HTTP 404. Every ref
 result carries `indexConfigs`; branches and tags also carry `numDocs` and
-`dataUpdatedAt` (`null` for an empty branch). An alias shows the schema its
+`dataUpdatedAt` (`null` for an empty branch or a tag before its first
+snapshot). An alias shows the schema its
 readers get from its target, and a dangling alias has `indexConfigs: null`.
 Human output lists the counts and an index summary per ref, and `describe`
 prints the index fields like `collections describe`.
@@ -414,20 +435,40 @@ lambdadb query --collection cli-demo-docs --ref tag:release-one --file examples/
 lambdadb docs list --collection cli-demo-docs --ref branch:main --size 5 --json
 lambdadb docs list --collection cli-demo-docs --ref tag:release-one --all --json
 lambdadb docs list --collection cli-demo-docs --ref branch:main --file examples/list-filter.json --json
+lambdadb docs list --collection cli-demo-docs --ref branch:main --file examples/list-sort.json --consistent-read --json
 lambdadb docs fetch --collection cli-demo-docs --ref alias:production --ids doc-1 --json
 lambdadb docs fetch --collection cli-demo-docs --ref branch:main --ids doc-1 --consistent-read --json
 ```
 
-`docs list` pages through documents without ranking. One page is the default;
-`--size` accepts 1–100, pages can hold fewer documents than requested because
-the server bounds payload size, and `nextPageToken` is an opaque position, not
-a snapshot pin. `--all` follows tokens to the end within the total timeout and
-buffers the result; use a tag for a stable export because a branch can advance
-and an alias can be retargeted between pages. An optional `--file` holds
-`filter` (the query DSL), `partitionFilter` and `fields`; paging, vectors and
-the ref stay on flags, and the request then uses the extended list route. List
-has no `--consistent-read`. The returned `total` counts the page, not the
-collection.
+`docs list` pages through documents without ranking, in ascending document ID
+order unless the file sets `sort`. One page is the default; `--size` accepts
+1–100, pages can hold fewer documents than requested because the server bounds
+payload size, and `nextPageToken` is an opaque position in the requested order,
+not a snapshot pin. A branch lists its published snapshot, and
+`--consistent-read` adds its pending writes (a branch or an alias that targets
+one; `tag:NAME` is rejected before any request). A tag, or an alias that targets
+one, also lists the writes the tag captured. A read that includes pending writes
+can return HTTP 429 when they are large.
+
+An optional `--file` holds `filter` (the query DSL), `partitionFilter`,
+`fields` and `sort`, an array of one to four objects that each map one field to
+`"asc"` or `"desc"`, for example `{"sort":[{"category":"asc"}]}`
+(`examples/list-sort.json`); ties are broken by ascending document ID. An empty
+`sort` is rejected before any request (omit it, or set it to `null`, for the
+default order); the server validates the fields. Paging, vectors, consistency
+and the ref stay on flags, and a file or `--consistent-read` sends the extended
+list request.
+
+A page token is bound to the conditions of the page that returned it: the ref,
+`--size`, the file's contents, `--consistent-read` and `--include-vectors`.
+Continue with the same command plus `--page-token`, as the next-page line of
+human output prints it; a changed condition returns HTTP 400, so start again
+from the first page instead. `--all` follows tokens to the end within the total
+timeout, repeating every condition, and buffers the result. Each page reads the
+data currently visible to the ref, so use a tag created with `--as-of` for a
+stable export: a branch can advance, an alias can be retargeted and a tag can
+publish the writes it captured between pages. The returned `total` counts the
+page, not the collection.
 
 These examples require the named ref to exist. Query files use the SDK/API
 request body, with optional `query`, `facets`, `size`, `sort`, `fields`,
@@ -476,7 +517,7 @@ indexes, partial updates, segment merges and old Tags do not gain support from
 this SDK update. If migration is needed, deliberately create a new Collection and
 reinsert the source data; the CLI performs no automatic migration.
 
-This source pins SDK 0.13.0. Existing CLI installations keep their packaged SDK
+This source pins SDK 0.15.0. Existing CLI installations keep their packaged SDK
 until a new CLI version is published and installed.
 
 ## Output, deadlines and exit codes

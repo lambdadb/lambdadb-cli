@@ -170,7 +170,16 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   const filtered = success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--file', filterFile]), 'list filter');
   assert.deepEqual(filtered.docs.map(hit => hit.doc.id).sort(), ['large-1', 'large-2']);
   assert.equal(success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--size', '1']), 'list GET route').docs.length, 1);
-  progress('Document listing verified: paging with a token, --all, extended filter/fields selectors and the plain route.');
+  // Ascending category, then ascending ID, differs from the default ID order (bulk-1 first); each page repeats the size and file.
+  const sortFile = join(temp, 'list-sort.json');
+  await writeFile(sortFile, JSON.stringify({ sort: [{ category: 'asc' }], fields: { include: ['id', 'category'] } }));
+  const sortedFirst = success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--size', '2', '--file', sortFile]), 'sorted list page 1');
+  assert.ok(sortedFirst.nextPageToken, 'A two-document sorted page of three documents must carry a page token.');
+  const sortedSecond = success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--size', '2', '--file', sortFile, '--page-token', sortedFirst.nextPageToken]), 'sorted list page 2');
+  assert.deepEqual([...sortedFirst.docs, ...sortedSecond.docs].map(hit => hit.doc.id), ['large-1', 'large-2', 'bulk-1']);
+  const changed = await run(['docs', 'list', '--collection', collection, '--ref', 'branch:main', '--size', '1', '--file', sortFile, '--page-token', sortedFirst.nextPageToken]);
+  assert.deepEqual([changed.code, changed.result.error?.httpStatus], [3, 400], 'A page token reused with another size must be rejected.');
+  progress('Document listing verified: paging with a token, --all, extended filter/fields selectors, the plain route, sort across pages and a token bound to its size.');
 
   const branch = success(await run(['branches', 'create', '--collection', collection, '--branch', 'smoke-branch']), 'branch create');
   assert.equal(branch.state, 'created');
@@ -218,6 +227,14 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   assert.equal(success(await run(['docs', 'import', '--collection', collection, '--branch', 'smoke-branch', '--file', branchDoc]), 'branch import').accepted, 1);
   assert.deepEqual(success(await run(['docs', 'fetch', '--collection', collection, '--ref', 'branch:smoke-branch', '--ids', 'branch-only', '--consistent-read']), 'branch consistent fetch').missingIds, []);
   assert.deepEqual(success(await run(['docs', 'fetch', '--collection', collection, '--ref', 'branch:main', '--ids', 'branch-only', '--consistent-read']), 'main isolation').missingIds, ['branch-only']);
+  const consistentList = success(await run(['docs', 'list', '--collection', collection, '--ref', 'branch:smoke-branch', '--file', idsOnly, '--consistent-read', '--all']), 'branch consistent list');
+  assert.ok(consistentList.docs.some(hit => hit.doc.id === 'branch-only'), 'A consistent list must include the pending branch write.');
+  // smoke-tag pins committed main, so the rollback records a new head snapshot.
+  const rolledBack = success(await run(['branches', 'rollback', '--collection', collection, '--branch', 'smoke-branch', '--tag', 'smoke-tag']), 'branch rollback');
+  assert.equal(rolledBack.state, 'rolledBack');
+  assert.ok(rolledBack.headSnapshot?.snapshotId, 'A rollback to a tag with a snapshot must return the new head.');
+  const restored = success(await run(['docs', 'fetch', '--collection', collection, '--ref', 'branch:smoke-branch', '--ids', ...expected.map(row => row.id)]), 'fetch after rollback');
+  assert.deepEqual(restored.docs.map(hit => hit.doc.id).sort(), expected.map(row => row.id).sort(), 'The rolled-back branch must serve the tag documents.');
   const retargeted = success(await run(['aliases', 'retarget', '--collection', collection, '--alias', 'smoke-alias', '--target', 'branch:smoke-branch']), 'alias retarget');
   assert.deepEqual([retargeted.alias.targetKind, retargeted.alias.targetName, retargeted.alias.aliasRevision > alias.alias.aliasRevision], ['BRANCH', 'smoke-branch', true]);
   const referenced = await run(['branches', 'delete', '--collection', collection, '--branch', 'smoke-branch']);
@@ -228,7 +245,7 @@ test('explicit development-project CLI smoke with temporary collection cleanup',
   const protectedMain = await run(['branches', 'delete', '--collection', collection, '--branch', 'main']);
   assert.deepEqual([protectedMain.code, protectedMain.result.error?.httpStatus], [3, 400], 'Deleting main must be refused.');
   assert.deepEqual(success(await run(['branches', 'list', '--collection', collection]), 'branch list after cleanup').branches.map(item => item.name), ['main']);
-  progress('Refs verified: branch from main, tag pinned, alias created and retargeted, reads at tag/alias/branch, branch isolation under consistent reads, 409 for a referenced branch, 400 for main, and deletions.');
+  progress('Refs verified: branch from main, tag pinned, alias created and retargeted, reads at tag/alias/branch, branch isolation under consistent reads and a consistent list, rollback to a tag, 409 for a referenced branch, 400 for main, and deletions.');
 
   const baseline = JSON.parse(await readFile(resolve('examples/query.json'), 'utf8'));
   for (const variant of ['default', 'null', 'custom', 'cohere']) {

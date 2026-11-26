@@ -139,7 +139,7 @@ Only `init` prompts for choices. All other commands require explicit arguments;
 | Save connection settings | `lambdadb configure` | [Configuration](docs/setup.md#settings-and-precedence) |
 | Verify project access | `lambdadb doctor` | [What doctor checks](docs/setup.md#check-the-connection-with-doctor) |
 | List, inspect, configure or delete collections | `lambdadb collections list` / `describe` / `create` / `update` / `delete` | [Collections](docs/data.md#collections) |
-| Manage branches, tags and aliases, and add index fields to a branch | `lambdadb branches` / `tags` / `aliases` | [Data versioning](docs/data.md#branches-tags-and-aliases) |
+| Manage branches, tags and aliases, add index fields to a branch, or roll a branch back to a tag | `lambdadb branches` / `tags` / `aliases` | [Data versioning](docs/data.md#branches-tags-and-aliases) |
 | Import documents | `lambdadb docs import` | [JSONL imports and outcomes](docs/data.md#import-jsonl) |
 | Update or delete documents | `lambdadb docs update` / `docs delete` | [Partial updates and deletes](docs/data.md#update-and-delete-documents) |
 | Search, list or fetch documents | `lambdadb query` / `docs list` / `docs fetch` | [Queries and explicit refs](docs/data.md#query-and-fetch-at-explicit-refs) |
@@ -278,10 +278,11 @@ Use `npm run test:live` with the explicit opt-in settings in
 [CONTRIBUTING.md](CONTRIBUTING.md#live-validation). It exercises ordinary/bulk
 import, query/fetch up to 1000 results/IDs, the server-managed `id` round trip,
 OpenAI and Cohere native embeddings, Bayesian search, and TypeSafe and Cohere
-reranking in temporary Collections, plus collection settings, document listing,
-the branch/tag/alias lifecycle and partial updates and deletes under consistent
-reads, then removes the Collections with `collections delete` and verifies
-their absence. The normal test suite and PR CI never run it; the publishing
+reranking in temporary Collections, plus collection settings, sorted and
+consistent document listing, the branch/tag/alias lifecycle with a branch
+rollback, and partial updates and deletes under consistent reads, then
+removes the Collections with `collections delete` and verifies their absence.
+The normal test suite and PR CI never run it; the publishing
 workflow runs it against dedicated smoke projects before every publication and
 release verification
 ([RELEASING.md](RELEASING.md#deployed-live-smoke)).

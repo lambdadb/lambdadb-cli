@@ -72,7 +72,7 @@ export function describeError(error: unknown): SafeError {
       ? 'Verify the selected API-key environment variable and its access to this project.'
       : status === 404 ? 'Verify endpoint, project, collection and ref names.'
       : status === 409 ? 'A resource with this name exists, an alias still references this branch or tag, or a concurrent change conflicted. Inspect before retrying.'
-      : status === 429 ? 'Reduce load or retry later; a consistent-read overlay may exceed its limit.'
+      : status === 429 ? 'Reduce load or retry later; the pending writes a consistent read or a tag read includes may exceed their limit.'
       : status === 413 ? 'Reduce the batch size or use bulk mode where supported.'
       : status >= 500 ? 'Check service availability. Inspect writes before retrying an uncertain mutation.'
       : 'Check the request against the public API contract and collection schema.';

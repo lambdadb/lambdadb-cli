@@ -1,0 +1,4 @@
+{
+  "sort": [{ "category": "asc" }],
+  "fields": { "include": ["id", "category"] }
+}

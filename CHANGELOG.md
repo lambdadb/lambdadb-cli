@@ -2,10 +2,56 @@
 
 ## [Unreleased]
 
+### Added
+
+- `branches rollback --collection NAME --branch NAME --tag NAME` restores a
+  branch to the data and index schema of a tag and returns `branchId` and the
+  new `headSnapshot` with `state: "rolledBack"`. A tag without a published
+  snapshot returns `headSnapshot: null`: the branch head is empty and the branch
+  inherits the writes the tag captured, which ordinary reads and `docs list`
+  show after a build publishes them and `--consistent-read` shows at once.
+  Like every non-`init` command it runs without confirmation; it is never
+  retried, because a repeat can undo writes made in between, and an uncertain
+  outcome exits 5.
+- `docs list --consistent-read` includes the pending writes of a branch, read
+  directly or through an alias that targets it; `tag:NAME` is rejected before
+  any request.
+- The `docs list --file` object takes `sort`, one to four `{"FIELD": "asc"}` or
+  `{"FIELD": "desc"}` objects, with ties broken by ascending document ID
+  (`examples/list-sort.json`). An empty `sort` is rejected before any request;
+  omit it, or set it to `null`, for the default document ID order.
+
+### Changed
+
+- A tag created before its source's first snapshot is accepted: its
+  `snapshotId`, `snapshotCommittedAt` and `dataUpdatedAt` are `null` in JSON
+  output and `numDocs` is `0`. `tags describe` shows `Snapshot none yet` and
+  `tags list` shows `not published`, and `tags create` says that reads already
+  include the captured writes. Previously such a response failed as
+  `INVALID_RESPONSE`.
+- The next-page command of `docs list` repeats `--consistent-read`, and help
+  and docs state that a page token is bound to the ref, `--size`, the file
+  contents, `--consistent-read` and `--include-vectors` of its first page; a
+  changed condition is HTTP 400. Help and docs also follow the server's listing
+  semantics: a branch lists its published snapshot, and a tag, or an alias that
+  targets one, also lists the writes the tag captured. For a stable export, use
+  a tag created with `--as-of`.
+- The message for `--consistent-read` with `tag:NAME` (`docs fetch`, `query`,
+  `docs list`) now says that tag reads already include the writes the tag
+  captured, and the HTTP 429 hint names a tag read as well as a consistent read.
+- `tags create` help says that only a source with neither a snapshot nor
+  pending writes is rejected.
+
 ### Maintenance
 
 - Update the Homebrew formula to verified stable 0.5.0 and its release-commit
   lockfile.
+- Pin `@functional-systems/lambdadb` 0.15.0 (API contract 1.3.0 at docs commit
+  `9a1f563b9b53bc29e5278105f8fc8c25a17e0cb8`), which carries these contract
+  changes. `lambdadb mcp` still launches MCP 0.6.0.
+- The live smoke lists documents with `sort` across two pages, checks that a
+  token reused with another `--size` is HTTP 400, lists a branch with
+  `--consistent-read`, and rolls a branch back to a tag.
 
 ## [0.5.0] - 2026-11-18
 
