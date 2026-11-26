@@ -198,9 +198,8 @@ continuations already repeat.
 The earlier MVP baseline `9a4eaf1e` differs from this contract by the
 single-ref reads and branch update, adopted with SDK 0.13.0, the embedding,
 facet, field description and rerank schemas, adopted with SDK 0.6.0 to 0.12.0,
-and the rollback and listing changes above. The MCP mode still launches its
-separately pinned package (MCP 0.6.0 on SDK 0.13.0), which has no rollback or
-list sort and whose SDK still requires a tag snapshot; its upgrade is separate.
+and the rollback and listing changes above. The MCP mode launches its
+separately pinned package, MCP 0.7.0 on the same SDK 0.15.0 and contract.
 
 ## SDK 0.13.0 contract update (2026-11-19)
 

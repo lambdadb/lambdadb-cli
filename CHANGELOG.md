@@ -48,7 +48,14 @@
   lockfile.
 - Pin `@functional-systems/lambdadb` 0.15.0 (API contract 1.3.0 at docs commit
   `9a1f563b9b53bc29e5278105f8fc8c25a17e0cb8`), which carries these contract
-  changes. `lambdadb mcp` still launches MCP 0.6.0.
+  changes.
+- `lambdadb mcp` launches MCP 0.7.0 (LambdaDB SDK 0.15.0), which adds the write
+  tool `lambdadb_rollback_branch` (`collectionName`, `branchName`, `tagName`),
+  adds `sort` and `consistentRead` to `lambdadb_list_docs` (`consistentRead:
+  false` is sent as if omitted), and returns tags without a snapshot with
+  `snapshotId`, `snapshotCommittedAt` and `dataUpdatedAt` as `null`. The
+  bundled skill names `lambdadb_rollback_branch` next to `branches rollback`
+  and the MCP list tool among those that take `consistentRead`.
 - The live smoke lists documents with `sort` across two pages, checks that a
   token reused with another `--size` is HTTP 400, lists a branch with
   `--consistent-read`, and rolls a branch back to a tag.

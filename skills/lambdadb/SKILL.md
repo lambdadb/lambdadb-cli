@@ -156,9 +156,9 @@ configuration.
 LambdaDB indexes writes asynchronously. To read a write back, read its branch
 with a consistent read: `docs fetch --consistent-read`, `docs list
 --consistent-read`, `query --consistent-read` or query JSON with
-`"consistentRead": true` (MCP query and fetch tools accept the same boolean).
-A read without it returns what is indexed so far, so an empty result shortly
-after a write is not an error.
+`"consistentRead": true` (MCP query, fetch and list tools accept the same
+boolean). A read without it returns what is indexed so far, so an empty result
+shortly after a write is not an error.
 Pending bulk imports (`docs import --mode bulk`) become visible after indexing
 completes; retry such a read for a bounded period, then report the observed
 state. Do not recreate the collection, repeat writes or reinsert documents to
@@ -205,9 +205,10 @@ Guided setup enables MCP write tools; non-interactive setup requires
 changing data. Perform writes only when requested, using the user's collection
 and branch, and read the matching page above first: collections with native
 embedding fields take the source text, not vectors, and do not support bulk
-upsert. `branches rollback` replaces a branch's data and schema with a tag's
-and can undo writes; run it only when asked, and after an uncertain outcome
-describe the branch instead of running it again.
+upsert. `branches rollback` (MCP `lambdadb_rollback_branch`) replaces a
+branch's data and schema with a tag's and can undo writes; run it only when
+asked, and after an uncertain outcome describe the branch instead of running it
+again.
 
 ## Usage and plan limits
 
