@@ -136,6 +136,72 @@ Feature descriptions use native embedding and native reranking. The legacy
 `managedEmbedding` wire field and existing CLI behavior remain unchanged.
 The versioned contracts above retain their original source paths.
 
+## SDK 0.15.0 contract update (2026-11-26)
+
+The runtime and lockfile pin stable `@functional-systems/lambdadb@0.15.0`
+(integrity `sha512-60yYWG2GWfNap2eyhtrQWDbLVxT2JEMxVFo6IiSShevLYpkKca12gO2w5QbGfKrXjzWpA3spfXH8PaERucr68Q==`),
+reviewed through its [changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.15.0/CHANGELOG.md)
+for 0.14.0 and 0.15.0, `docs/data-versioning.md` and the installed
+`src/versioning.ts`, `src/models/operations/listdocs.ts` and `src/client.ts`. The
+SDK aligns with the public contract `reference/api/openapi.json` (`info.version`
+1.3.0) in lambdadb/docs at commit `9a1f563b9b53bc29e5278105f8fc8c25a17e0cb8`
+(SHA-256 `269590b8addc8e25785c222938b84e737a9f9dee0a5e8b45c0dde4779bde1b6d`),
+synced from lambdadb/lambdadb `16c6e46854b13cebd20c501e541bb030b33ca805`. A
+structural diff against the previous pin `7be299af` found these changes:
+
+- `POST /branches/{branchName}/rollback` (body `{tag}`, response `branchId` and
+  a nullable `headSnapshot`) is the new `branches rollback --branch NAME --tag
+  NAME`, which calls `branches.rollback`. The SDK ignores retry options for it;
+  the CLI also passes `strategy: 'none'` and marks the mutation as started, so a
+  lost reply exits 5 like every other ref mutation. Every mutation here runs
+  without confirmation, `--yes` or a dry run (deletes and alias retargets
+  included), so rollback follows that rule instead of adding the CLI's only
+  prompt; help and docs say to tag the branch first to keep a way back. `--tag
+  NAME` mirrors the `{tag}` body and the `--tag` of the `tags` commands, since
+  only a tag can be restored. A null `headSnapshot` is passed through in JSON
+  and explained in the human summary, whose next step becomes a consistent
+  `docs list` of the branch.
+- `TagDetails.snapshotId`, `snapshotCommittedAt` and `dataUpdatedAt` are
+  nullable before the tag's first publication, and `numDocs` is then `0`. JSON
+  passes the nulls through; `tags describe` and `tags list` print them as not
+  published instead of a `null committed` line or a blank cell, and `tags
+  create` names the case in its summary. Tag creation now rejects only a source
+  with neither a snapshot nor pending writes; help text follows.
+- The extended list body gains `sort` (1–4 single-field objects, `asc` or
+  `desc`) and `consistentRead` (rejected for a tag, or an alias that targets
+  one). `--consistent-read` follows `docs fetch` and `query`, including the
+  local tag check. `sort` belongs in the `--file` object, which already carries
+  the extended body's selectors, as the query file carries its `sort`. The SDK
+  serializer checks the directions; the CLI also rejects an empty array before
+  HTTP, because the server answers it with 400 and omission is the default
+  order. The item count, one field per object and the field type stay
+  server-owned. `consistentRead` is sent only when the flag is set: the SDK
+  selects the extended route for any defined value, and a page token is bound
+  to its HTTP method, so an unset flag keeps a plain list on GET.
+- Listing semantics: a branch lists its published snapshot, a tag (or an alias
+  that targets one) also lists the tag's captured writes, and a page token is
+  bound to the request conditions, including the page size. Help, docs and the
+  skill say so, the next-page command already repeated `--size`, `--file` and
+  `--include-vectors` and now repeats `--consistent-read`, and the HTTP 429
+  hint names a tag read as well as a consistent read.
+- Description-only changes to branch creation and `TagDetails.createdAt` need no
+  CLI change.
+
+Every loop over document pages was checked: `docs list --all` uses
+`docs.listPages`, which repeats the full input with only `pageToken` changed;
+single-page `docs list` prints a continuation that repeats each condition; the
+live smoke's paged reads repeat their size and file. No other command pages
+through documents (import, update and delete submit batches and never list).
+Collection and ref lists take no list conditions besides `--size`, which their
+continuations already repeat.
+
+The earlier MVP baseline `9a4eaf1e` differs from this contract by the
+single-ref reads and branch update, adopted with SDK 0.13.0, the embedding,
+facet, field description and rerank schemas, adopted with SDK 0.6.0 to 0.12.0,
+and the rollback and listing changes above. The MCP mode still launches its
+separately pinned package (MCP 0.6.0 on SDK 0.13.0), which has no rollback or
+list sort and whose SDK still requires a tag snapshot; its upgrade is separate.
+
 ## SDK 0.13.0 contract update (2026-11-19)
 
 The runtime and lockfile pin stable `@functional-systems/lambdadb@0.13.0`, reviewed

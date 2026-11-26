@@ -50,10 +50,11 @@ export function parseRef(value: string): ReadRef {
 }
 
 // Pending writes belong to a branch, read directly or through an alias that targets it; the server
-// resolves the alias and rejects one that targets a tag. A tag is immutable, so it is rejected here.
+// resolves the alias and rejects one that targets a tag. Tag reads already include the writes the
+// tag captured and reject the flag, so a tag ref is rejected here.
 export function checkConsistentRead(ref: ReadRef, consistentRead: boolean): void {
   if (consistentRead && ref.kind === 'tag') {
-    throw new InputError('Consistent reads need branch:NAME or an alias that targets a branch; a tag has no pending writes.');
+    throw new InputError('Consistent reads need branch:NAME or an alias that targets a branch; tag reads already include the writes the tag captured.');
   }
 }
 
@@ -119,13 +120,15 @@ export function queryInput(body: Record<string, unknown>, ref: ReadRef, consiste
   return input as QueryCollectionInput;
 }
 
-// The list file carries only the selectors the flags cannot express; paging and vectors stay on flags.
-export type ListSelectors = Pick<ListDocsInput, 'filter' | 'partitionFilter' | 'fields'>;
+// The list file carries only the selectors the flags cannot express; paging, vectors and consistency stay on flags.
+export type ListSelectors = Pick<ListDocsInput, 'filter' | 'partitionFilter' | 'fields' | 'sort'>;
 export function listSelectors(body: Record<string, unknown>): ListSelectors {
-  const unknown = Object.keys(body).filter(key => !['filter', 'partitionFilter', 'fields'].includes(key));
-  if (unknown.length) throw new InputError(`List file accepts only filter, partitionFilter and fields; use --size, --page-token, --include-vectors and --ref for the rest. Unknown: ${unknown.join(', ')}.`);
+  const unknown = Object.keys(body).filter(key => !['filter', 'partitionFilter', 'fields', 'sort'].includes(key));
+  if (unknown.length) throw new InputError(`List file accepts only filter, partitionFilter, fields and sort; use --size, --page-token, --include-vectors, --consistent-read and --ref for the rest. Unknown: ${unknown.join(', ')}.`);
+  // The server rejects an empty sort with HTTP 400; the default order is requested by omitting it.
+  if (Array.isArray(body.sort) && body.sort.length === 0) throw new InputError('List sort must not be empty. Omit sort, or set it to null, for ascending document ID order.');
   try { listDocsExtendedRequestBodyToJSON(body as ListSelectors); }
-  catch { throw new InputError('Invalid list request. filter takes the query DSL (queryString or bool), partitionFilter a partition selection and fields an include/exclude selector.'); }
+  catch { throw new InputError('Invalid list request. filter takes the query DSL (queryString or bool), partitionFilter a partition selection, fields an include/exclude selector and sort an array of {"FIELD": "asc" or "desc"} objects.'); }
   return body as ListSelectors;
 }
 

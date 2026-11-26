@@ -107,8 +107,12 @@ const refNext = (again: string | undefined, token: unknown) => again ? nextPage(
 export const formatBranches = (listed: { branches: Row[]; nextPageToken?: unknown }, again?: string) => listing('Branches', ['NAME', 'PARENT', 'DOCS', 'INDEXES', 'DATA UPDATED', 'CREATED'],
   listed.branches.map(b => [b.name, (b.parentBranch as Row | undefined)?.name ?? '', count(b.numDocs), indexSummary(b.indexConfigs), time(b.dataUpdatedAt), time(b.createdAt)]), 'No branches.', refNext(again, listed.nextPageToken));
 
+/** A tag created before its source's first snapshot has none until a build publishes the writes it captured. */
+const unpublished = (t: Row) => t.snapshotId === null;
+const tagUpdated = (t: Row) => unpublished(t) ? 'not published' : time(t.dataUpdatedAt);
+
 export const formatTags = (listed: { tags: Row[]; nextPageToken?: unknown }, again?: string) => listing('Tags', ['NAME', 'DOCS', 'INDEXES', 'DATA UPDATED', 'CREATED'],
-  listed.tags.map(t => [t.name, count(t.numDocs), indexSummary(t.indexConfigs), time(t.dataUpdatedAt), time(t.createdAt)]), 'No tags.', refNext(again, listed.nextPageToken));
+  listed.tags.map(t => [t.name, count(t.numDocs), indexSummary(t.indexConfigs), tagUpdated(t), time(t.createdAt)]), 'No tags.', refNext(again, listed.nextPageToken));
 
 export const formatAliases = (listed: { aliases: Row[]; nextPageToken?: unknown }, again?: string) => listing('Aliases', ['NAME', 'TARGET', 'INDEXES', 'REVISION', 'CREATED'],
   listed.aliases.map(a => [a.aliasName, aliasTarget(a), a.indexConfigs ? indexSummary(a.indexConfigs) : '', count(a.aliasRevision), time(a.createdAt)]), 'No aliases.', refNext(again, listed.nextPageToken));
@@ -130,14 +134,24 @@ export function formatBranch(described: { branch: Row }): string {
   ].join('\n');
 }
 
+/** A rollback result: the new head, or an empty head when the tag had no published snapshot, then the next read. */
+export function formatRollback(rolledBack: Row, summary: string, next: string): string {
+  return [
+    summary,
+    ...(rolledBack.headSnapshot ? ['', detail('Head', snapshot(rolledBack.headSnapshot))] : []),
+    '',
+    `Next: ${next}`,
+  ].join('\n');
+}
+
 export function formatTag(described: { tag: Row }): string {
   const t = described.tag;
   return [
     `Tag ${plain(t.name)}`,
     '',
     detail('Documents', count(t.numDocs)),
-    detail('Snapshot', snapshot(t)),
-    detail('Data updated', time(t.dataUpdatedAt)),
+    detail('Snapshot', unpublished(t) ? 'none yet; reads include the writes the tag captured' : snapshot(t)),
+    detail('Data updated', tagUpdated(t)),
     detail('Created', time(t.createdAt)),
     '',
     fields(t.indexConfigs),

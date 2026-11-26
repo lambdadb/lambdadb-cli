@@ -177,10 +177,12 @@ the described metadata, including the server-managed `id` field, back through
 update, checks exact facet-only and document+facet buckets, and checks committed
 query/fetch contents with a maximum 300-second observation window per stage,
 followed by a size-1000 query and a 1000-ID fetch. It then lists documents by
-page token, `--all` and extended filter/field selectors, runs the branch, tag
-and alias lifecycle (creation, reads at each ref, branch isolation under
-consistent reads, retargeting, the 409 for a referenced branch and the 400 for
-`main`, deletions), and applies a partial update, a delete by id and a delete by
+page token, `--all`, extended filter/field selectors and a sort across two
+pages, checks that a token reused with another size is HTTP 400, runs the
+branch, tag and alias lifecycle (creation, reads at each ref, branch isolation
+under consistent fetches and a consistent list, a rollback to a tag,
+retargeting, the 409 for a referenced branch and the 400 for `main`,
+deletions), and applies a partial update, a delete by id and a delete by
 filter, each confirmed through consistent fetches within 120 seconds. Temporary
 collections are removed with `collections delete` and their absence is verified
 by HTTP 404. It also checks native

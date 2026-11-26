@@ -406,7 +406,7 @@ test('consistent reads reach the API through a branch or an alias and reject a t
     const r = await f.run([...args, '--collection', 'demo-docs', '--ref', 'tag:release', '--json']);
     assert.equal(r.code, 2, `${args.join(' ')}: ${r.stdout}`);
     assert.equal(r.json.error.code, 'INPUT_ERROR');
-    assert.equal(r.json.error.message, 'Consistent reads need branch:NAME or an alias that targets a branch; a tag has no pending writes.');
+    assert.equal(r.json.error.message, 'Consistent reads need branch:NAME or an alias that targets a branch; tag reads already include the writes the tag captured.');
   }
   assert.equal(f.requests.length, requests);
   // A tag read without the flag stays a committed read.
@@ -1243,6 +1243,7 @@ test('branch, tag and alias commands forward kind:NAME refs, as-of cutoffs and n
     if (r.method === 'DELETE') return send(200, { message: 'deleted' });
     if (path === '/branches') return send(r.method === 'POST' ? 201 : 200, r.method === 'POST' ? { branch: branchDetails } : { branches: [branchDetails] });
     if (path === '/branches/candidate') return send(200, { branch: r.method === 'PATCH' ? { ...branchDetails, indexConfigs: r.body.indexConfigs } : branchDetails });
+    if (path === '/branches/candidate/rollback' && r.method === 'POST') return send(200, { branchId: 'b-candidate', headSnapshot: { snapshotId: 'snap-9', snapshotCommittedAt: 1789776000000 } });
     if (path === '/tags') return send(r.method === 'POST' ? 201 : 200, r.method === 'POST' ? { tag: tagDetails } : { tags: [tagDetails] });
     if (path === '/tags/release-one' && r.method === 'GET') return send(200, { tag: tagDetails });
     if (path === '/aliases') return send(r.method === 'POST' ? 201 : 200, r.method === 'POST' ? { alias: aliasDetails } : { aliases: [aliasDetails] });
@@ -1269,6 +1270,7 @@ test('branch, tag and alias commands forward kind:NAME refs, as-of cutoffs and n
       { branchName: 'candidate', source: { kind: 'tag', name: 'release-one' } }, { branch: 'candidate' }, 'created', 'branch'],
     [['branches', 'update', '--branch', 'candidate', '--index-config', await f.file('added.json', added)], 'PATCH', '/branches/candidate',
       { indexConfigs: added }, { branch: 'candidate' }, 'updated', 'branch'],
+    [['branches', 'rollback', '--branch', 'candidate', '--tag', 'release-one'], 'POST', '/branches/candidate/rollback', { tag: 'release-one' }, { branch: 'candidate' }, 'rolledBack', 'headSnapshot'],
     [['branches', 'delete', '--branch', 'candidate'], 'DELETE', '/branches/candidate', undefined, { branch: 'candidate' }, 'deleted', 'message'],
     [['tags', 'list'], 'GET', '/tags', undefined, {}, undefined, 'tags'],
     [['tags', 'describe', '--tag', 'release-one'], 'GET', '/tags/release-one', undefined, { tag: 'release-one' }, undefined, 'tag'],
@@ -1415,6 +1417,8 @@ test('invalid ref sources, targets, names and as-of values fail before any versi
     [['branches', 'update', '--branch', 'candidate', '--index-config', await f.file('empty.json', {})], invalidIndexConfig],
     [['branches', 'update', '--branch', 'candidate', '--index-config', await f.file('wide.json', { vector: { type: 'vector', dimensions: 8, similarity: 'cosine' } })], invalidIndexConfig],
     [['branches', 'update', '--branch', 'candidate', '--index-config', await f.file('wrapped.json', { indexConfigs: { text: { type: 'text' } } })], invalidIndexConfig],
+    [['branches', 'rollback', '--branch', 'x', '--tag', 'release-one'], 'Branch name must contain 3–52 letters, digits, underscores or hyphens.'],
+    [['branches', 'rollback', '--branch', 'candidate', '--tag', 'tag:release-one'], 'Tag name must contain 3–52 letters, digits, underscores or hyphens.'],
     [['tags', 'describe', '--tag', 'a/b'], 'Tag name must contain 3–52 letters, digits, underscores or hyphens.'],
     [['aliases', 'describe', '--alias', 'no'], 'Alias name must contain 3–52 letters, digits, underscores or hyphens.'],
     [['tags', 'create', '--tag', 'release-one', '--source', 'alias:production'], 'Source must be branch:NAME or tag:NAME; aliases cannot be tag sources.'],
@@ -1433,16 +1437,19 @@ test('invalid ref sources, targets, names and as-of values fail before any versi
   assert.equal(missing.code, 2); assert.match(missing.json.error.message, /--target/);
   const noMap = await f.run(['branches', 'update', '--branch', 'candidate', ...base]);
   assert.equal(noMap.code, 2); assert.match(noMap.json.error.message, /--index-config/);
+  const noTag = await f.run(['branches', 'rollback', '--branch', 'candidate', ...base]);
+  assert.equal(noTag.code, 2); assert.match(noTag.json.error.message, /--tag/);
   assert.equal(f.requests.length, 0);
 });
 
 test('ref mutations keep definite rejections distinct from uncertain outcomes and never retry', async t => {
-  // 'ok' answers with the real success status (201 for creation) and an empty body the SDK cannot validate.
+  // 'ok' answers with the real success status (201 for creation, 200 for a rollback) and an empty body the SDK cannot validate.
   for (const [status, code, error] of [[400, 3, 'API_ERROR'], [404, 3, 'API_ERROR'], [409, 3, 'API_ERROR'], [401, 3, 'AUTH_ERROR'], [503, 5, 'API_ERROR'], ['ok', 5, 'INVALID_RESPONSE']]) {
-    const f = await fixture(t, (r, send) => send(status === 'ok' ? (r.method === 'POST' ? 201 : 200) : status, {}));
+    const f = await fixture(t, (r, send) => send(status === 'ok' ? (r.method === 'POST' && !r.url.pathname.endsWith('/rollback') ? 201 : 200) : status, {}));
     for (const args of [
       ['branches', 'create', '--branch', 'candidate'], ['branches', 'delete', '--branch', 'main'],
       ['branches', 'update', '--branch', 'candidate', '--index-config', resolve('examples/index-config.json')],
+      ['branches', 'rollback', '--branch', 'candidate', '--tag', 'release-one'],
       ['tags', 'create', '--tag', 'release-one'], ['tags', 'delete', '--tag', 'release-one'],
       ['aliases', 'create', '--alias', 'production', '--target', 'branch:main'], ['aliases', 'retarget', '--alias', 'production', '--target', 'branch:main'],
       ['aliases', 'delete', '--alias', 'production'],
@@ -1505,6 +1512,146 @@ test('docs list forwards refs, paging and vectors on the GET route and selectors
   assert.deepEqual(r.json.data.docs, [{ collection: 'demo-docs', doc: { id: 'doc-9' } }]);
   assert.ok(!r.stdout.includes('private-url'));
   assert.equal(r.json.data.isDocsInline, true);
+});
+
+test('branches rollback restores a tag, renders a null head snapshot and is never retried', async t => {
+  const head = { snapshotId: 'snap-9', snapshotCommittedAt: 1789776000000 };
+  const f = await fixture(t, (r, send) => {
+    const path = r.url.pathname.replace('/projects/dev-project/collections/demo-docs', '');
+    if (path === '/branches/candidate/rollback') return send(200, { branchId: 'b-candidate', headSnapshot: r.body.tag === 'unpublished' ? null : head });
+    return send(404, { message: 'unexpected route' });
+  });
+  const run = (tag, ...extra) => f.run(['branches', 'rollback', '--collection', 'demo-docs', '--branch', 'candidate', '--tag', tag, ...extra]);
+  let r = await run('release-one', '--json');
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(r.json.data, { branchId: 'b-candidate', headSnapshot: isoDates(head), state: 'rolledBack' });
+  assert.equal(r.json.command, 'branches rollback');
+  // A tag without a published snapshot leaves the head empty: JSON keeps the null the server sent.
+  r = await run('unpublished', '--json');
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(r.json.data, { branchId: 'b-candidate', headSnapshot: null, state: 'rolledBack' });
+  assert.deepEqual(f.requests.at(-1).body, { tag: 'unpublished' });
+
+  r = await run('release-one');
+  assert.equal(r.stdout.split('\n').slice(1).join('\n'), [
+    'Branch rolled back to tag release-one.', '', '  Head         snap-9 committed 2026-09-19T00:00:00Z', '',
+    'Next: lambdadb branches describe --collection demo-docs --branch candidate', '',
+  ].join('\n'));
+  r = await run('unpublished', '--endpoint', f.base);
+  assert.equal(r.stdout.split('\n').slice(1).join('\n'), [
+    'Branch rolled back to tag unpublished, which has no published snapshot yet: the branch head is empty and the branch inherits the writes the tag captured. Reads without --consistent-read return no documents until a build publishes them.', '',
+    `Next: lambdadb docs list --collection demo-docs --ref branch:candidate --consistent-read --endpoint ${f.base}`, '',
+  ].join('\n'));
+  const help = (await f.run(['branches', 'rollback', '--help'])).stdout;
+  assert.match(help, /--tag <name> {2,}Tag in this collection to restore \(required\)\n/);
+  assert.match(help, /runs without\s+confirmation/);
+  assert.match(help, /never retried/);
+
+  // A timeout after dispatch is an unknown outcome, and the request is sent once.
+  const g = await fixture(t, () => new Promise(() => {}));
+  r = await g.run(['branches', 'rollback', '--collection', 'demo-docs', '--branch', 'candidate', '--tag', 'release-one', '--timeout-ms', '300', '--json']);
+  assert.equal(r.code, 5, r.stdout);
+  assert.deepEqual([r.json.ok, r.json.data, r.json.target.branch], [false, { state: 'unknown' }, 'candidate']);
+  assert.equal(g.requests.length, 1, 'a rollback is never retried');
+});
+
+test('tags without a published snapshot keep their nulls in JSON and read as unpublished in every tag output', async t => {
+  const fresh = { name: 'fresh-tag', snapshotId: null, snapshotCommittedAt: null, numDocs: 0, dataUpdatedAt: null, indexConfigs, createdAt: 1789689600000 };
+  const f = await fixture(t, (r, send) => {
+    const path = r.url.pathname.replace('/projects/dev-project/collections/demo-docs', '');
+    if (path === '/tags' && r.method === 'POST') return send(201, { tag: fresh });
+    if (path === '/tags') return send(200, { tags: [tagDetails, fresh] });
+    if (path === '/tags/fresh-tag') return send(200, { tag: fresh });
+    return send(404, { message: 'unexpected route' });
+  });
+  const base = ['--collection', 'demo-docs'];
+  const expected = isoDates(fresh);
+  assert.deepEqual((await f.run(['tags', 'create', '--tag', 'fresh-tag', ...base, '--json'])).json.data, { tag: expected, state: 'created' });
+  assert.deepEqual((await f.run(['tags', 'describe', '--tag', 'fresh-tag', ...base, '--json'])).json.data, { tag: expected });
+  assert.deepEqual((await f.run(['tags', 'list', ...base, '--json'])).json.data.tags[1], expected);
+
+  const created = await f.run(['tags', 'create', '--tag', 'fresh-tag', ...base]);
+  assert.match(created.stdout, /\nTag created before its first snapshot with the index schema and the writes the source held at creation; reads include them, and its document count stays 0 until a build publishes them\.\n$/);
+  const described = await f.run(['tags', 'describe', '--tag', 'fresh-tag', ...base]);
+  assert.match(described.stdout, /\n {2}Documents {4}0\n {2}Snapshot {5}none yet; reads include the writes the tag captured\n {2}Data updated not published\n {2}Created {6}2026-09-18T00:00:00Z\n/);
+  const listed = await f.run(['tags', 'list', ...base]);
+  assert.match(listed.stdout, /\n {2}release-one {2}1,234 {2}1 field: text 1 {2}2026-09-18T01:00:00Z {2}2026-09-18T00:00:00Z\n {2}fresh-tag {4}0 {6}1 field: text 1 {2}not published {9}2026-09-18T00:00:00Z\n/);
+});
+
+test('docs list sends sort and consistent reads on the extended route, repeats every condition per page and rejects invalid ones first', async t => {
+  const page = (docs, next) => ({ total: docs.length, isDocsInline: true, docs: docs.map(doc => ({ collection: 'demo-docs', doc })), ...(next ? { nextPageToken: next } : {}) });
+  const f = await fixture(t, (r, send) => {
+    const token = r.method === 'POST' ? r.body.pageToken : r.url.searchParams.get('pageToken');
+    return send(200, token === 'second' ? page([{ id: 'doc-3' }]) : page([{ id: 'doc-2' }, { id: 'doc-1' }], 'second'));
+  });
+  const base = ['--collection', 'demo-docs', '--json'];
+  const sort = [{ category: 'desc' }, { rank: 'asc' }];
+  const sorted = await f.file('sort.json', { sort, fields: { include: ['id'] } });
+  for (const ref of ['branch:main', 'alias:production']) {
+    const r = await f.run(['docs', 'list', '--ref', ref, '--size', '2', '--file', sorted, '--consistent-read', ...base]);
+    assert.equal(r.code, 0, r.stdout);
+    const request = f.requests.at(-1);
+    assert.deepEqual([request.method, request.url.pathname], ['POST', '/projects/dev-project/collections/demo-docs/docs/list']);
+    assert.deepEqual(request.body, { size: 2, includeVectors: false, consistentRead: true, sort, fields: { include: ['id'] }, ref: { kind: ref.split(':')[0], name: ref.split(':')[1] } });
+  }
+  // Either option alone selects the extended route; neither keeps the GET route and sends no consistentRead.
+  let r = await f.run(['docs', 'list', '--ref', 'branch:main', '--consistent-read', ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual([f.requests.at(-1).method, f.requests.at(-1).body], ['POST', { size: 20, includeVectors: false, consistentRead: true, ref: { kind: 'branch', name: 'main' } }]);
+  r = await f.run(['docs', 'list', '--ref', 'tag:release-one', '--file', await f.file('sort-only.json', { sort: [{ category: 'asc' }] }), ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(f.requests.at(-1).body, { size: 20, includeVectors: false, sort: [{ category: 'asc' }], ref: { kind: 'tag', name: 'release-one' } });
+  r = await f.run(['docs', 'list', '--ref', 'branch:main', '--file', await f.file('sort-null.json', { sort: null }), ...base]);
+  assert.deepEqual([r.code, f.requests.at(-1).body.sort], [0, null]);
+  r = await f.run(['docs', 'list', '--ref', 'branch:main', ...base]);
+  assert.deepEqual([r.code, f.requests.at(-1).method], [0, 'GET']);
+  assert.ok(!f.requests.at(-1).url.searchParams.has('consistentRead'));
+
+  // --all repeats the size, sort, selectors, consistency, vectors and ref on every page; only the token changes.
+  const before = f.requests.length;
+  r = await f.run(['docs', 'list', '--ref', 'branch:main', '--size', '2', '--file', sorted, '--consistent-read', '--include-vectors', '--all', ...base]);
+  assert.equal(r.code, 0, r.stdout);
+  const pages = f.requests.slice(before).map(request => request.body);
+  assert.equal(pages.length, 2);
+  assert.deepEqual(pages[1], { ...pages[0], pageToken: 'second' });
+  assert.deepEqual(pages[0], { size: 2, includeVectors: true, consistentRead: true, sort, fields: { include: ['id'] }, ref: { kind: 'branch', name: 'main' } });
+  assert.deepEqual(r.json.data.docs.map(item => item.doc.id), ['doc-2', 'doc-1', 'doc-3']);
+
+  // The next-page command repeats every condition of the first page, so the token stays valid.
+  const human = await f.run(['docs', 'list', '--collection', 'demo-docs', '--ref', 'branch:main', '--size', '2', '--file', sorted, '--consistent-read', '--include-vectors']);
+  assert.ok(human.stdout.endsWith(`\nNext page: lambdadb docs list --collection demo-docs --ref branch:main --size 2 --file ${sorted} --consistent-read --include-vectors --page-token second\n`), human.stdout);
+  const help = (await f.run(['docs', 'list', '--help'])).stdout;
+  assert.match(help, new RegExp(`--consistent-read {2,}${consistentReadHelp}\\n`));
+  assert.match(help, /examples\/list-sort\.json/);
+
+  const sent = f.requests.length;
+  for (const [args, message] of [
+    [['--ref', 'tag:release-one', '--consistent-read'], 'Consistent reads need branch:NAME or an alias that targets a branch; tag reads already include the writes the tag captured.'],
+    [['--ref', 'tag:release-one', '--consistent-read', '--file', 'unread.json'], 'Consistent reads need branch:NAME or an alias that targets a branch; tag reads already include the writes the tag captured.'],
+    [['--ref', 'branch:main', '--file', await f.file('sort-empty.json', { sort: [] })], 'List sort must not be empty. Omit sort, or set it to null, for ascending document ID order.'],
+    [['--ref', 'branch:main', '--file', await f.file('sort-direction.json', { sort: [{ category: 'up' }] })], 'Invalid list request. filter takes the query DSL (queryString or bool), partitionFilter a partition selection, fields an include/exclude selector and sort an array of {"FIELD": "asc" or "desc"} objects.'],
+    [['--ref', 'branch:main', '--file', await f.file('sort-string.json', { sort: 'category' })], 'Invalid list request. filter takes the query DSL (queryString or bool), partitionFilter a partition selection, fields an include/exclude selector and sort an array of {"FIELD": "asc" or "desc"} objects.'],
+    [['--ref', 'branch:main', '--file', await f.file('consistent-in-file.json', { consistentRead: true })], 'List file accepts only filter, partitionFilter, fields and sort; use --size, --page-token, --include-vectors, --consistent-read and --ref for the rest. Unknown: consistentRead.'],
+  ]) {
+    r = await f.run(['docs', 'list', ...args, ...base]);
+    assert.equal(r.code, 2, `${args.join(' ')}: ${r.stdout}`);
+    assert.deepEqual([r.json.error.code, r.json.error.message], ['INPUT_ERROR', message], args.join(' '));
+  }
+  assert.equal(f.requests.length, sent, 'invalid list conditions fail before any request');
+});
+
+test('a list read that includes pending writes reports HTTP 429 with the overlay hint, and the server owns other sort rules', async t => {
+  const f = await fixture(t, (r, send) => r.body?.consistentRead ? send(429, { message: 'Too many requests' }) : send(400, { message: 'Invalid sort' }));
+  let r = await f.run(['docs', 'list', '--collection', 'demo-docs', '--ref', 'branch:main', '--consistent-read', '--json']);
+  assert.deepEqual([r.code, r.json.error.code, r.json.error.httpStatus], [3, 'API_ERROR', 429]);
+  assert.match(r.json.error.hint, /pending writes a consistent read or a tag read includes/);
+  // Five keys, or two fields in one object, pass the SDK and are the server's HTTP 400.
+  const five = [{ a: 'asc' }, { b: 'asc' }, { c: 'asc' }, { d: 'asc' }, { e: 'asc' }];
+  for (const sort of [five, [{ a: 'asc', b: 'desc' }]]) {
+    r = await f.run(['docs', 'list', '--collection', 'demo-docs', '--ref', 'branch:main', '--file', await f.file('sort.json', { sort }), '--json']);
+    assert.deepEqual([r.code, r.json.error.code, r.json.error.httpStatus], [3, 'API_ERROR', 400]);
+    assert.deepEqual(f.requests.at(-1).body.sort, sort);
+  }
 });
 
 test('docs update merges JSONL rows in sequential batches with the branch and stops on the first rejection', async t => {
@@ -1591,7 +1738,7 @@ test('docs delete requires exactly one selector, forwards ids or filter with the
     assert.equal(r.json.error.message, message, args.join(' '));
   }
   for (const [args, message] of [
-    [['docs', 'list', '--ref', 'branch:main', '--file', await f.file('list-size.json', { filter: {}, size: 5 })], /accepts only filter, partitionFilter and fields/],
+    [['docs', 'list', '--ref', 'branch:main', '--file', await f.file('list-size.json', { filter: {}, size: 5 })], /accepts only filter, partitionFilter, fields and sort; use --size, --page-token, --include-vectors, --consistent-read and --ref for the rest\. Unknown: size\./],
     [['docs', 'list', '--ref', 'branch:main', '--file', await f.file('list-bad.json', { fields: 'id' })], /Invalid list request/],
     [['docs', 'list', '--ref', 'branch:main', '--size', '101'], /Page size must be an integer from 1 to 100/],
     [['docs', 'list', '--ref', 'main'], /Ref must be branch:NAME, tag:NAME or alias:NAME/],
